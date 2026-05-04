@@ -1,2 +1,3 @@
-def main() -> None:
-    print("Hello from rail-coverage!")
+from rail_coverage.analyze import main
+
+__all__ = ["main"]
