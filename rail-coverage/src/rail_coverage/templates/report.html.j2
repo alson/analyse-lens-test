@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rail-coverage diagnostic — {{ generated_at }}</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<h1>Rail-coverage diagnostic</h1>
+<div class="summary">
+  <p><strong>Generated:</strong> {{ generated_at }}</p>
+  <p><strong>Source:</strong> <code>{{ source }}</code></p>
+  <p><strong>Scenarios scanned:</strong> {{ total }}
+     &middot; OK {{ count_ok }}
+     &middot; needs reshoot {{ count_reshoot }}</p>
+  <p><a href="reshoot.html">→ Open reshoot list</a></p>
+</div>
+
+<h2>Summary</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Status</th>
+      <th>Lens</th>
+      <th>Mag</th>
+      <th>Focal</th>
+      <th>Aperture</th>
+      <th>#Trunc</th>
+      <th>#Off-target</th>
+      <th>Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><span class="status status-{{ r.scenario_status_class }}">{{ r.scenario_status }}</span></td>
+      <td>{{ r.label.lens }}</td>
+      <td>{{ r.label.magnification_pretty }}</td>
+      <td>{{ r.label.focal_length }}</td>
+      <td>{{ r.label.aperture }}</td>
+      <td>{{ r.n_truncated }}</td>
+      <td>{{ r.n_off_target }}</td>
+      <td><a href="#{{ r.anchor }}">view</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>Per-scenario detail</h2>
+{% for r in rows %}
+  <div class="scenario" id="{{ r.anchor }}">
+    <h3>
+      <span class="status status-{{ r.scenario_status_class }}">{{ r.scenario_status }}</span>
+      &nbsp; {{ r.label.lens }} · {{ r.label.magnification_pretty }} · {{ r.label.focal_length }} · {{ r.label.aperture }}
+    </h3>
+    <p class="scenario-path">{{ r.cropped_dir }}</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Crop</th>
+          <th>Status</th>
+          <th>Peak</th>
+          <th>Max KB</th>
+          <th>Min KB</th>
+          <th>Profile</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in r.crops %}
+        <tr class="{{ 'off-target' if c.is_off_target else '' }}">
+          <td>{{ c.name }}</td>
+          <td><span class="status status-{{ c.status_class }}">{{ c.status_label }}</span></td>
+          <td>{{ c.peak_pct }}</td>
+          <td>{{ c.max_kb }}</td>
+          <td>{{ c.min_kb }}</td>
+          <td>{% if c.chart_src %}<img class="chart" src="{{ c.chart_src }}" alt="size profile">{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endfor %}
+
+</body>
+</html>

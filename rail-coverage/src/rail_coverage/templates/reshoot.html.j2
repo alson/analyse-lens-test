@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reshoot list — {{ generated_at }}</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<h1>Reshoot list</h1>
+<div class="summary">
+  <p><strong>Generated:</strong> {{ generated_at }}</p>
+  <p><strong>{{ total }} scenarios need reshoot</strong>
+     {%- if lens_breakdown %}
+     —
+     {%- for lens, count in lens_breakdown %}
+       {{ count }} {{ lens }}{% if not loop.last %},{% endif %}
+     {%- endfor %}
+     {%- endif %}
+  </p>
+  <p><a href="report.html">← Back to full diagnostic</a></p>
+</div>
+
+{% if rows %}
+{% for lens, lens_rows in rows_by_lens %}
+  <div class="lens-block">
+    <h2>{{ lens }}</h2>
+    {% for r in lens_rows %}
+      <div class="scenario" id="{{ r.anchor }}">
+        <h3>{{ r.label.magnification_pretty }} · {{ r.label.focal_length }} · {{ r.label.aperture }}</h3>
+        <p class="scenario-path">{{ r.cropped_dir }}</p>
+        <p>Truncated crops:
+          {%- for c in r.truncated_crop_names %}
+          <code>{{ c }}</code>{% if not loop.last %},{% endif %}
+          {%- endfor %}
+        </p>
+        {% if r.representative_chart %}
+          <img class="chart" src="{{ r.representative_chart }}" alt="size profile">
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+{% endfor %}
+{% else %}
+<p>No scenarios need reshoot — every on-target crop's bell curve is well-centred. 🎉</p>
+{% endif %}
+
+</body>
+</html>
