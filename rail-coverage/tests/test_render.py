@@ -285,7 +285,7 @@ class TestRenderReshoot:
             build_scenario_row(scn_bad, slug="bad-slug", label=_label(lens="MyLens", ap="F11")),
         ]
         html = render_reshoot(rows, generated_at="2026-05-04")
-        assert "1 scenarios need reshoot" in html
+        assert "1 of 2 scenarios" in html
         assert "MyLens" in html
         assert "bad-slug" in html
         assert "ok-slug" not in html
@@ -297,7 +297,7 @@ class TestRenderReshoot:
         scn_ok = _scenario([_ok_crop("c")], status=ScenarioStatus.OK)
         rows = [build_scenario_row(scn_ok, slug="s", label=_label())]
         html = render_reshoot(rows, generated_at="2026-05-04")
-        assert "0 scenarios need reshoot" in html
+        assert "0 of 1 scenarios" in html
         assert "No scenarios need reshoot" in html
 
     def test_lens_breakdown_in_summary(self):
@@ -315,6 +315,45 @@ class TestRenderReshoot:
         html = render_reshoot(rows, generated_at="2026-05-04")
         assert "2 A" in html
         assert "1 B" in html
+
+    def test_distinct_lens_count_shown(self):
+        # 5 reshoot scenarios across 3 lenses, plus an OK row on a 4th lens.
+        rows = []
+        for i, lens in enumerate(["LensA", "LensA", "LensA", "LensB", "LensC"]):
+            scn = _scenario(
+                [_truncated_crop("c")],
+                cropped_dir=Path(f"/d/{lens}/1_1/100mm/F{i+8}/cropped"),
+                status=ScenarioStatus.NEEDS_RESHOOT,
+            )
+            rows.append(
+                build_scenario_row(scn, slug=f"s{i}", label=_label(lens=lens, ap=f"F{i+8}"))
+            )
+        # OK row on a 4th lens
+        ok_scn = _scenario(
+            [_ok_crop("c")],
+            cropped_dir=Path("/d/LensD/1_1/100mm/F8/cropped"),
+            status=ScenarioStatus.OK,
+        )
+        rows.append(
+            build_scenario_row(ok_scn, slug="ok", label=_label(lens="LensD"))
+        )
+        html = render_reshoot(rows, generated_at="2026-05-04")
+        # 5 of 6 scenarios; 3 of 4 lenses
+        assert "5 of 6 scenarios" in html
+        assert "<strong>3 of 4</strong>" in html
+        assert "lenses" in html
+
+    def test_singular_lens_form(self):
+        scn = _scenario(
+            [_truncated_crop("c")],
+            cropped_dir=Path("/d/SoloLens/1_1/100mm/F8/cropped"),
+            status=ScenarioStatus.NEEDS_RESHOOT,
+        )
+        rows = [build_scenario_row(scn, slug="s", label=_label(lens="SoloLens"))]
+        html = render_reshoot(rows, generated_at="2026-05-04")
+        assert "<strong>1 of 1</strong>" in html
+        # singular form, not "lenses"
+        assert "1</strong> lens." in html or "1</strong> lens\n" in html
 
 
 class TestEnvironment:

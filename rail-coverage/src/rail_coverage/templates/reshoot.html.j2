@@ -9,14 +9,16 @@
 <h1>Reshoot list</h1>
 <div class="summary">
   <p><strong>Generated:</strong> {{ generated_at }}</p>
-  <p><strong>{{ total }} scenarios need reshoot</strong>
-     {%- if lens_breakdown %}
-     —
+  <p><strong>{{ total }} of {{ total_scenarios }} scenarios</strong> need reshoot
+     {%- if total_lenses %}, across <strong>{{ n_lenses }} of {{ total_lenses }}</strong>
+        {%- if total_lenses == 1 %} lens{% else %} lenses{% endif %}{% endif %}.</p>
+  {% if lens_breakdown %}
+  <p>By lens:
      {%- for lens, count in lens_breakdown %}
        {{ count }} {{ lens }}{% if not loop.last %},{% endif %}
      {%- endfor %}
-     {%- endif %}
   </p>
+  {% endif %}
   <p><a href="report.html">← Back to full diagnostic</a></p>
 </div>
 

@@ -197,11 +197,18 @@ def render_reshoot(
         (lens, list(group))
         for lens, group in groupby(sorted_rows, key=lambda r: r.label.lens)
     ]
+    breakdown = lens_breakdown(sorted_rows)
+    # Total distinct lenses across ALL scenarios (not just truncated ones)
+    # so the reshoot summary can read "X of Y lenses need reshoot".
+    total_lenses = len({r.label.lens for r in rows})
     template = _env().get_template("reshoot.html.j2")
     return template.render(
         rows=sorted_rows,
         rows_by_lens=by_lens,
-        lens_breakdown=lens_breakdown(sorted_rows),
+        lens_breakdown=breakdown,
+        n_lenses=len(breakdown),
+        total_lenses=total_lenses,
         total=len(sorted_rows),
+        total_scenarios=len(rows),
         generated_at=generated_at,
     )
