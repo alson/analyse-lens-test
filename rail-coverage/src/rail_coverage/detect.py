@@ -1,24 +1,79 @@
+"""Per-scenario sharpness analysis for the offline rail-coverage tool.
+
+The five numerical primitives (``smooth``, ``peak_index``,
+``truncation_status``, ``is_flat``, ``off_target_by_cross_compare``)
+plus ``CropStatus`` come from ``lens-test-detect-core``. The live
+``sharpness`` package (in ``run-lens-test/``) imports the same
+primitives so both tools speak the same language about bell curves.
+
+This module keeps the offline-specific scaffolding: ``CropAnalysis``
+and ``ScenarioAnalysis`` aggregates, the per-scenario rollup that
+classifies the whole (lens, mag, focal, aperture) tuple as ``OK`` or
+``NEEDS_RESHOOT``, and the offline defaults for ``edge_shots`` and the
+off-target factor. Edge-zone size is 6 here because the offline data
+has ~3 shots per rail position, vs the live module's 1 shot per rail
+step.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-import numpy as np
+from lens_test_detect_core import (
+    CropStatus,
+    is_flat,
+    off_target_by_cross_compare,
+    peak_index,
+    smooth,
+)
+from lens_test_detect_core import truncation_status as _truncation_status_core
 
 from rail_coverage.scan import CropSeries, Scenario
 
 
-class CropStatus(str, Enum):
-    OK = "OK"
-    TRUNCATED_START = "TRUNCATED_START"
-    TRUNCATED_END = "TRUNCATED_END"
-    OFF_TARGET = "OFF_TARGET"
-    EMPTY = "EMPTY"
+__all__ = [
+    "CropAnalysis",
+    "CropStatus",
+    "ScenarioAnalysis",
+    "ScenarioStatus",
+    "analyze_crop",
+    "analyze_scenario",
+    "is_flat",
+    "off_target_by_cross_compare",
+    "peak_index",
+    "smooth_sizes",
+    "truncation_status",
+]
 
-    @property
-    def is_truncated(self) -> bool:
-        return self in (CropStatus.TRUNCATED_START, CropStatus.TRUNCATED_END)
+# Offline defaults: ~3 shots per rail position in the source data, so an
+# "edge zone" of 6 raw shots ≈ 2 rail positions of buffer. The live
+# package uses 2 because it sees one shot per rail step.
+DEFAULT_EDGE_SHOTS = 6
+DEFAULT_OFF_TARGET_FACTOR = 0.65
+
+
+# Backwards-compat alias for the old name. The shared primitive is just
+# called ``smooth``; rail-coverage code historically called it
+# ``smooth_sizes`` so existing imports keep working.
+smooth_sizes = smooth
+
+
+def truncation_status(
+    peak_idx: int,
+    n: int,
+    *,
+    edge_shots: int = DEFAULT_EDGE_SHOTS,
+) -> CropStatus:
+    """Offline wrapper around the shared primitive.
+
+    The shared primitive is unopinionated about the edge-zone size. The
+    offline data has ~3 shots per rail position, so the default here is
+    6 (≈ 2 rail positions). The argument is named ``edge_shots`` to
+    make that granularity explicit at the call site.
+    """
+    return _truncation_status_core(peak_idx, n, edge_steps=edge_shots)
 
 
 class ScenarioStatus(str, Enum):
@@ -52,95 +107,6 @@ class ScenarioAnalysis:
         return [c for c in self.crops if c.status == CropStatus.OFF_TARGET]
 
 
-# --- pure helpers --------------------------------------------------------
-
-
-def smooth_sizes(sizes: list[int] | np.ndarray, window: int = 3) -> np.ndarray:
-    """Centred moving average of width ``window``.
-
-    Returns an array of length ``len(sizes) - window + 1``. With the default
-    window of 3 (one rail position = 3 shots) this gives the smoothed
-    bell-curve over rail positions.
-    """
-    arr = np.asarray(sizes, dtype=float)
-    if arr.size < window:
-        return arr.copy()
-    kernel = np.ones(window, dtype=float) / window
-    return np.convolve(arr, kernel, mode="valid")
-
-
-def peak_index(sizes: list[int] | np.ndarray, window: int = 3) -> int:
-    """Index (in the *raw* series) of the smoothed peak.
-
-    A 3-wide moving average shifts indices by 1, so the returned index is
-    ``argmax(smoothed) + (window - 1) // 2``.
-    """
-    smoothed = smooth_sizes(sizes, window=window)
-    if smoothed.size == 0:
-        return 0
-    offset = (window - 1) // 2
-    return int(np.argmax(smoothed)) + offset
-
-
-def truncation_status(
-    peak_idx: int,
-    n: int,
-    *,
-    edge_shots: int = 6,
-) -> CropStatus:
-    """Classify a peak position as TRUNCATED_START, TRUNCATED_END, or OK.
-
-    ``edge_shots`` defines the size of the "edge zone". Default is 6 — about
-    two rail positions of 3 shots each. Anything closer to an edge is
-    treated as truncated because we don't have enough rising/falling
-    positions to confidently place the bell-curve peak.
-    """
-    if n == 0:
-        return CropStatus.EMPTY
-    if peak_idx < edge_shots:
-        return CropStatus.TRUNCATED_START
-    if peak_idx > n - 1 - edge_shots:
-        return CropStatus.TRUNCATED_END
-    return CropStatus.OK
-
-
-def is_flat(sizes: list[int] | np.ndarray, *, ratio_threshold: float = 1.15) -> bool:
-    """True if the size series varies less than ``ratio_threshold`` (max/min).
-
-    A bell-curve scenario shows max/min ≈ 1.6; a crop covering only
-    out-of-focus background varies much less.
-    """
-    arr = np.asarray(sizes, dtype=float)
-    if arr.size == 0 or arr.min() <= 0:
-        return False
-    return float(arr.max() / arr.min()) < ratio_threshold
-
-
-def off_target_by_cross_compare(
-    crop_maxes: dict[str, int],
-    *,
-    factor: float = 0.65,
-) -> set[str]:
-    """Crops whose peak file size is below ``factor × best`` across the scenario.
-
-    The reference is the *maximum* peak across all crops, not the median:
-    when more than half the crops miss the wafer (common at low magnifications
-    where the wafer doesn't fill the frame), a median-based cutoff sits
-    inside the off-target cluster and flags nothing.
-
-    Threshold of 0.65 derived from the Nikon 70-180+5T @ 1:1.33 @ F11 sample:
-    on-target peaks 100–128 KB (best 128 KB), off-target peaks 71–74 KB.
-    Cutoff at 0.65 × 128 KB ≈ 83 KB cleanly separates the two groups while
-    leaving honest aperture-driven variation (e.g. 103 KB corners vs 130 KB
-    centre on the Sigma scenario) on the on-target side.
-    """
-    if len(crop_maxes) < 2:
-        return set()
-    values = list(crop_maxes.values())
-    cutoff = max(values) * factor
-    return {name for name, m in crop_maxes.items() if m < cutoff}
-
-
 # --- top-level analysis -------------------------------------------------
 
 
@@ -148,7 +114,7 @@ def analyze_crop(
     crop: CropSeries,
     *,
     flagged_off_target: bool,
-    edge_shots: int = 6,
+    edge_shots: int = DEFAULT_EDGE_SHOTS,
 ) -> CropAnalysis:
     """Build a CropAnalysis for one crop subfolder."""
     sizes = [f.size for f in crop.frames]
@@ -190,8 +156,8 @@ def analyze_crop(
 def analyze_scenario(
     scenario: Scenario,
     *,
-    cross_compare_factor: float = 0.65,
-    edge_shots: int = 6,
+    cross_compare_factor: float = DEFAULT_OFF_TARGET_FACTOR,
+    edge_shots: int = DEFAULT_EDGE_SHOTS,
 ) -> ScenarioAnalysis:
     """Analyze every crop in a scenario and roll up an overall status."""
     crop_maxes: dict[str, int] = {}

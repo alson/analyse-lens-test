@@ -138,6 +138,20 @@ wheels = [
 ]
 
 [[package]]
+name = "lens-test-detect-core"
+version = "0.1.0"
+source = { editable = "../../lens-test-detect-core" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=2.0" }]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
+
+[[package]]
 name = "markupsafe"
 version = "3.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -332,6 +346,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
+    { name = "lens-test-detect-core" },
     { name = "matplotlib" },
     { name = "numpy" },
 ]
@@ -344,6 +359,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "lens-test-detect-core", editable = "../../lens-test-detect-core" },
     { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "numpy", specifier = ">=2.4.4" },
 ]
