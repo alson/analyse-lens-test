@@ -70,13 +70,49 @@ class TestParseScenarioLabel:
         lbl = parse_scenario_label(path)
         assert lbl.magnification_pretty == "1:1 (resized)"
 
+    def test_2026_02_18_full_layout(self):
+        # lens / mag / focal / aperture / cropped — the 2026-02-18 norm
+        path = Path(
+            "/data/2026-02-18/NIKKOR Z 24-120mm f_4 S + 10mm extension/1_1.84/120.0 mm/F11/cropped"
+        )
+        lbl = parse_scenario_label(path)
+        assert lbl.lens == "NIKKOR Z 24-120mm f_4 S + 10mm extension"
+        assert lbl.magnification == "1_1.84"
+        assert lbl.focal_length == "120.0 mm"
+        assert lbl.aperture == "F11"
+
+    def test_top_level_resized_has_no_lens(self):
+        # 2026-02-18 also has resized-only trees with no lens directory:
+        # /<date>/<mag-resized>/<focal>/<aperture>/cropped
+        path = Path("/data/2026-02-18/1_1-resized/120.0 mm/F4.0/cropped")
+        lbl = parse_scenario_label(path)
+        assert lbl.lens == ""
+        assert lbl.magnification == "1_1-resized"
+        assert lbl.magnification_pretty == "1:1 (resized)"
+        assert lbl.focal_length == "120.0 mm"
+        assert lbl.aperture == "F4.0"
+
+    def test_dirty_aperture_artefact_picks_closest(self):
+        # 2026-02-18 occasionally has F16.0/F16/cropped where F16.0 is a
+        # leftover dir from a re-sort. The closest aperture (F16) is
+        # canonical; the spurious F16.0 must not become the focal length
+        # or lens.
+        path = Path(
+            "/data/2026-02-18/Some Lens/1_1.84/120.0 mm/F16.0/F16/cropped"
+        )
+        lbl = parse_scenario_label(path)
+        assert lbl.aperture == "F16"
+        assert lbl.lens == "Some Lens"
+        assert lbl.magnification == "1_1.84"
+        assert lbl.focal_length == "120.0 mm"
+
     def test_rejects_non_cropped_path(self):
         with pytest.raises(ValueError, match="cropped"):
             parse_scenario_label(Path("/data/something/else"))
 
-    def test_shallow_path_raises(self):
-        with pytest.raises(ValueError, match="not deep enough"):
-            parse_scenario_label(Path("/cropped"))
+    def test_no_aperture_in_path_raises(self):
+        with pytest.raises(ValueError, match="no aperture"):
+            parse_scenario_label(Path("/data/Lens/1_1/cropped"))
 
 
 class TestApertureSortKey:

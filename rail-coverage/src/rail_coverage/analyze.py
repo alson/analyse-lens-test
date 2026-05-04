@@ -16,23 +16,34 @@ from rail_coverage.render import build_scenario_row, render_report, render_resho
 from rail_coverage.scan import find_cropped_dirs, read_scenario
 
 
-def run(source: Path, out: Path, *, verbose: bool = True) -> int:
-    """Walk ``source``, analyze every scenario, and write the report.
+def run(sources: Path | list[Path], out: Path, *, verbose: bool = True) -> int:
+    """Walk every ``source``, analyze every scenario, and write the report.
 
-    Returns the number of scenarios processed.
+    Accepts either a single ``Path`` or a list of paths so that multiple
+    date trees can be folded into one report. Returns the number of
+    scenarios processed.
     """
+    if isinstance(sources, Path):
+        sources = [sources]
     out.mkdir(parents=True, exist_ok=True)
     charts_dir = out / "assets" / "charts"
     _copy_static_assets(out)
 
+    discovered: list[tuple[Path, Path]] = []  # (source_root, cropped_dir)
+    for source in sources:
+        for cropped in sorted(find_cropped_dirs(source)):
+            discovered.append((source, cropped))
+
     rows = []
-    cropped_dirs = sorted(find_cropped_dirs(source))
-    for i, cropped in enumerate(cropped_dirs, start=1):
+    for i, (source, cropped) in enumerate(discovered, start=1):
         if verbose:
-            print(f"[{i}/{len(cropped_dirs)}] {cropped}", file=sys.stderr)
+            print(f"[{i}/{len(discovered)}] {cropped}", file=sys.stderr)
         scenario = read_scenario(cropped)
         analysis = analyze_scenario(scenario)
-        slug = slugify(cropped.relative_to(source) if _is_relative(cropped, source) else cropped)
+        rel = cropped.relative_to(source) if _is_relative(cropped, source) else cropped
+        # Prefix the scenario id with the source-root basename so two
+        # trees with the same nested layout don't collide on slugs.
+        slug = slugify(Path(source.name) / rel)
         for crop_analysis, crop_series in zip(analysis.crops, scenario.crops):
             sizes = [f.size for f in crop_series.frames]
             png = make_chart_png(sizes, peak_idx=crop_analysis.peak_idx)
@@ -40,8 +51,9 @@ def run(source: Path, out: Path, *, verbose: bool = True) -> int:
         rows.append(build_scenario_row(analysis, slug=slug))
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    source_label = ", ".join(str(s) for s in sources)
     (out / "report.html").write_text(
-        render_report(rows, source=str(source), generated_at=generated_at)
+        render_report(rows, source=source_label, generated_at=generated_at)
     )
     (out / "reshoot.html").write_text(
         render_reshoot(rows, generated_at=generated_at)
@@ -75,11 +87,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         )
     )
     parser.add_argument(
-        "source",
+        "sources",
         type=Path,
-        nargs="?",
-        default=Path("."),
-        help="Root containing lens / mag / focal / aperture / cropped trees",
+        nargs="*",
+        default=[Path(".")],
+        help="One or more roots to scan; each contributes scenarios to a single combined report",
     )
     parser.add_argument(
         "--out",
@@ -95,7 +107,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
-    n = run(args.source, args.out, verbose=not args.quiet)
+    sources = args.sources if args.sources else [Path(".")]
+    n = run(sources, args.out, verbose=not args.quiet)
     print(f"Processed {n} scenarios → {args.out}/report.html, {args.out}/reshoot.html")
 
 

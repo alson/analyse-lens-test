@@ -46,15 +46,19 @@ def synthetic_dataset(tmp_path: Path) -> Path:
 class TestParseArgs:
     def test_defaults(self):
         args = _parse_args([])
-        assert args.source == Path(".")
+        assert args.sources == [Path(".")]
         assert args.out == Path("output")
         assert args.quiet is False
 
-    def test_overrides(self):
+    def test_single_source(self):
         args = _parse_args(["/data", "--out", "/tmp/out", "--quiet"])
-        assert args.source == Path("/data")
+        assert args.sources == [Path("/data")]
         assert args.out == Path("/tmp/out")
         assert args.quiet is True
+
+    def test_multiple_sources(self):
+        args = _parse_args(["/data/2026-01-29", "/data/2026-02-18"])
+        assert args.sources == [Path("/data/2026-01-29"), Path("/data/2026-02-18")]
 
 
 class TestRun:
@@ -101,4 +105,43 @@ class TestMain:
         with patch("rail_coverage.analyze.run") as run_mock:
             run_mock.return_value = 7
             main([str(tmp_path), "--out", str(tmp_path / "o"), "--quiet"])
-            run_mock.assert_called_once_with(tmp_path, tmp_path / "o", verbose=False)
+            run_mock.assert_called_once_with([tmp_path], tmp_path / "o", verbose=False)
+
+    def test_main_passes_multiple_sources_through(self, tmp_path: Path):
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        with patch("rail_coverage.analyze.run") as run_mock:
+            run_mock.return_value = 0
+            main([str(a), str(b), "--out", str(tmp_path / "o"), "--quiet"])
+            run_mock.assert_called_once_with([a, b], tmp_path / "o", verbose=False)
+
+
+class TestRunMultipleSources:
+    def test_combines_sources_and_namespaces_slugs(self, tmp_path: Path):
+        # Two source trees with identical inner structure — slugs must
+        # not collide so both scenarios land in the report.
+        for date in ("2026-01-29", "2026-02-18"):
+            base = tmp_path / date / "Lens" / "1_1" / "F8" / "cropped"
+            for crop in ("center", "left-edge"):
+                d = base / crop
+                d.mkdir(parents=True, exist_ok=True)
+                # Use a clear bell so analyse_scenario produces an OK rollup
+                for i, size in enumerate(
+                    [80_000, 90_000, 110_000, 130_000, 110_000, 90_000, 80_000]
+                ):
+                    name = f"{i:05d}|TestLens|1_1|F8|alm-x.jpg"
+                    (d / name).write_bytes(b"\x00" * size)
+
+        out = tmp_path / "out"
+        n = run(
+            [tmp_path / "2026-01-29", tmp_path / "2026-02-18"],
+            out,
+            verbose=False,
+        )
+        assert n == 2
+        html = (out / "report.html").read_text()
+        assert "2026-01-29" in html
+        assert "2026-02-18" in html
+        # Both source trees produced a chart directory
+        chart_dirs = sorted(p.name for p in (out / "assets" / "charts").iterdir())
+        assert len(chart_dirs) == 2
