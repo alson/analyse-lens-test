@@ -77,9 +77,8 @@ class TestRun:
         out = tmp_path / "out"
         run(synthetic_dataset, out, verbose=False)
         html = (out / "reshoot.html").read_text()
-        assert "1 scenarios need reshoot" in html
+        assert "1 of 2 scenarios" in html
         assert "F11" in html
-        assert "F8" not in html or "F8" in html  # F8 may appear in lens summary too
 
     def test_report_summary_counts(self, synthetic_dataset: Path, tmp_path: Path):
         out = tmp_path / "out"
@@ -105,7 +104,13 @@ class TestMain:
         with patch("rail_coverage.analyze.run") as run_mock:
             run_mock.return_value = 7
             main([str(tmp_path), "--out", str(tmp_path / "o"), "--quiet"])
-            run_mock.assert_called_once_with([tmp_path], tmp_path / "o", verbose=False)
+            run_mock.assert_called_once_with(
+                [tmp_path],
+                tmp_path / "o",
+                verbose=False,
+                cache=None,
+                rescan=False,
+            )
 
     def test_main_passes_multiple_sources_through(self, tmp_path: Path):
         a = tmp_path / "a"
@@ -113,7 +118,71 @@ class TestMain:
         with patch("rail_coverage.analyze.run") as run_mock:
             run_mock.return_value = 0
             main([str(a), str(b), "--out", str(tmp_path / "o"), "--quiet"])
-            run_mock.assert_called_once_with([a, b], tmp_path / "o", verbose=False)
+            run_mock.assert_called_once_with(
+                [a, b],
+                tmp_path / "o",
+                verbose=False,
+                cache=None,
+                rescan=False,
+            )
+
+    def test_main_passes_cache_flags(self, tmp_path: Path):
+        cache_path = tmp_path / "cache.json"
+        with patch("rail_coverage.analyze.run") as run_mock:
+            run_mock.return_value = 0
+            main(
+                [
+                    str(tmp_path / "src"),
+                    "--out",
+                    str(tmp_path / "o"),
+                    "--cache",
+                    str(cache_path),
+                    "--rescan",
+                    "--quiet",
+                ]
+            )
+            run_mock.assert_called_once_with(
+                [tmp_path / "src"],
+                tmp_path / "o",
+                verbose=False,
+                cache=cache_path,
+                rescan=True,
+            )
+
+
+class TestRunWithCache:
+    def test_writes_cache_then_loads_it(self, tmp_path: Path, synthetic_dataset: Path):
+        out = tmp_path / "out"
+        cache_path = tmp_path / "cache.json"
+        # First run: populates cache
+        run(synthetic_dataset, out, verbose=False, cache=cache_path)
+        assert cache_path.is_file()
+        first_mtime = cache_path.stat().st_mtime
+
+        # Second run: should LOAD the cache, not re-walk the tree.
+        # Verify by patching read_scenario to fail loudly if called.
+        with patch("rail_coverage.analyze.read_scenario") as rs:
+            rs.side_effect = AssertionError("read_scenario should not be called")
+            n = run(synthetic_dataset, out, verbose=False, cache=cache_path)
+            assert n == 2
+            rs.assert_not_called()
+        # Cache untouched on read-only path
+        assert cache_path.stat().st_mtime == first_mtime
+
+    def test_rescan_flag_ignores_existing_cache(
+        self, tmp_path: Path, synthetic_dataset: Path
+    ):
+        out = tmp_path / "out"
+        cache_path = tmp_path / "cache.json"
+        run(synthetic_dataset, out, verbose=False, cache=cache_path)
+
+        # rescan=True must call read_scenario again
+        with patch(
+            "rail_coverage.analyze.read_scenario",
+            side_effect=lambda p: __import__("rail_coverage.scan", fromlist=["x"]).read_scenario(p),
+        ) as rs:
+            run(synthetic_dataset, out, verbose=False, cache=cache_path, rescan=True)
+            assert rs.called
 
 
 class TestRunMultipleSources:
