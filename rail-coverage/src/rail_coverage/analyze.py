@@ -75,6 +75,7 @@ def run(
 
     t0 = time.monotonic()
     rows = []
+    skipped: list[tuple[Path, str]] = []
     for i, (source, scenario) in enumerate(items, start=1):
         if verbose and i % 25 == 0:
             print(f"[render {i}/{len(items)}] {scenario.cropped_dir}", file=sys.stderr)
@@ -87,13 +88,30 @@ def run(
         # Prefix the scenario id with the source-root basename so two
         # trees with the same nested layout don't collide on slugs.
         slug = slugify(Path(source.name) / rel)
+        try:
+            row = build_scenario_row(analysis, slug=slug)
+        except ValueError as exc:
+            # The 2026-02-18 dataset has at least one scenario laid out
+            # as lens/mag/focal/cropped (no aperture subdir). Skip it
+            # with a warning rather than abort the whole run.
+            skipped.append((scenario.cropped_dir, str(exc)))
+            if verbose:
+                print(
+                    f"  SKIP {scenario.cropped_dir}: {exc}", file=sys.stderr
+                )
+            continue
         for crop_analysis, crop_series in zip(analysis.crops, scenario.crops):
             sizes = [f.size for f in crop_series.frames]
             png = make_chart_png(sizes, peak_idx=crop_analysis.peak_idx)
             write_chart(charts_dir / slug / f"{crop_analysis.name}.png", png)
-        rows.append(build_scenario_row(analysis, slug=slug))
+        rows.append(row)
     if verbose:
         print(f"render done in {time.monotonic() - t0:.1f}s", file=sys.stderr)
+        if skipped:
+            print(
+                f"skipped {len(skipped)} scenarios with unparseable paths",
+                file=sys.stderr,
+            )
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     source_label = ", ".join(str(s) for s in sources)
