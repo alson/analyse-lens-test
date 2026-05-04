@@ -36,7 +36,7 @@ class TestParseMagnification:
 
 
 class TestParseScenarioLabel:
-    def test_extracts_all_parts(self):
+    def test_four_level_layout(self):
         path = Path("/data/Sigma APO Macro 150mm/1_1/210.0 mm/F8/cropped")
         lbl = parse_scenario_label(path)
         assert lbl.lens == "Sigma APO Macro 150mm"
@@ -45,6 +45,25 @@ class TestParseScenarioLabel:
         assert lbl.focal_length == "210.0 mm"
         assert lbl.aperture == "F8"
         assert lbl.magnification_value == 1.0
+
+    def test_three_level_layout_no_focal_length(self):
+        # Real path from the 2026-01-29 dataset — no focal-length subdir
+        path = Path(
+            "/data/2026-01-29/Sigma APO Macro 150mm F2.8 EX DG OS HSM/1_1/F8/cropped"
+        )
+        lbl = parse_scenario_label(path)
+        assert lbl.lens == "Sigma APO Macro 150mm F2.8 EX DG OS HSM"
+        assert lbl.magnification == "1_1"
+        assert lbl.focal_length == ""
+        assert lbl.aperture == "F8"
+
+    def test_three_level_layout_with_decimal_mag(self):
+        path = Path("/data/some-date/Nikon 70-180mm/1_1.33/F11/cropped")
+        lbl = parse_scenario_label(path)
+        assert lbl.lens == "Nikon 70-180mm"
+        assert lbl.magnification == "1_1.33"
+        assert lbl.focal_length == ""
+        assert lbl.aperture == "F11"
 
     def test_resized_suffix_in_pretty(self):
         path = Path("/data/Lens/1_1-resized/100mm/F8/cropped")

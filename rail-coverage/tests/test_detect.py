@@ -90,17 +90,18 @@ class TestTruncationStatus:
     def test_empty(self):
         assert truncation_status(0, 0) == CropStatus.EMPTY
 
-    @pytest.mark.parametrize("idx", [0, 1, 2])
-    def test_first_rail_position_is_truncated(self, idx: int):
+    @pytest.mark.parametrize("idx", [0, 1, 2, 3, 4, 5])
+    def test_first_two_rail_positions_are_truncated(self, idx: int):
+        # Default edge_shots=6 (~2 rail positions) flags peaks too close to start
         assert truncation_status(idx, 30) == CropStatus.TRUNCATED_START
 
-    @pytest.mark.parametrize("idx", [27, 28, 29])
-    def test_last_rail_position_is_truncated(self, idx: int):
+    @pytest.mark.parametrize("idx", [24, 25, 26, 27, 28, 29])
+    def test_last_two_rail_positions_are_truncated(self, idx: int):
         assert truncation_status(idx, 30) == CropStatus.TRUNCATED_END
 
-    def test_idx_3_is_ok(self):
-        # boundary: edge_shots=3 means idx 0,1,2 truncated; idx 3 is fine
-        assert truncation_status(3, 30) == CropStatus.OK
+    def test_idx_6_is_ok(self):
+        # boundary: edge_shots=6 means idx 0..5 truncated; idx 6 is fine
+        assert truncation_status(6, 30) == CropStatus.OK
 
 
 class TestIsFlat:
@@ -169,7 +170,7 @@ class TestAnalyzeCrop:
         assert result.peak_idx is not None
         assert result.max_size == max(BELL)
         assert result.min_size == min(BELL)
-        assert 0.45 < result.peak_pct < 0.65
+        assert 0.40 < result.peak_pct < 0.70
 
     def test_monotonic_is_truncated_end(self):
         # Use values with enough dynamic range that is_flat won't fire

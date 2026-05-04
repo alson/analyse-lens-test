@@ -2,9 +2,15 @@
 sort keys. Kept separate from scan/detect so that tests can exercise the
 parsing rules without any filesystem fixtures.
 
-Path convention (set by ``sort-files-by-lens-magnification-focal-length-aperture.sh``):
+Two path conventions are supported, matching the two ``sort-files-by-…``
+scripts in the parent directory:
 
-    .../<lens>/<magnification>/<focal_length>/<aperture>/cropped
+    .../<lens>/<magnification>/<aperture>/cropped                  (3-level)
+    .../<lens>/<magnification>/<focal_length>/<aperture>/cropped   (4-level)
+
+We disambiguate by parsing the directory immediately above the aperture: if
+it parses as a magnification (e.g. ``1_1.33``) we're in the 3-level layout
+and there is no focal-length component.
 
 Magnifications use ``_`` in place of ``:`` (e.g. ``1_1`` is 1:1, ``1_1.33`` is
 1:1.33), with optional ``-resized`` suffix from the resize step.
@@ -31,7 +37,11 @@ _APERTURE_RE = re.compile(r"^[Ff](\d+(?:\.\d+)?)$")
 
 
 def parse_scenario_label(cropped_dir: Path) -> ScenarioLabel:
-    """Walk up four levels from a ``.../cropped`` path and label the parts.
+    """Walk up the tree from a ``.../cropped`` path and label the parts.
+
+    Auto-detects 3-level (lens/mag/aperture/cropped) vs 4-level
+    (lens/mag/focal/aperture/cropped) layout: if the directory directly above
+    aperture parses as a magnification, the focal-length level is absent.
 
     Raises ``ValueError`` if the path doesn't have enough parents.
     """
@@ -40,13 +50,32 @@ def parse_scenario_label(cropped_dir: Path) -> ScenarioLabel:
     parts = cropped_dir.parents
     try:
         aperture = parts[0].name
-        focal_length = parts[1].name
-        magnification = parts[2].name
-        lens = parts[3].name
+        above_aperture = parts[1].name
+        two_above = parts[2].name
     except IndexError as exc:
         raise ValueError(
             f"path is not deep enough to extract lens labels: {cropped_dir}"
         ) from exc
+
+    # If parts[1] looks like a magnification, layout is 3-level (no focal_length)
+    _, value_above = parse_magnification(above_aperture)
+    if value_above > 0:
+        magnification = above_aperture
+        focal_length = ""
+        try:
+            lens = two_above
+        except IndexError as exc:
+            raise ValueError(f"missing lens directory: {cropped_dir}") from exc
+    else:
+        focal_length = above_aperture
+        magnification = two_above
+        try:
+            lens = parts[3].name
+        except IndexError as exc:
+            raise ValueError(
+                f"path is not deep enough for focal-length layout: {cropped_dir}"
+            ) from exc
+
     pretty, value = parse_magnification(magnification)
     return ScenarioLabel(
         lens=lens,

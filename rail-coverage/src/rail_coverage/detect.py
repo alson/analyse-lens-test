@@ -86,12 +86,14 @@ def truncation_status(
     peak_idx: int,
     n: int,
     *,
-    edge_shots: int = 3,
+    edge_shots: int = 6,
 ) -> CropStatus:
     """Classify a peak position as TRUNCATED_START, TRUNCATED_END, or OK.
 
-    ``edge_shots`` defines the size of the "edge zone" — by default the first
-    3 / last 3 raw shots (one rail position).
+    ``edge_shots`` defines the size of the "edge zone". Default is 6 — about
+    two rail positions of 3 shots each. Anything closer to an edge is
+    treated as truncated because we don't have enough rising/falling
+    positions to confidently place the bell-curve peak.
     """
     if n == 0:
         return CropStatus.EMPTY
@@ -146,7 +148,7 @@ def analyze_crop(
     crop: CropSeries,
     *,
     flagged_off_target: bool,
-    edge_shots: int = 3,
+    edge_shots: int = 6,
 ) -> CropAnalysis:
     """Build a CropAnalysis for one crop subfolder."""
     sizes = [f.size for f in crop.frames]
@@ -188,8 +190,8 @@ def analyze_crop(
 def analyze_scenario(
     scenario: Scenario,
     *,
-    cross_compare_factor: float = 0.6,
-    edge_shots: int = 3,
+    cross_compare_factor: float = 0.65,
+    edge_shots: int = 6,
 ) -> ScenarioAnalysis:
     """Analyze every crop in a scenario and roll up an overall status."""
     crop_maxes: dict[str, int] = {}
