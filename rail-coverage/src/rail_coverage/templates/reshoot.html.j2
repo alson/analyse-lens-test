@@ -26,7 +26,9 @@
     <h2>{{ lens }}</h2>
     {% for r in lens_rows %}
       <div class="scenario" id="{{ r.anchor }}">
-        <h3>{{ r.label.magnification_pretty }} · {{ r.label.focal_length }} · {{ r.label.aperture }}</h3>
+        <h3>{{ r.label.magnification_pretty }}
+          {%- if r.label.focal_length %} · {{ r.label.focal_length }}{% endif %}
+          · {{ r.label.aperture }}</h3>
         <p class="scenario-path">{{ r.cropped_dir }}</p>
         <p>Truncated crops:
           {%- for c in r.truncated_crop_names %}

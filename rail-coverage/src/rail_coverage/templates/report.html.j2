@@ -23,7 +23,7 @@
       <th>Status</th>
       <th>Lens</th>
       <th>Mag</th>
-      <th>Focal</th>
+      {% if any_focal %}<th>Focal</th>{% endif %}
       <th>Aperture</th>
       <th>#Trunc</th>
       <th>#Off-target</th>
@@ -36,7 +36,7 @@
       <td><span class="status status-{{ r.scenario_status_class }}">{{ r.scenario_status }}</span></td>
       <td>{{ r.label.lens }}</td>
       <td>{{ r.label.magnification_pretty }}</td>
-      <td>{{ r.label.focal_length }}</td>
+      {% if any_focal %}<td>{{ r.label.focal_length }}</td>{% endif %}
       <td>{{ r.label.aperture }}</td>
       <td>{{ r.n_truncated }}</td>
       <td>{{ r.n_off_target }}</td>
@@ -51,7 +51,8 @@
   <div class="scenario" id="{{ r.anchor }}">
     <h3>
       <span class="status status-{{ r.scenario_status_class }}">{{ r.scenario_status }}</span>
-      &nbsp; {{ r.label.lens }} · {{ r.label.magnification_pretty }} · {{ r.label.focal_length }} · {{ r.label.aperture }}
+      &nbsp; {{ r.label.lens }} · {{ r.label.magnification_pretty }}
+      {%- if r.label.focal_length %} · {{ r.label.focal_length }}{% endif %} · {{ r.label.aperture }}
     </h3>
     <p class="scenario-path">{{ r.cropped_dir }}</p>
     <table>

@@ -171,6 +171,7 @@ def render_report(
 ) -> str:
     sorted_rows = sort_rows_for_summary(rows)
     counts = Counter(r.scenario_status for r in sorted_rows)
+    any_focal = any(r.label.focal_length for r in sorted_rows)
     template = _env().get_template("report.html.j2")
     return template.render(
         rows=sorted_rows,
@@ -179,6 +180,7 @@ def render_report(
         total=len(sorted_rows),
         count_ok=counts.get(ScenarioStatus.OK.value, 0),
         count_reshoot=counts.get(ScenarioStatus.NEEDS_RESHOOT.value, 0),
+        any_focal=any_focal,
     )
 
 
