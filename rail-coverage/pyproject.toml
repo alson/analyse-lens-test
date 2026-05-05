@@ -9,6 +9,7 @@ dependencies = [
     "matplotlib>=3.10.9",
     "numpy>=2.4.4",
     "lens-test-detect-core",
+    "scipy>=1.17.1",
 ]
 
 [tool.uv.sources]
