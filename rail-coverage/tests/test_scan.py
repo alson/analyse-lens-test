@@ -12,6 +12,8 @@ from rail_coverage.scan import (
     parse_seq,
     read_crop_series,
     read_scenario,
+    select_primary_chunk,
+    split_at_gaps,
 )
 
 
@@ -138,3 +140,103 @@ class TestCropFrameDataclass:
 )
 def test_parse_seq_parametric(filename: str, expected: int):
     assert parse_seq(filename) == expected
+
+
+def _frames(seqs: list[int]) -> list[CropFrame]:
+    return [CropFrame(seq=s, size=10_000, path=Path(f"/x/{s}.jpg")) for s in seqs]
+
+
+class TestSplitAtGaps:
+    def test_single_contiguous_chunk(self):
+        frames = _frames(list(range(100, 105)))
+        chunks = split_at_gaps(frames)
+        assert len(chunks) == 1
+        assert [f.seq for f in chunks[0]] == list(range(100, 105))
+
+    def test_splits_on_large_gap(self):
+        # First session: 100..130, second session: 5000..5030
+        frames = _frames(list(range(100, 131)) + list(range(5000, 5031)))
+        chunks = split_at_gaps(frames)
+        assert len(chunks) == 2
+        assert chunks[0][0].seq == 100
+        assert chunks[1][0].seq == 5000
+
+    def test_does_not_split_small_gaps(self):
+        # Frames every other seq (gap=2) is still contiguous-ish
+        frames = _frames(list(range(100, 110, 2)))  # 100, 102, 104, 106, 108
+        chunks = split_at_gaps(frames, gap_threshold=30)
+        assert len(chunks) == 1
+
+    def test_threshold_boundary(self):
+        # gap of exactly 30 → still one chunk
+        frames = _frames([100, 130])
+        assert len(split_at_gaps(frames, gap_threshold=30)) == 1
+        # gap of 31 → splits
+        frames = _frames([100, 131])
+        assert len(split_at_gaps(frames, gap_threshold=30)) == 2
+
+    def test_empty_input(self):
+        assert split_at_gaps([]) == []
+
+
+class TestSelectPrimaryChunk:
+    def test_short_input_returned_as_is(self):
+        # Below target_size → no chunking needed
+        frames = _frames(list(range(50)))
+        assert select_primary_chunk(frames, target_size=75) is frames
+
+    def test_long_single_chunk_returned_as_is(self):
+        # 100 frames, all contiguous → caller asked for a long sweep
+        frames = _frames(list(range(100, 200)))
+        result = select_primary_chunk(frames, target_size=75)
+        assert len(result) == 100
+
+    def test_picks_longer_of_two_chunks(self):
+        # Partial reshoot: 30 frames day-1, 75 frames day-2 → pick day-2
+        first = list(range(100, 130))
+        second = list(range(5000, 5075))
+        frames = _frames(first + second)
+        result = select_primary_chunk(frames, target_size=75)
+        assert [f.seq for f in result] == second
+
+    def test_breaks_tie_in_favour_of_later_chunk(self):
+        # Two equally-long chunks → take the later one (the re-run)
+        first = list(range(100, 200))
+        second = list(range(5000, 5100))
+        frames = _frames(first + second)
+        result = select_primary_chunk(frames, target_size=75)
+        assert [f.seq for f in result] == second
+
+    def test_three_chunks_with_clear_winner(self):
+        a = list(range(100, 110))   # 10
+        b = list(range(5000, 5080))  # 80 (winner)
+        c = list(range(9000, 9020))  # 20
+        frames = _frames(a + b + c)
+        result = select_primary_chunk(frames, target_size=75)
+        assert [f.seq for f in result] == b
+
+
+class TestReadCropSeriesWithPartialReshoot:
+    def test_filters_to_primary_chunk(self, tmp_path: Path):
+        crop = tmp_path / "center"
+        crop.mkdir()
+        # Day 1 (interrupted): seqs 100..115 (16 frames)
+        for s in range(100, 116):
+            (crop / f"{s:05d}|x|y|z|alm.jpg").write_bytes(b"x" * 5000)
+        # Day 2 (full re-run): seqs 5000..5079 (80 frames)
+        for s in range(5000, 5080):
+            (crop / f"{s:05d}|x|y|z|alm.jpg").write_bytes(b"x" * 5000)
+
+        series = read_crop_series(crop)
+        assert len(series.frames) == 80
+        assert series.frames[0].seq == 5000
+        assert series.frames[-1].seq == 5079
+
+    def test_preserves_short_complete_session(self, tmp_path: Path):
+        # Single contiguous session of 75 frames — no filtering applied
+        crop = tmp_path / "center"
+        crop.mkdir()
+        for s in range(100, 175):
+            (crop / f"{s:05d}|x|y|z|alm.jpg").write_bytes(b"x" * 5000)
+        series = read_crop_series(crop)
+        assert len(series.frames) == 75
