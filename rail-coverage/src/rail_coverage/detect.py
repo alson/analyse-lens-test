@@ -51,7 +51,7 @@ __all__ = [
 # "edge zone" of 6 raw shots ≈ 2 rail positions of buffer. The live
 # package uses 2 because it sees one shot per rail step.
 DEFAULT_EDGE_SHOTS = 6
-DEFAULT_OFF_TARGET_FACTOR = 0.65
+DEFAULT_OFF_TARGET_FACTOR = 0.25
 
 
 # Backwards-compat alias for the old name. The shared primitive is just
