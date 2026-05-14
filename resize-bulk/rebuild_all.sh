@@ -24,6 +24,11 @@ ANALYSE_LENS_TEST="$(dirname "$HERE")"
 RAIL_COVERAGE="$ANALYSE_LENS_TEST/rail-coverage"
 LOG_PREFIX="[rebuild $(date -u +%FT%TZ)]"
 
+# Make uv reachable when launched by nohup from a non-login shell on
+# Ubuntu — Astral's installer puts the binary in ~/.local/bin which
+# isn't on PATH by default for non-interactive SSH sessions.
+export PATH="$HOME/.local/bin:$PATH"
+
 say() { echo "$LOG_PREFIX $*"; }
 
 # --- 1. Prereqs check --------------------------------------------------------
@@ -84,14 +89,22 @@ say "  found ${#NATIVE_DIRS[@]} native aperture folders"
 # Each aperture folder gets its own lossless 17-crop split. Run them
 # serially per folder (the Python tool internally uses a thread pool);
 # parallelism across folders eats NFS bandwidth without speedup.
+# Continue past individual failures so one bad folder doesn't stop a
+# multi-hour rebuild — the failure is logged and shows up in the
+# end-of-run summary.
 i=0
+failures=0
 for ap_dir in "${NATIVE_DIRS[@]}"; do
     i=$((i + 1))
     if [ $((i % 25)) -eq 0 ] || [ "$i" -eq 1 ] || [ "$i" -eq "${#NATIVE_DIRS[@]}" ]; then
         say "  [$i/${#NATIVE_DIRS[@]}] $ap_dir"
     fi
-    (cd "$ap_dir" && "$ANALYSE_LENS_TEST/make-17-crops.sh" >/dev/null 2>&1)
+    if ! (cd "$ap_dir" && "$ANALYSE_LENS_TEST/make-17-crops.sh" >/dev/null 2>&1); then
+        say "  FAILED: $ap_dir"
+        failures=$((failures + 1))
+    fi
 done
+say "  re-crop done: $((i - failures)) ok, $failures failed"
 
 # --- 5. Generate resized trees ----------------------------------------------
 
