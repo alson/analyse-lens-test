@@ -110,9 +110,16 @@ say "  re-crop done: $((i - failures)) ok, $failures failed"
 
 say "generating *-resized trees via resize_bulk"
 cd "$HERE"
+# resize_bulk.py returns exit code 2 when *any* worker errors (even one
+# missing source file out of thousands). Trap that so set -e doesn't
+# abort the loop after the first root — the second root is still worth
+# running, and rescan/summary downstream still produce a useful report
+# from whatever data did land.
 for root in "${ROOTS[@]}"; do
     say "  $root"
-    PYTHONUNBUFFERED=1 uv run python resize_bulk.py "$root" --workers 8
+    if ! PYTHONUNBUFFERED=1 uv run python resize_bulk.py "$root" --workers 8; then
+        say "  WARNING: resize_bulk reported errors for $root (exit $?)"
+    fi
 done
 
 # --- 6. Refresh rail-coverage scan-cache ------------------------------------
