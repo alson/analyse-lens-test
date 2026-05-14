@@ -78,9 +78,9 @@ L-bracket subtotal: **14 entries** (5 reshoot, 9 new)
 | 24 | Nikon AF Micro-Nikkor 200mm f/4D IF-ED + 6T + 5T | 2:1 | reshoot |
 | 25 | Nikon AF Zoom-Micro Nikkor 70-180mm f/4.5-5.6D ED + 5T + 6T | 1.14:1 | reshoot |
 | 26 | Nikon AF Zoom-Micro Nikkor 70-180mm f/4.5-5.6D ED | 1:1.33 | reshoot |
-| 27 | NIKKOR Z 100-400mm f/4.5-5.6 VR S + Nikon 5T | 1.27:1 | reshoot (F16-only) |
+| 27 | NIKKOR Z 100-400mm f/4.5-5.6 VR S + Nikon 6T | 1.27:1 | reshoot |
 | 28 | NIKKOR Z 100-400mm f/4.5-5.6 VR S + Canon 500D | 1.07:1 | reshoot |
-| 29 | NIKKOR Z 100-400mm f/4.5-5.6 VR S + Nikon 6T | 1:1.19 | reshoot |
+| 29 | NIKKOR Z 100-400mm f/4.5-5.6 VR S + Nikon 5T | 1:1.19 | reshoot (F16-only) |
 | 30 | NIKKOR Z 100-400mm f/4.5-5.6 VR S + 61mm extension | 1:1.9 (est.) | NEW |
 | 31 | NIKKOR Z 100-400mm f/4.5-5.6 VR S + 35mm extension | 1:2.1 (est.) | NEW |
 | 32 | NIKKOR Z 100-400mm f/4.5-5.6 VR S | 1:2.6 | reshoot |
@@ -112,7 +112,7 @@ reshoot session, taking the plan from 33 to **27 entries**:
 - #16 55 AIS 537016 (1:1)
 - #17 Sigma Macro 105 + 6T+5T (1.7:1)
 - #23 Sigma 150 (native, 1:1)
-- #27 100-400 + Nikon 5T (1.27:1)
+- #29 100-400 + Nikon 5T (1:1.19)
 - #33 100-400 + TC-2.0x (1:1.29)
 
 ## Stacking-order (5T+6T vs 6T+5T) — kept both intentionally
