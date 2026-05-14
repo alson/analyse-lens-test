@@ -15,8 +15,13 @@ tgt_ratio=$(echo "$tgt_mag" | awk -F_ '{print $1/$2}')
 # Calculate resize factor
 resize_factor=$(echo "($tgt_ratio)/($src_ratio)" | bc -l)
 
-# Choose interpolation: 'Lanczos' for upsampling, 'Mitchell' for downsampling
-interp="Lanczos"
+# Interpolation choice — see header comment for rationale.
+# Upsampling: Catrom (sharp cubic, small local overshoot, no long-range
+# ringing) — chosen because JPEG file size is the downstream sharpness
+# proxy and Lanczos's Gibbs ringing inflates file size with synthetic
+# halos rather than real captured detail.
+# Downsampling: Mitchell (smooth cubic, no aliasing).
+interp="Catrom"
 if (( $(echo "$resize_factor < 1" | bc -l) )); then
     interp="Mitchell"
 fi
