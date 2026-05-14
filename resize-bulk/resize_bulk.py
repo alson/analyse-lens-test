@@ -31,33 +31,41 @@ from pathlib import Path
 
 from PIL import Image
 
+from lens_test_detect_core import DEFAULT_CROP_SIZE, compute_crop_origins
+from turbojpeg import TurboJPEG
+
 # Pillow >= 11 exposes Resampling enum
 RESAMPLE_UP = Image.Resampling.BICUBIC
 RESAMPLE_DOWN = Image.Resampling.BICUBIC
 
 JPEG_QUALITY = 75  # matches camera embedded-preview quality
-CROP_SIZE = 500    # 9-crops sub-crop edge length
+CROP_SIZE = DEFAULT_CROP_SIZE  # 512 px, MCU-aligned (formerly 500)
 
-CROP_OFFSETS = {
-    # (x_anchor, y_anchor) -> "center" | "edge" | "corner"
-    "center":       ("c", "c"),
-    "left-edge":    ("0", "c"),
-    "right-edge":   ("1", "c"),
-    "top-edge":     ("c", "0"),
-    "bottom-edge":  ("c", "1"),
-    "top-left":     ("0", "0"),
-    "top-right":    ("1", "0"),
-    "bottom-left":  ("0", "1"),
-    "bottom-right": ("1", "1"),
-}
+CROP_NAMES = (
+    "center",
+    "left-edge",
+    "right-edge",
+    "top-edge",
+    "bottom-edge",
+    "top-left",
+    "top-right",
+    "bottom-left",
+    "bottom-right",
+)
 
 
-def _anchor(anchor: str, full: int, crop: int) -> int:
-    if anchor == "0":
-        return 0
-    if anchor == "1":
-        return full - crop
-    return (full - crop) // 2
+# One TurboJPEG handle per worker process (lazily). The 9-crop split
+# uses ``crop_multiple`` for lossless transforms — the resize step
+# itself still re-encodes via PIL (resampling is intrinsically lossy),
+# but the per-crop write avoids a second JPEG generation.
+_tj: TurboJPEG | None = None
+
+
+def _turbo() -> TurboJPEG:
+    global _tj
+    if _tj is None:
+        _tj = TurboJPEG()
+    return _tj
 
 
 def parse_mag_folder(name: str) -> tuple[float, bool]:
@@ -238,13 +246,18 @@ def resize_one_image(args: tuple[Path, Path, float]) -> tuple[Path, str]:
                 save_kwargs["exif"] = exif_bytes
             final.save(dst, "JPEG", **save_kwargs)
 
-            # 9-crop split into ./cropped/<position>/ (no EXIF on tiny crops)
-            crops_root = dst.parent / "cropped"
-            for pos, (ax, ay) in CROP_OFFSETS.items():
-                cx = _anchor(ax, w, CROP_SIZE)
-                cy = _anchor(ay, h, CROP_SIZE)
-                tile = final.crop((cx, cy, cx + CROP_SIZE, cy + CROP_SIZE))
-                tile.save(crops_root / pos / dst.name, "JPEG", quality=JPEG_QUALITY, subsampling=2)
+        # 9-crop split via TurboJPEG.crop_multiple — lossless transform
+        # on the just-written resized JPEG, so the sub-crops are one JPEG
+        # generation deep (the resize) rather than two (resize + per-crop
+        # re-encode like the previous PIL-based path).
+        crops_root = dst.parent / "cropped"
+        resized_bytes = dst.read_bytes()
+        origins = compute_crop_origins(w, h, CROP_SIZE)
+        names = list(origins.keys())
+        params = [(*origins[n], CROP_SIZE, CROP_SIZE) for n in names]
+        crops = _turbo().crop_multiple(resized_bytes, params)
+        for name, data in zip(names, crops, strict=True):
+            (crops_root / name / dst.name).write_bytes(data)
         return (dst, "ok")
     except Exception as e:  # pragma: no cover - diagnostic path
         return (dst, f"error: {e!r}")
@@ -258,9 +271,9 @@ def dst_name(src_name: str) -> str:
 def execute_job(job: ResizeJob, force: bool, workers: int) -> dict:
     """Resize every *.jpg in job.src_dir into job.dst_dir, then make 9 crops."""
     job.dst_dir.mkdir(parents=True, exist_ok=True)
-    # Pre-create crop subdirs once per job — saves 9 NFS mkdir/stat ops per image.
+    # Pre-create crop subdirs once per job — saves NFS mkdir/stat ops per image.
     crops_root = job.dst_dir / "cropped"
-    for pos in CROP_OFFSETS:
+    for pos in CROP_NAMES:
         (crops_root / pos).mkdir(parents=True, exist_ok=True)
 
     src_files = sorted(job.src_dir.glob("*.jpg"))

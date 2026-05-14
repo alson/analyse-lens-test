@@ -146,6 +146,40 @@ the metrics on those.
 
 ---
 
+## Lossless JPEG cropping eliminates per-crop generation loss
+
+A second round of pipeline tightening, also done while this dataset was
+being processed, switched the crop step itself to a lossless JPEG
+transform. The crop dimension changed from 500 px to **512 px** (the
+smallest 16-multiple at or above 500), so every crop origin lands on a
+clean MCU boundary and `TurboJPEG.crop_multiple` can re-pack the
+encoded JPEG blocks into the output files without decoding back to RGB
+and re-encoding. Crops now inherit the source JPEG's encoded quality
+exactly — zero generation loss in the cropping step.
+
+This kills another large source of noise on top of the resampler swap:
+
+- Previously, every `make-N-crops.sh` invocation decoded the camera
+  JPEG and re-encoded each sub-crop at GraphicsMagick's defaults. Two
+  generations of JPEG compression on every crop before it ever hit the
+  rail-coverage analyser.
+- Previously, every resize step (`resize_bulk.py`) re-encoded its full
+  resized JPEG *and* then re-encoded each of the 9 sub-crops on top of
+  that. Three generations of compression on the resized crops.
+- After the switch: one generation on lossless-cropped camera JPEGs;
+  two generations on resized crops (resize is intrinsically lossy, but
+  the 9-crop split itself is lossless).
+
+Origins are computed via
+`lens_test_detect_core.compute_crop_origins` (full-frame) and
+`compute_dx_origins` (DX inner region); both snap to 16-multiples via
+`align_down`. The live runtime cropper, the batch crop scripts and the
+resize-bulk 9-crop split all share that source of truth, so the live
+and offline analyses can't drift apart on crop geometry.
+
+See `resize-bulk/RESIZED_COMPARISON.md` §0.0 for the file-size
+implications.
+
 ## Empirical confirmation: resampler choice affects the JPEG-size proxy
 
 While doing the resampled-lens comparisons (see

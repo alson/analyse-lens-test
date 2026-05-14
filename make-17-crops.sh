@@ -1,77 +1,14 @@
 #!/bin/zsh
-#find [A-Z]* -mindepth 1 -type d | while read dn; do echo $(ls -S "$dn/"*.jpg | head -n1); done >! picks.txt
+# Lossless 17-crop split (9 full-frame + 8 DX inner) of every *.jpg
+# in the current directory. Outputs land under ./cropped/<pos>/.
+#
+# Replaces the previous gm-mogrify-with-re-encoding pipeline; the
+# heavy lifting is now in resize-bulk/lossless_crops.py, which uses
+# TurboJPEG.crop_multiple for true lossless JPEG transforms. Crop
+# origins come from lens_test_detect_core.mcu so this script and the
+# runtime cropper share a single source of truth.
 
-mkdir -p cropped/center cropped/left-edge cropped/right-edge cropped/top-edge cropped/bottom-edge cropped/top-left cropped/top-right cropped/bottom-right cropped/bottom-left cropped/dx-left-edge cropped/dx-top-left cropped/dx-top-edge cropped/dx-top-right cropped/dx-right-edge cropped/dx-bottom-right cropped/dx-bottom-edge cropped/dx-bottom-left
-
-# Image dimensions
-image_width=$(gm identify -format "%w\n" *.jpg | head -n 1)
-image_height=$(gm identify -format "%h\n" *.jpg | head -n 1)
-
-# Crop dimensions
-crop_width=500
-crop_height=500
-center_x=$((image_width / 2 - (crop_width / 2)))
-center_y=$((image_height / 2 - (crop_height / 2)))
-left_edge_x=0
-left_edge_y=$((image_height / 2 - (crop_height / 2)))
-top_left_x=0
-top_left_y=0
-top_edge_x=$((image_width / 2 - (crop_width / 2)))
-top_edge_y=0
-top_right_x=$((image_width - crop_width))
-top_right_y=0
-right_edge_x=$((image_width - crop_width))
-right_edge_y=$((image_height / 2 - (crop_height / 2)))
-bottom_right_x=$((image_width - crop_width))
-bottom_right_y=$((image_height - crop_height))
-bottom_edge_x=$((image_width / 2 - (crop_width / 2)))
-bottom_edge_y=$((image_height - crop_height))
-bottom_left_x=0
-bottom_left_y=$((image_height - crop_height))
-
-dx_image_width=$((image_width / 1.5))
-dx_image_height=$((image_height / 1.5))
-dx_left_margin=$(( (image_width - dx_image_width) / 2 ))
-dx_top_margin=$(( (image_height - dx_image_height) / 2 ))
-dx_left_edge_x=$dx_left_margin
-dx_left_edge_y=$((dx_top_margin + (dx_image_height / 2) - (crop_height / 2) ))
-dx_top_left_x=$dx_left_margin
-dx_top_left_y=$dx_top_margin
-dx_top_edge_x=$(( (dx_left_margin + (dx_image_width / 2)) - (crop_width / 2) ))
-dx_top_edge_y=$dx_top_margin
-dx_top_right_x=$((dx_left_margin + dx_image_width - crop_width))
-dx_top_right_y=$dx_top_margin
-dx_right_edge_x=$dx_top_right_x
-dx_right_edge_y=$dx_left_edge_y
-dx_bottom_right_x=$dx_right_edge_x
-dx_bottom_right_y=$((dx_top_margin + (dx_image_height - crop_height)))
-dx_bottom_edge_x=$dx_top_edge_x
-dx_bottom_edge_y=$dx_bottom_right_y
-dx_bottom_left_x=$dx_left_margin
-dx_bottom_left_y=$dx_bottom_right_y
-
-# Run all crop positions in parallel using GNU parallel
-parallel -j 8 --line-buffer '
-    position={}
-    case $position in
-        center) x='$center_x'; y='$center_y' ;;
-        left-edge) x='$left_edge_x'; y='$left_edge_y' ;;
-        right-edge) x='$right_edge_x'; y='$right_edge_y' ;;
-        top-edge) x='$top_edge_x'; y='$top_edge_y' ;;
-        bottom-edge) x='$bottom_edge_x'; y='$bottom_edge_y' ;;
-        top-left) x='$top_left_x'; y='$top_left_y' ;;
-        top-right) x='$top_right_x'; y='$top_right_y' ;;
-        bottom-right) x='$bottom_right_x'; y='$bottom_right_y' ;;
-        bottom-left) x='$bottom_left_x'; y='$bottom_left_y' ;;
-        dx-left-edge) x='$dx_left_edge_x'; y='$dx_left_edge_y' ;;
-        dx-top-left) x='$dx_top_left_x'; y='$dx_top_left_y' ;;
-        dx-top-edge) x='$dx_top_edge_x'; y='$dx_top_edge_y' ;;
-        dx-top-right) x='$dx_top_right_x'; y='$dx_top_right_y' ;;
-        dx-right-edge) x='$dx_right_edge_x'; y='$dx_right_edge_y' ;;
-        dx-bottom-right) x='$dx_bottom_right_x'; y='$dx_bottom_right_y' ;;
-        dx-bottom-edge) x='$dx_bottom_edge_x'; y='$dx_bottom_edge_y' ;;
-        dx-bottom-left) x='$dx_bottom_left_x'; y='$dx_bottom_left_y'
-    esac
-    echo "Making $position crops"
-    gm mogrify -output-directory cropped/$position -crop '$crop_width'x'$crop_height'+$x+$y *.jpg
-' ::: center left-edge right-edge top-edge bottom-edge top-left top-right bottom-right bottom-left dx-left-edge dx-top-left dx-top-edge dx-top-right dx-right-edge dx-bottom-right dx-bottom-edge dx-bottom-left
+set -e
+SCRIPT_DIR="${0:A:h}"
+cd "$SCRIPT_DIR/resize-bulk"
+uv run --project . python lossless_crops.py --mode 17 --source "$OLDPWD" --out "$OLDPWD/cropped" "$@"

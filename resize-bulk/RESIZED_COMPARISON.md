@@ -18,6 +18,37 @@ history.
 
 ## 0. Findings & rules-of-thumb
 
+### 0.0 Crop dimensions: 512 x 512 (was 500 x 500)
+
+As of 2026-05 the crop size used by both the live runner
+(`run-lens-test/sharpness/crops.py`) and the batch scripts
+(`make-9-crops.sh`, `make-17-crops.sh`, `resize_bulk.py`) is **512 x 512**.
+The 12-pixel-per-side bump from the legacy 500 is what enables
+**lossless JPEG cropping** end-to-end: 512 is a multiple of 16, the MCU
+size for 4:2:0-subsampled sources, so `TurboJPEG.crop_multiple` can
+re-pack encoded MCU blocks into the output JPEGs without decoding back
+to RGB and re-encoding. The crop output inherits the source's encoded
+quality exactly — no generation loss.
+
+Consequences for the file-size sharpness proxy:
+
+- Cropped files are ~4.9 % larger by pixel count, but **smaller** in
+  bytes for the same scene because there's no second-generation JPEG
+  compression. Net file size shifts depend on scene content; expect
+  individual crops in the 50-100 KB range vs the previous 100-150 KB
+  band.
+- Within-dataset comparisons stay clean (every crop is generated
+  through the same pipeline at the same dims).
+- Cross-version comparisons against pre-2026-05 caches don't transfer
+  numerically (we already invalidated the cache once for Catrom; this
+  is the second invalidation in the same week).
+
+Shared origin math lives in `lens_test_detect_core.mcu`:
+`compute_crop_origins` for the 9 full-frame positions and
+`compute_dx_origins` for the 8 DX inner positions. Both snap each
+returned origin to a 16-multiple via `align_down`, so any future
+sensor resolution stays MCU-aligned automatically.
+
 ### 0.1 Resampler choice: Catrom over Lanczos
 
 `resize-from-to.sh` and `resize_bulk.py` both upsample with **Catmull-Rom

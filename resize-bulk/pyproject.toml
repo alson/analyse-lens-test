@@ -3,5 +3,10 @@ name = "resize-bulk"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
+    "lens-test-detect-core",
     "pillow>=11",
+    "pyturbojpeg>=2.2.0",
 ]
+
+[tool.uv.sources]
+lens-test-detect-core = { path = "../../lens-test-detect-core", editable = true }

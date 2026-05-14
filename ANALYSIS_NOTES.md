@@ -36,13 +36,23 @@ Path layouts vary across the two sessions. The analyser supports:
 .../<lens>/.../<f_dirty>/<aperture>/cropped                            # F16.0/F16/cropped sort artefact
 ```
 
-Each `cropped/` folder has nine 500×500 sub-folders (centre, four
+Each `cropped/` folder has nine 512×512 sub-folders (centre, four
 edges, four corners) plus optionally eight `dx-*` sub-folders for
 APS-C-equivalent sub-frames; each contains the captured shots'
 full-resolution centre crop saved as JPEG. **File size is the
 sharpness proxy** (matches `select-crops.sh` in the existing
 pipeline) — JPEG entropy-coded length scales with the amount of
 detail in the crop, so larger files = sharper.
+
+Sub-crops are now produced losslessly via
+`TurboJPEG.crop_multiple` (re-packing the source's encoded MCU
+blocks into the output JPEGs without decoding+re-encoding). The
+512-pixel side length is the smallest 16-multiple at or above the
+historical 500-pixel size, which is what lets the lossless transform
+work — see `resize-bulk/RESIZED_COMPARISON.md` §0.0 for the full
+rationale. Older trees in this dataset were 500 px and re-encoded;
+they are no longer numerically comparable to fresh output and need
+re-generation.
 
 ---
 
