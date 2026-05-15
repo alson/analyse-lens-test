@@ -3,7 +3,12 @@ name = "archive-2026-05"
 version = "0.1.0"
 description = "Archive 2026-05 lens-test shoots to NFS test-raw-data tree"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "numpy>=2.0",
+    "pillow>=10.0",
+    "scipy>=1.13",
+    "scikit-image>=0.24",
+]
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
