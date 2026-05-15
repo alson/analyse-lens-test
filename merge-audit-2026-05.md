@@ -27,9 +27,14 @@ in `~/.claude/plans/effervescent-jingling-newt.md`.
     today's relabel): keep `14_222616 c1` canonical; mark
     `14_213530` superseded. Merge attempt **rejected** — see profile
     analysis under "Merge feasibility" below.
-- **Decisions still open**: D2.d (Sigma 150 + 5T canonical pick),
-  D4 (pre-cascade-rewrite MC 105 shoots), D5 (archive routing
-  model).
+  - D2.d (`Sigma 150 + 5T` canonical pick): `14_132004` canonical,
+    `13_230021`'s `+ 5T` config superseded.
+  - D4 (pre-cascade-rewrite shoots): archive everything; flag with
+    `calibration_methodology: pre-cascade-fix` in per-session
+    metadata. Cutoff is `2026-05-13T23:00 UTC`.
+  - D5 (archive routing model): lens-config-level routing —
+    `<session>/<lens-config>/` is the unit, `shots.csv` sliced by
+    `lens_config_slug` at archive time.
 
 ## Actions completed today
 
@@ -219,10 +224,13 @@ canonical, archive for traceability only.
   subdir was deleted 2026-05-15 — see D3 above)
 - `Sigma APO Macro 150mm F2.8 EX DG OS HSM` (bare) / `+ 5T` / `+ 6T` /
   `+ 6T + 5T` — `2026-05-13_230021` (four configs in one session:
-  252 / 567 / 504 / 306 sweep). The biggest session at 42 GB.
-- `Sigma APO Macro 150mm F2.8 EX DG OS HSM + 5T` —
-  `2026-05-14_132004` (273 sweep). **Open D2.d:** possibly a redo
-  of `13_230021 + 5T` (567 sweep) — pick canonical.
+  252 / 252 / 504 / 306 sweep — 21 reshoot rows on the `+ 5T` config).
+  The biggest session at 42 GB. ⭐ bare, `+ 6T`, `+ 6T + 5T` are the
+  only records of those configs. ⛔ The `+ 5T` config is superseded
+  by the dedicated redo below.
+- ⭐ `Sigma APO Macro 150mm F2.8 EX DG OS HSM + 5T` —
+  `2026-05-14_132004` (273 sweep, no reshoot, 36-min single-config
+  redo). Canonical `Sigma 150 + 5T`.
 - `Nikon AF Micro-Nikkor 200mm f_4D IF-ED + 6T + 5T` —
   `2026-05-14_135837` (423 sweep)
 - `Nikon AF Zoom-Micro Nikkor 70-180mm f_4.5-5.6D ED + 5T + 6T` /
@@ -242,40 +250,125 @@ canonical, archive for traceability only.
 - `NIKKOR Z 100-400mm f_4.5-5.6 VR S` (bare) —
   `2026-05-15_121418` (579 sweep, the latest bare 100-400)
 
-## Remaining open decisions
+## Resolved decisions (2026-05-15)
 
-### D2.d. `Sigma 150 + 5T` canonical pick
+### D2.d. `Sigma 150 + 5T` canonical pick — resolved
 
-In both `2026-05-13_230021` (567 sweep) and `2026-05-14_132004`
-(273 sweep). The 230021 one has more rows; the 132004 one is
-isolated (single-config session, perhaps a deliberate redo).
-Decision needed before archive routing.
+⭐ Canonical: `2026-05-14_132004` (273 sweep, single-config redo
+session, no reshoot rows, 36 min).
+⛔ Superseded: `2026-05-13_230021` `+ 5T` config (252 sweep, part
+of the 4-config 12-hour overnight session, **21 reshoot rows**
+indicating the cascade flagged issues).
 
-### D4. Pre-cascade-rewrite shoots (2026-05-06 / 2026-05-07)
+Center-crop JPEG-size profile comparison shows both are centered
+with clean bells:
 
-The DESIGN_NOTES §6.33 cascade rewrite landed mid-May. The big
-2026-05-06 and 2026-05-07 MC 105 shoots (782 / 1790 / 2146 / 1764
-sweep rows) predate that fix and may have calibration-drift
-artefacts. Default plan: archive them anyway — the data exists
-and may be the only record of those configs.
+| Aperture | `13_230021 + 5T` peak rail | `14_132004 + 5T` peak rail |
+|---|---|---|
+| f/5.6 | −1.600 mm (size 106 581 B) | −1.692 mm (size 100 887 B) |
+| f/8 | −1.646 mm (150 317 B) | −1.783 mm (143 719 B) |
+| f/11 | −1.738 mm (150 107 B) | −1.829 mm (138 167 B) |
+| f/16 | −1.738 mm (144 641 B) | −1.829 mm (128 638 B) |
 
-### D5. Routing model for the archive script
+Peaks are well-formed in both, with similar shape and only ~0.1 mm
+offset (consistent with a re-jog between the two sessions). The
+`132004` redo captured a slightly wider rail range (3.43 vs
+3.05 mm), used the same magnification (1.3) and step size
+(0.046 mm), and the user evidently did it as a deliberate
+single-config retry — `13_230021`'s `+ 5T` config also had 21
+reshoot rows, which means the live cascade noticed something worth
+correcting and the user followed up with the dedicated `14_132004`
+redo two hours later.
 
-Two routing models for the archive step:
+Both shoots are post-cascade-rewrite (see D4 below) so calibration
+quality is comparable; the deciding factors are the deliberate
+redo intent and the cleaner row pattern.
 
-- **Session-level routing.** Whole sessions copy to one date dir.
-  The 61mm sole-shoot in `2026-05-15_093455` either gets sorted
-  alongside everything else in the final lens layout (treating its
-  parent session as a multi-config completed shoot), OR stays
-  buried in the raw archive only.
-- **Lens-config-level routing.** Each `<session>/<lens-config>/`
-  subdir is the unit. Same-session multi-configs naturally split.
-  `shots.csv` gets sliced per lens-config at archive time. Cleaner
-  story, slightly more code.
+### D4. Pre-cascade-rewrite shoots — resolved: archive all, flag metadata
 
-Lens-config-level routing handles the canonical/superseded
-distinctions above cleanly: each config gets a "canonical pick"
-decision regardless of which session it lives in.
+The AA cascade rewrite (DESIGN_NOTES §6.32) landed in a sequence
+of commits on 2026-05-13 between 21:06 UTC (`578e9f1` silent-FEC
+fix) and 22:57 UTC (`a9a5070` snap-error refinement). The "may
+have calibration artefacts" concern from the original audit refers
+to the silent FEC rejection bug: certain ⅓-stop FEC values
+(specifically k=−7 / −2.333 always; k=−5 / k=−4 / k=−1 partially)
+were silently rejected by the Z7 widget, leaving the flash firing
+at the previous successfully-set FEC. The cascade's bookkeeping
+recorded the requested FEC, not the actual one.
+
+Pre-cascade cutoff: any session started before `2026-05-13
+T23:00 UTC`. Affected sessions (all kept, not skipped):
+
+| Session | Slug(s) | Why we keep it |
+|---|---|---|
+| `2026-05-05_133416` | MC 105 + 61mm | dev-era, superseded (see ⛔ row above) but archive for traceability |
+| `2026-05-06_175727` | MC 105 + 61mm | superseded by `06_231805`; archive for traceability |
+| `2026-05-06_200150` | MC 105 + 5T + 6T / + 6T + 5T | only record of these stacking orders |
+| `2026-05-06_225632` | MC 105 + 5T + 6T (no configs) | abandoned redo of `200150`; archive only |
+| `2026-05-06_231805` | ⭐ MC 105 + 61mm (canonical) | 9-h overnight sweep — keep |
+| `2026-05-07_082105` | MC 105 + 45mm extension | only record |
+| `2026-05-07_163659` | MC 105 + 35mm extension | only record |
+| `2026-05-08_175556` + `_201054` | feed `merged_24-120_2026-05-08` | the merged dataset depends on these |
+| `2026-05-10_164247` + `_205515` + `_212105` | feed `merged_viltrox-85_2026-05-10` | the merged dataset depends on these |
+| `2026-05-11_161129` | 24-120 + 45mm | only record |
+| `2026-05-11_185420` | 24-120 + 35mm / Viltrox 85 + 45mm | only record |
+| `2026-05-11_220431` | Viltrox 85 + 26mm / 24-120 + 10mm | only record |
+| `2026-05-12_000950` | 24-120 (bare) | only record |
+| `2026-05-12_201123` | Nikon 55mm AIS | only record |
+| `2026-05-12_214838` | Sigma 105 + 5T + 6T | only record |
+| `2026-05-13_173213` | Sigma 150 + 5T + 6T | only record |
+
+Why this is safe for the project's actual use: sharpness analysis
+operates on the *shape* of the per-aperture sharpness bell across
+the rail sweep, not the absolute exposure level. A ±⅓ stop noise
+on absolute brightness changes the JPEG-size scale slightly but
+does not shift the peak position. The captured
+`median_central_luminance` is recorded in `shots.csv`, so any
+downstream exposure normalisation can detect and correct affected
+shots.
+
+**Archive metadata flag:** add a top-level field to each archived
+session's metadata (or the per-config metadata, depending on D5),
+`calibration_methodology: "pre-cascade-fix"` for sessions started
+before `2026-05-13T23:00 UTC`, `"post-cascade-fix"` afterwards.
+Downstream consumers (e.g. exposure-sensitive comparisons across
+shoots) can then opt in to filtering.
+
+### D5. Routing model — resolved: lens-config-level
+
+Each `<session>/<lens-config>/` subdir is the unit of archive
+routing. The archive script:
+
+1. Slices `shots.csv` by `lens_config_slug` (rows for one config
+   per archived directory).
+2. Carries `session.json`'s lens-config entry (slug, magnification,
+   widest_aperture, sample_plan) as the per-config metadata, plus a
+   stripped session-level header (session_id, started_at,
+   ended_at, calibration_methodology from D4).
+3. Routes each lens-config dir to the lens-layout location
+   independently of which session it came from.
+
+Rationale:
+
+- **Multi-config sessions split cleanly.** `13_230021`'s four
+  Sigma 150 configs, `06_200150`'s two MC 105 stacks,
+  `11_185420`'s and `11_220431`'s pairs, and `15_093455`'s 61mm +
+  35mm configs all get their own destinations without special
+  handling.
+- **No "stowaway" problem.** The previously-flagged 61mm config
+  inside the 35mm-merge source session `15_093455` is just another
+  routed lens-config dir; the merged-35mm output goes one place,
+  the 61mm goes to the bare-61mm location.
+- **Canonical/superseded picks operate on the right unit.** The
+  decisions above (⭐/⛔ markers) are per-config; the archive
+  script can read this document or a derived manifest and route
+  accordingly.
+- **Merged outputs route by their output slug**, same rule as
+  source sessions — they already live at `<output_root>/merged_*/<output_slug>/`
+  in the same shape.
+
+The slight extra code (CSV slicing) is one pass per session and
+trivial compared to the routing benefit.
 
 ## Source data references
 
