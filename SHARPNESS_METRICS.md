@@ -1,5 +1,10 @@
 # Cross-Lens Sharpness Metrics — Alternatives to JPEG File Size
 
+> This document covers the **macro / silicon-wafer** test rig (StackShot
+> rail, periodic bond-pad target, fixed planar subject). For the
+> **long-distance natural-target** rig (sloped stair scene at 14-50mm,
+> distant hedge at 300mm) see [`SHARPNESS_METRICS_LONGDIST.md`](SHARPNESS_METRICS_LONGDIST.md).
+
 The current pipeline (`select-crops.sh`, `make-9-crops.sh`) uses JPEG file
 size as a sharpness proxy via `ls -S | head -n1`. This works *within* a
 replicate set because the framing is fixed and entropy-coded JPEG length
