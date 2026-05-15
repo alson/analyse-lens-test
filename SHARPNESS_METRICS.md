@@ -29,12 +29,22 @@ measurement unusually tractable here:
 
 ---
 
-## 1. Slanted-edge MTF (ISO 12233) via MTF Mapper *(recommended first try)*
+## 1. Slanted-edge MTF (ISO 12233) via MTF Mapper *(failed on this rig — see "Empirical results" below)*
 
-The gold standard, and the most scene-invariant option. MTF Mapper
-auto-detects straight edges in arbitrary photos and reports per-edge
-MTF50 in cycles/pixel; the die boundaries visible in many crops are
-ideal targets. Cross-lens comparison reduces to "compare MTF50".
+The gold standard *in principle*, and the most scene-invariant option.
+MTF Mapper auto-detects straight edges in arbitrary photos and
+reports per-edge MTF50 in cycles/pixel; the die boundaries visible in
+many crops are ideal targets. Cross-lens comparison reduces to
+"compare MTF50".
+
+> **Empirical caveat (POC 2026-05-15):** on this rig's wafer crops,
+> MTF Mapper's default component-finding step fails ("No black
+> objects found") because the wafer is not a chart with isolated
+> dark targets. The ``--single-roi`` workaround returns one MTF50
+> per tile but it correlates poorly with visual sharpness (1/5 on
+> manual review) and has the worst noise of any tested method
+> across same-model lens copies (CV = 0.54). See "Empirical
+> results" near the bottom of this document.
 
 - Binary already built locally: `MTF mapper/workspace/mtfmapper/bin/mtf_mapper`.
 - AUR alternative: `mtfmapper-git`.
@@ -233,6 +243,174 @@ Cheapest validation before committing to a metric:
 
 If consistent, codify in `rail-coverage/` as a new column alongside the
 file-size proxy. If not, fall back to §2 (radial power-spectrum fit).
+
+---
+
+## Empirical results — POC 2026-05-15
+
+The recommendations above were tested against four datasets using the
+``tile-sharpness/`` POC. **The slanted-edge MTF "gold standard" claim
+in §1 did not survive contact with the wafer dataset.** What did work:
+
+### Setup
+
+- One common 1024×1024 tile grid, 35 tiles centred on the optical
+  axis, MCU-aligned. Tiles extracted losslessly via
+  ``TurboJPEG.crop_multiple``.
+- Tile cache on the shared mount; ``mtf_mapper`` runs on nufan over
+  SSH (rebuilt against Ubuntu 25.10 OpenCV 4.10, since the local
+  Arch host's 4.13 was ABI-incompatible).
+- Eight scoring methods on each tile across every shot in a focus
+  sweep: ``filesize``, ``mtfmapper`` (``--single-roi``),
+  ``radial_fft`` (high/low PSD band ratio — see "Method 2 caveat"
+  below), ``edge_decay`` (Marziliano edge width), and four added
+  during the POC: ``laplacian_var``, ``tenengrad``, ``dct_kurtosis``
+  (Ferzli-Karam variant), ``wavelet_ratio`` (db2 detail/approx ratio,
+  §6 above).
+
+### Within-sweep test — does the method pick the sharpest rail step?
+
+Manual review of 5 disagreement tiles from a 24-120 + Raynox M-250 @
+F8 sweep (85 shots):
+
+| method | times it picked the visually-sharpest shot |
+|---|---|
+| ``filesize`` | **5/5** |
+| ``edge_decay`` (argmax only) | 4/5 |
+| ``mtfmapper`` | 1/5 |
+| ``radial_fft`` | 0/5 |
+
+``mtfmapper``'s ``peak_MTF50 = 0.972 cy/px`` on a wafer tile (where
+0.5 is the Nyquist limit) is the canonical tell that the
+``--single-roi`` fallback has latched onto an aliasing artefact.
+
+### Cross-lens test — same scene, four bare native macros at 1:1, F8
+
+Mean rank per (method × lens) across 35 tile positions (1 = sharpest):
+
+```
+                            Z MC 105  AF 200/4D  Sigma 150  Sigma 105
+filesize                       2.57      1.34       2.54       3.54
+radial_fft                     3.17      1.46       2.63       2.74
+mtfmapper                      2.38      2.82       2.26       2.27
+laplacian_var                  1.94      2.03       2.46       3.57
+tenengrad                      1.60      2.94       2.14       3.31
+wavelet_ratio                  1.17      2.94       3.09       2.80
+dct_kurtosis                   2.29      2.11       2.23       3.37
+edge_decay                     1.34      1.17       1.37       1.40  (saturated ties)
+```
+
+Three different lenses appear in first place across methods. Only
+consensus: ``Sigma Macro 105mm F2.8 EX DG OS HSM`` is last by every
+discriminating method. **No clean winner for cross-lens ranking on
+the bare-native-macro case** — quality differences here are smaller
+than the methods' framing/content sensitivities.
+
+### Cross-config test — six different lens combos all resized to 1:1, F8
+
+When the lens-quality spread is large, methods *do* converge:
+
+- ``NIKKOR_Z_MC_105mm_f_2.8_VR_S + 5T`` (modern native macro + mild
+  diopter) ranks 1.0–2.31 across every method except mtfmapper.
+- ``NIKKOR_Z_24-120mm_f_4_S + Raynox_M-150`` (general zoom + strong
+  diopter) ranks 5.00–5.89 across every method except mtfmapper.
+- Pairwise Spearman ρ on centre-tile ranking: 0.83–0.94 between
+  ``filesize``, ``laplacian_var``, ``wavelet_ratio`` and
+  ``radial_fft``.
+- ``mtfmapper`` is **completely flat** here — all six lenses rank
+  3.21–3.34, i.e. mean rank of (n+1)/2 = 3.5. It can't discriminate
+  on the resized cohort at all.
+
+### Multi-copy test — 5 copies of two 55mm prime models at 1:1, F8
+
+3× Auto 55mm f/3.5 (s/n 209088, 258263, 262711) and 2× AIS 55mm
+f/2.8 (s/n 287318, 537016). Every method except ``mtfmapper`` cleanly
+separates AIS (sharper) from Auto (softer). Same model copies should
+score similarly; **coefficient of variation across copies**:
+
+```
+edge_decay      0.000  (artefact: integer-pixel ties hide variation)
+filesize        0.021
+dct_kurtosis    0.032
+tenengrad       0.106
+wavelet_ratio   0.148
+laplacian_var   0.151
+radial_fft      0.179
+mtfmapper       0.536    ← ~25× noisier than filesize/dct_kurtosis
+```
+
+### Conclusions
+
+1. **``mtfmapper`` is not viable for this rig.** Three independent
+   strikes: failed the manual within-sweep check (1/5), completely
+   flat on the resized cross-config cohort, and the worst CV across
+   nominally-identical lens copies. Two failure modes:
+   - On wafer tiles the default component-finding step can't locate
+     chart-style "black objects", and the ``--single-roi`` fallback
+     measures whatever gradient happens to dominate, which is often
+     an aliasing artefact.
+   - Where it does measure, the result is noise-limited.
+   Don't write a rail-coverage column for it. If a future dataset
+   contains isolated dark targets (a real chart card, individual
+   bond pads under high magnification), revisit — the method works,
+   just not on this subject.
+
+2. **``filesize`` is more robust than this doc previously credited it
+   with.** It picked the visually-sharpest rail step on 5/5 manually
+   reviewed tiles, and on cross-config comparisons with a wide
+   quality spread it agreed strongly with the more principled
+   methods (ρ ≈ 0.94 with ``wavelet_ratio`` and ``laplacian_var``).
+   The known failure mode — being content-fooled when framings
+   differ subtly — manifested clearly only in narrow comparisons
+   (centre-tile of multi-copy 55mm: picked the Auto over the AIS).
+   Keep it as a primary proxy in ``rail-coverage/``; don't replace
+   it.
+
+3. **``wavelet_ratio`` (§6) is the best cross-frame supplement.** db2
+   3-level detail/approximation energy ratio. Tracks the consensus
+   ranking on cross-config (ρ ≈ 0.83–0.94 with filesize), gets the
+   AIS-vs-Auto distinction right on multi-copy. The LL approximation
+   normalisation is exactly the property that compensates for
+   different framings.
+
+4. **``dct_kurtosis``** (Ferzli-Karam DCT-AC variant, §4) is the most
+   stable across same-model copies (CV = 0.032, second only to
+   ``edge_decay``'s quantisation-trick zero). Useful as a calibration
+   stability check; tracks consensus rankings reasonably.
+
+5. **§2 (parametric radial power-spectrum fit) does not converge on
+   wafer tiles.** σ saturates at the physical Nyquist bound on
+   nearly every in-focus tile, producing identical fitted MTF50s
+   across the frame. The fallback I shipped (``radial_fft`` = high
+   ``E[0.30, 0.45]`` / low ``E[0.10, 0.20]`` cy/px band ratio) works
+   for spatial ranking but its **argmax across a sweep is unreliable**
+   because near-Nyquist JPEG quantisation noise inflates the
+   numerator on heavily defocused frames. Use it for ranking tiles
+   within a known-good shot, not for picking which shot is the
+   best-focus.
+
+6. **``edge_decay`` (Marziliano width)** quantises to integer pixels
+   and saturates at 4–5 on these crops; useful only for *which rail
+   step* (argmax) within a sweep, not for peak-magnitude ranking
+   across tiles or lenses.
+
+7. **``laplacian_var`` and ``tenengrad``** are content-dependent
+   autofocus classics. On cross-config with a wide quality spread
+   they ride the consensus; on narrow comparisons they're as
+   framing-dependent as filesize.
+
+### Recommended setup for cross-lens / cross-frame work
+
+| use case | primary | sanity check | notes |
+|---|---|---|---|
+| within-sweep argmax (which rail step is sharpest) | ``filesize`` | ``edge_decay`` argmax | manual confirms 5/5; both stable |
+| cross-lens ranking, similar framing | ``filesize`` | ``wavelet_ratio`` | ρ ≈ 0.94; disagreement → investigate |
+| cross-config ranking, different framings | ``wavelet_ratio`` | ``dct_kurtosis`` | both content-normalised; agree on extremes |
+| same-model copy consistency | ``dct_kurtosis`` | ``filesize`` | both CV ≤ 0.035 |
+
+Where the primary and the sanity-check disagree by more than ~2 ranks
+on a 4–6-lens cohort, that's the signal worth manually inspecting
+(``tile-sharpness cross-lens-crops --tile 0,0 …``).
 
 ---
 

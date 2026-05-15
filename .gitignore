@@ -13,4 +13,5 @@ wheels/
 # Generated reports
 rail-coverage/output/
 tile-sharpness/out/
-tile-sharpness/out_crosslens/
+tile-sharpness/out_*/
+tile-sharpness/cross_cohort_summary/

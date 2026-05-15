@@ -74,6 +74,35 @@ Source: `lens-test-detect-core/src/lens_test_detect_core/primitives.py`
 (shared between this offline analyser and the live `sharpness`
 package in `run-lens-test/`).
 
+### Rig semantics — what an off-target crop means, and how reshoots work
+
+Two facts about the StackShot wafer rig that aren't visible from the
+code or filenames and that govern how diagnostic tools should treat
+these labels:
+
+1. **An "off-target" crop is geometric, not a fault to fix.** When
+   the silicon wafer target is too small to cover the full sensor
+   frame at a given lens configuration (typically lower
+   magnifications or wider focal lengths), some of the 9 / 17 crop
+   windows fall outside the wafer and capture only out-of-focus
+   background. This is inherent to the lens config — the user
+   cannot fix it by reshooting at a different distance. Off-target
+   crops should be **excluded** from sharpness-peak analysis (their
+   flat file-size profile has no real peak), but should **not**
+   appear on any reshoot list.
+
+2. **Reshoot direction is not actionable.** The user cannot
+   reproduce the exact subject-distance range of a previous run, so
+   a reshoot recommendation should just say "this scenario needs to
+   be re-shot" — don't report which way the rail needs to extend
+   (start-side vs end-side) or "shots short" estimates. Just list
+   scenarios + a representative chart so the user can visually
+   confirm.
+
+`OFF_TARGET` is therefore a "skip / suppress" label, and reshoot
+reports apply only to scenarios with `TRUNCATED` bell curves on
+*non-off-target* crops.
+
 The thresholds differ between the two consumers because of input
 granularity:
 - **rail-coverage** sees ~3 raw shots per rail position → `edge_shots = 6`
