@@ -17,8 +17,11 @@ Four steps, in order:
 3. **`rename_for_digikam.py`** (nufan) — TODO. Applies the
    `NNNNN|<slug>|<mag>|<focal> mm|F<n>|<orig>.jpg` filename
    convention. Sequence by `rail_position_mm` ascending.
-4. **`sort_to_lens_tree.py`** (nufan) — TODO. Collapses session
-   grouping into the final `<lens>/<mag>/<focal>/F<n>/` tree.
+4. **`sort_to_lens_tree.py`** (nufan) — TODO. Inside each
+   `2026-05-13/<slug>/` dir, builds the `<mag>/<focal mm>/F<n>/`
+   subdir tree and moves the renamed JPEGs (+ their `cropped/`
+   siblings) in. The slug stays at top level; only its internal
+   shape changes.
 
 ## Usage (step 1)
 
