@@ -29,7 +29,9 @@ in `~/.claude/plans/effervescent-jingling-newt.md`.
     analysis under "Merge feasibility" below.
   - D2.d (`Sigma 150 + 5T` canonical pick): `14_132004` canonical,
     `13_230021`'s `+ 5T` config superseded.
-  - D4 (pre-cascade-rewrite shoots): archive everything; flag with
+  - D4 (pre-cascade-rewrite shoots): keep all — pre-cascade status
+    is not a reason to drop a session at archive time. Per-config
+    canonical/superseded routing still applies. Flag with
     `calibration_methodology: pre-cascade-fix` in per-session
     metadata. Cutoff is `2026-05-13T23:00 UTC`.
   - D5 (archive routing model): lens-config-level routing —
@@ -284,7 +286,7 @@ Both shoots are post-cascade-rewrite (see D4 below) so calibration
 quality is comparable; the deciding factors are the deliberate
 redo intent and the cleaner row pattern.
 
-### D4. Pre-cascade-rewrite shoots — resolved: archive all, flag metadata
+### D4. Pre-cascade-rewrite shoots — resolved: keep all, flag metadata
 
 The AA cascade rewrite (DESIGN_NOTES §6.32) landed in a sequence
 of commits on 2026-05-13 between 21:06 UTC (`578e9f1` silent-FEC
@@ -296,8 +298,17 @@ were silently rejected by the Z7 widget, leaving the flash firing
 at the previous successfully-set FEC. The cascade's bookkeeping
 recorded the requested FEC, not the actual one.
 
+"Keep all" means: pre-cascade status alone is not a reason to drop
+a session. The per-config canonical/superseded routing from the
+sections above still applies — `2026-05-06_231805` (⭐ MC 105 +
+61mm, pre-cascade) goes to the lens layout; `2026-05-06_175727`
+(⛔ same slug, pre-cascade) goes to raw archive only; sessions in
+the "Aborted / empty / test" list above are still skipped
+entirely. The cascade flag is metadata for downstream consumers,
+not a routing input.
+
 Pre-cascade cutoff: any session started before `2026-05-13
-T23:00 UTC`. Affected sessions (all kept, not skipped):
+T23:00 UTC`. Affected sessions:
 
 | Session | Slug(s) | Why we keep it |
 |---|---|---|
