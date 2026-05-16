@@ -221,6 +221,27 @@ def find_line_peaks(sig: np.ndarray, *, p_min: int = 40):
     return peaks
 
 
+def refine_peaks_subpixel(sig: np.ndarray, peaks: np.ndarray) -> np.ndarray:
+    """Refine each integer peak position to sub-pixel precision via a
+    parabolic fit on its 3-pixel neighbourhood. Critical at high
+    magnifications where only 2-3 die-pitches fit in the frame — a
+    ±1 px localization error on a 300-px period is +/-0.3 %; without
+    this refinement, the median-of-3 integer spacings would
+    quantize the magnification estimate.
+    """
+    refined = []
+    for idx in peaks:
+        i = int(idx)
+        if 0 < i < len(sig) - 1:
+            a, b, c = float(sig[i - 1]), float(sig[i]), float(sig[i + 1])
+            denom = a - 2 * b + c
+            offset = 0.5 * (a - c) / denom if denom != 0 else 0.0
+            refined.append(i + offset)
+        else:
+            refined.append(float(i))
+    return np.asarray(refined)
+
+
 # ---- Pipeline -------------------------------------------------------------
 
 
@@ -229,10 +250,23 @@ class WaferMeasurement:
     period_px: float | None
     tilt_deg: float
     n_lines: int
-    spacings: tuple[int, ...]
+    spacings: tuple[float, ...]
     image_width_px: int
     wafer_width_px: int
+    confidence: str = ""    # "high" (n_lines ≥ 5), "medium" (3-4), "low" (≤ 2)
     reason: str = ""
+
+
+def _confidence_label(n_lines: int) -> str:
+    """A simple bucket based on how many distinct die boundaries the
+    pipeline detected. Median-of-2 spacings (n_lines == 3) is more
+    fragile than median-of-many; we surface this for downstream
+    consumers who may want to send low-confidence configs to vision."""
+    if n_lines >= 5:
+        return "high"
+    if n_lines >= 3:
+        return "medium"
+    return "low"
 
 
 def measure(
@@ -258,9 +292,13 @@ def measure(
         return WaferMeasurement(
             period_px=None, tilt_deg=tilt, n_lines=int(len(peaks)),
             spacings=(), image_width_px=img.shape[1], wafer_width_px=masked.shape[1],
-            reason="fewer_than_2_lines",
+            confidence="low", reason="fewer_than_2_lines",
         )
-    spacings = np.diff(peaks)
+    # Sub-pixel refine each peak position, then compute spacings as
+    # float differences. At >1:1 mag only 2-3 spacings exist; the
+    # parabolic refinement keeps each one ±0.1-0.3 px instead of ±1 px.
+    refined = refine_peaks_subpixel(sig, peaks)
+    spacings = np.diff(refined)
     valid = spacings[(spacings >= p_min) & (spacings <= p_max)]
     if len(valid) >= 2:
         period = float(np.median(valid))
@@ -270,8 +308,9 @@ def measure(
         period = float(np.median(spacings))
     return WaferMeasurement(
         period_px=period, tilt_deg=tilt, n_lines=int(len(peaks)),
-        spacings=tuple(int(s) for s in spacings),
+        spacings=tuple(float(s) for s in spacings),
         image_width_px=img.shape[1], wafer_width_px=masked.shape[1],
+        confidence=_confidence_label(int(len(peaks))),
     )
 
 
@@ -291,7 +330,7 @@ def parse_mag_label(mag_str: str) -> float:
 
 MANIFEST_COLUMNS = [
     "slug", "mag_label", "claimed_mag", "image_path", "image_size_bytes",
-    "algo_period_px", "algo_tilt_deg", "algo_n_lines",
+    "algo_period_px", "algo_tilt_deg", "algo_n_lines", "algo_confidence",
     "algo_measured_mag", "algo_deviation_pct",
     "visual_count", "visual_count_anchor", "vision_measured_mag",
     "vision_confidence", "notes",
@@ -342,9 +381,10 @@ def prepare_manifest(
             "claimed_mag": parse_mag_label(mag_label),
             "image_path": str(path),
             "image_size_bytes": path.stat().st_size,
-            "algo_period_px": f"{m.period_px:.1f}" if m.period_px else "",
+            "algo_period_px": f"{m.period_px:.2f}" if m.period_px else "",
             "algo_tilt_deg": f"{m.tilt_deg:+.2f}",
             "algo_n_lines": m.n_lines,
+            "algo_confidence": m.confidence,
             "notes": m.reason or "",
         }
         rows.append(row)
