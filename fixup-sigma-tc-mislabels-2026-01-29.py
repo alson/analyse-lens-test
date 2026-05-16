@@ -44,8 +44,23 @@ WHOLE_FOLDER_RENAMES = [
     # reverted by `revert-sigma-150-tc-2001-1_1-rename-2026-01-29.py`;
     # the entry is removed here so re-running this script doesn't
     # re-apply the over-correction.
-    ("Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401",     "1_1", "1.5_1"),
+    # Sigma 105 + TC-1401 — labels swapped at GT-measurement time vs
+    # achieved magnification: the dir labelled "1_1" was actually
+    # ~1.49× on sensor (TC-1.4 effective ≈ 1.44, lens ~1.034× = ~1.49×;
+    # see ANALYSIS_NOTES §7a.4) and the dir labelled "1.4_1" was at
+    # ~1.0×. Swap to match achievement; both ends round to their new
+    # label's value (1.49 → 1.4 with the same convention applied to
+    # Sigma 150 + TC-1401 / 1.4_1's 1.443×, and 1.01 → 1.0). The
+    # swap routes through a tmp intermediate so re-running on fresh
+    # data doesn't collide. The original commit of this script went
+    # via "1.5_1" as the intermediate (algo's 1-decimal rounding of
+    # 1.456 → "1.5_1"); subsequent analysis showed both same-setup
+    # dirs (Sigma 150 + TC-1401 / 1.4_1 and Sigma 105 + TC-1401 /
+    # 1.4_1) should carry the same 1.4_1 label, and the intermediate
+    # was renamed via rename-sigma-105-tc-1401-1.5to1.4-2026-01-29.py.
+    ("Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401",     "1_1", "_tmp_swap"),
     ("Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401",     "1.4_1", "1_1"),
+    ("Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401",     "_tmp_swap", "1.4_1"),
 ]
 
 PARTIAL_SPLIT = {

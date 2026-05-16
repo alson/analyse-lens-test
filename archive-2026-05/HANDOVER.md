@@ -177,10 +177,36 @@ sibling trees + crops.
     (the algo's F11 reading of 1.45× was a sub-feature harmonic).
     Revert script:
     `analyse-lens-test/revert-sigma-150-tc-2001-1_1-rename-2026-01-29.py`.
+    The multi-aperture cross-check (added later) would have flagged
+    the over-correction up front — F11 disagreed with F16/F8.5 by
+    32 %.
+  - The 105 + TC-1401 / 1_1 → 1.5_1 step was subsequently
+    re-renamed to `1.4_1` for consistency with
+    `Sigma 150 + TC-1401 / 1.4_1` (same lens-at-MFD-with-TC-1.4
+    setup; same label). Script:
+    `analyse-lens-test/rename-sigma-105-tc-1401-1.5to1.4-2026-01-29.py`.
 
-  Multi-aperture cross-check (added later) would have flagged the
-  over-correction up front — F11 disagreed with F16/F8.5 by 32%.
-  See ANALYSIS_NOTES.md §7a.4 + §7a.7 for the full reasoning.
+  Caliper measurement of the physical wafer (47.9 mm / 9 dies =
+  5.322 mm physical pitch) gives absolute calibration. Sigma 150
+  anchor reads 0.982× of true 1:1; Nikon AF 200 f/4D / 1_1 reads
+  exact 1.000× (user GIMP-verified); Nikon F-mount MF macros
+  (MC 105, 60 f/2.8D, AIS 55, Auto 55) cluster at 0.96-0.97×
+  (3-4 % under true 1:1, design-level focus-scale offset). See
+  ANALYSIS_NOTES.md §7a.4 + §7a.7 + §7a.8 for the full reasoning.
+
+* **Archive step-1 broken-symlink count (2026-05-16): 5082.** The
+  `archive_to_nfs.py` merge-symlink logic creates
+  `cur_step_NNNN[_X].jpg` symlinks for what it expects to be
+  overlapping captures across merged sessions, but most of those
+  step files don't exist in the underlying merge_source dirs
+  (e.g. `Z 24-120 + 61mm extension (2026-05-08_201054)/f_8/`
+  contains only `step_0092.jpg` and `cropped/`, yet 200+
+  `cur_step_*` symlinks point into it). Not blocking the
+  wafer-measurement work (these are inside `f_<n>/` subtrees,
+  which `sharpest_per_aperture` doesn't look at — it only walks
+  `F<n>/` top-level dirs). Worth investigating before relying on
+  the merged-dir trees as drop-in equivalents to the merge-source
+  sessions.
 * **Wafer-square algorithm partial-wafer failure mode partly
   addressed.** Sub-1:1 frames (e.g. `100-400 / 1_2.60` where the
   wafer covers ~27 % of frame width) still don't give trustworthy

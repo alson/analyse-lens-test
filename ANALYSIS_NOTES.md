@@ -514,29 +514,92 @@ below); these three stand:
   the labels were swapped at GT-measurement time so this one is
   actually at ~1.0× (algo measures 1.010× HIGH, fd 0.335 m at lens
   ~0.66× × TC ≈ 1.5 = 1.0× on sensor — all agree).
-* `Sigma 105 + TC-1401 / 1_1` → renamed `1.5_1` — labelled 1:1 but
-  actually ~1.5× (algo 1.456×; user GIMP measurement 3 squares =
-  5576 px = 1.54×; fd 0.316 m = Sigma 105 MFD = lens 1.0× × TC
-  empirically ~1.5 = 1.5× on sensor). User had intended 1.4× and
-  the apparent discrepancy is the Sigma TC-1401's effective factor
-  being ~1.45-1.55, not the nominal 1.4 (also visible in
-  Sigma 150 + TC-1401 / 1.4_1 measuring 1.443×).
+* `Sigma 105 + TC-1401 / 1_1` → renamed `1.4_1` (via a `1.5_1`
+  intermediate that was later corrected — see end of this section).
+  Original "1_1" label was wrong; this dir is at lens-MFD + TC-1.4,
+  which the user's GIMP measurement put at 1.536× and the algo at
+  1.456×. Decomposed: lens at MFD is **1.034× past true 1:1** on
+  the Sigma 105 (the lens-spec allows a hair closer than 1:1) and
+  the **Sigma TC-1401's effective factor is ~1.44** (visible in
+  `Sigma 150 + TC-1401 / 1.4_1` measuring 1.443×, where the Sigma
+  150 doesn't overshoot). Product: 1.034 × 1.44 = ~1.49 on sensor.
+  The `1.4_1` label is consistent with `Sigma 150 + TC-1401 / 1.4_1`
+  (same lens-at-MFD-with-TC-1.4 setup) — both round to 1.4 once
+  the TC's small overshoot is normalised across the two lenses.
 * `Sigma 105 + TC-2001 / 2_1 partial split` — 232 stray 1:1 captures
   in seq range 15777–16008 moved into `1_1/` after per-file Nikon
   FocusDistance audit revealed two distinct fd subgroups in the
   folder.
 
-**One fixup rename was reverted (2026-05-16)** —
-`Sigma 150 + TC-2001 / 1_1` was renamed to `1.5_1` based on the
-algo's F11 reading of 1.45×, but that turned out to be a sub-feature
-harmonic. The lens focus-scale reading (fd 0.501 m = lens 1:2 =
-0.5× × TC-2 = **1.0× on sensor**) and user's GIMP die-pitch
-measurement (5 squares = 6172 px → ratio 1.027×) both put this dir
-at ~1:1, matching the user's stated shoot-target of "1:1, 1.4:1,
-2:1" for 150+TC-2001. The F16 and F8.5 frames in this dir
-correctly measured ~0.98× — only F11 latched onto the harmonic.
-Revert applied via
-`analyse-lens-test/revert-sigma-150-tc-2001-1_1-rename-2026-01-29.py`.
+**Two corrections to the original fixup (2026-05-16)** —
+- `Sigma 150 + TC-2001 / 1_1` was renamed to `1.5_1` based on the
+  algo's F11 reading of 1.45×, but that turned out to be a
+  sub-feature harmonic. The lens focus-scale reading (fd 0.501 m =
+  lens 1:2 = 0.5× × TC-2 = **1.0× on sensor**) and user's GIMP
+  die-pitch measurement (5 squares = 6172 px → ratio 1.027×) both
+  put this dir at ~1:1, matching the user's stated shoot-target of
+  "1:1, 1.4:1, 2:1" for 150+TC-2001. The F16 and F8.5 frames in
+  this dir correctly measured ~0.98× — only F11 latched onto the
+  harmonic. Revert applied via
+  `analyse-lens-test/revert-sigma-150-tc-2001-1_1-rename-2026-01-29.py`.
+- `Sigma 105 + TC-1401 / 1.5_1` was re-renamed to `1.4_1` for
+  consistency with `Sigma 150 + TC-1401 / 1.4_1`. The 1-decimal
+  rounding of the algo's 1.456× reading produced "1.5_1" as the
+  intermediate label, but once it became clear (a) the Sigma 105
+  bare reads 1.034× and (b) the Sigma TC-1401's effective factor
+  is ~1.44, the two same-setup dirs (150+TC-1401 / 1.4_1 measured
+  at 1.443×, 105+TC-1401 at 1.456×) should carry the same label.
+  Re-rename via `analyse-lens-test/rename-sigma-105-tc-1401-1.5to1.4-2026-01-29.py`.
+
+### 7a.8 Absolute calibration via caliper measurement (2026-05-16)
+
+User caliper measurement of the wafer: 9 die pitches = 47.9 mm →
+physical die pitch **5.322 mm**. With the Nikon Z7 sensor pitch of
+4.349 µm/px (= 229.97 px/mm) this gives a true-1:1 projected
+pitch of **5.322 × 229.97 = 1224 px** at full-res.
+
+Re-expressed as absolute magnifications (algo period × 8.0625 ÷
+1224):
+
+| Config | algo mag vs Sigma 150 | **absolute mag** | dev from true 1:1 |
+|---|---:|---:|---:|
+| Sigma 150 bare 1_1 (anchor) | 1.000× | **0.982×** | −1.8 % |
+| Sigma 105 bare 1_1 | 1.034× | **1.015×** | +1.5 % |
+| Nikon AF 200 f/4D 1_1 (your F11/F8 GIMP) | — | **1.000×** | 0 % |
+| NIKKOR Z MC 105 1_1 | 0.986× | 0.968× | −3.2 % |
+| Nikon AF Micro 60mm f/2.8D 1_1 | 0.985× | 0.967× | −3.3 % |
+| Nikon 55mm AIS 287318 1_1 | 0.975× | 0.957× | −4.3 % |
+| Nikon 55mm AIS 537016 1_1 | 0.984× | 0.966× | −3.4 % |
+| Nikon Auto 55 (avg over 3 serials) | 0.985× | 0.967× | −3.3 % |
+
+**Findings**:
+
+- The **Sigma 150 anchor is itself ~2 % under true 1:1**, so the
+  algo's reported "1.000×" is a *relative* baseline, not absolute.
+  Converting to absolute mag = `algo_mag × (1224/1201.85) =
+  algo_mag × 1.0184`.
+- **Sigma 105 is the only lens that goes past true 1:1**, by 1.5 %.
+  The lens-spec note that its focus scale allows slightly past 1:1
+  is confirmed.
+- **Nikon AF Micro 200 f/4D's 1_1 frame measures at exact true 1:1**
+  (user GIMP 6121.8 px / 6127.5 px on F8 / F11 vs 6120 px target).
+  The algo's F11 reading of 1.188× was a sub-feature harmonic which
+  the multi-aperture warning correctly flagged.
+- **All Nikon F-mount MF macros (Z MC 105, 60mm f/2.8D, AIS 55mm
+  x2, Auto 55mm × 3 serials) sit 3–4 % under true 1:1**. The
+  cluster is tight across serials, so this is a design-level
+  focus-scale offset, not per-lens drift.
+
+The TC factors are independent of the absolute scale (they're
+intra-anchor ratios):
+- Sigma TC-1401 effective: ~1.44× (3 % over nominal 1.4)
+- Sigma TC-2001 effective: ~1.96× (2 % under nominal 2.0)
+
+For downstream consumers: the algo's anchor convention (Sigma 150 =
+1.000×) is fine for relative comparisons; if absolute mags are
+needed, multiply by 1.018. `measure_wafer_squares` could
+optionally take a `--absolute-anchor-mag=0.982` flag in the future
+to bake this in.
 
 A fourth issue — a partial-folder split, not catchable by the
 single-frame algorithm but visible in per-file Nikon FocusDistance
