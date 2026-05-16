@@ -87,7 +87,8 @@ from typing import Iterable
 import numpy as np
 from PIL import Image
 from scipy.ndimage import (
-    binary_opening, gaussian_filter, rotate as ndi_rotate, sobel,
+    binary_closing, binary_opening, gaussian_filter,
+    rotate as ndi_rotate, sobel,
 )
 from scipy.signal import find_peaks
 
@@ -211,15 +212,30 @@ def extract_long_line_columns(
     img: np.ndarray, *,
     edge_threshold_pct: float = 80.0,
     min_line_length_frac: float = 0.40,
+    gap_bridge_px: int = 0,
 ) -> np.ndarray:
     """Per-column count of pixels that are part of a vertical edge
     segment ≥ ``min_line_length_frac`` × image height. Sub-features
     (short edges) are filtered out by the morphological opening.
+
+    ``gap_bridge_px``: if > 0, a vertical ``(gap_bridge_px, 1)``
+    binary closing is applied to the edge mask before the long-line
+    opening. This bridges short vertical gaps in otherwise-long
+    scribes — useful when dust spots or other localised obstructions
+    visibly interrupt the scribe in the captured frame. The caller
+    chooses when to enable this; ``measure()`` retries with
+    ``gap_bridge_px=15`` as a fallback when the primary pass returns
+    fewer than 4 line peaks.
     """
     h, w = img.shape
     edges = np.abs(sobel(img, axis=1))
     thr = np.percentile(edges, edge_threshold_pct)
     edge_mask = edges > thr
+    if gap_bridge_px > 0:
+        edge_mask = binary_closing(
+            edge_mask,
+            structure=np.ones((gap_bridge_px, 1), dtype=bool),
+        )
     L = max(5, int(h * min_line_length_frac))
     opened = binary_opening(edge_mask, structure=np.ones((L, 1), dtype=bool))
     return opened.sum(axis=0).astype(np.float32)
@@ -403,6 +419,33 @@ def _confidence_label(n_lines: int, cross_check_agrees: bool) -> str:
     return "low"
 
 
+RELAX_GAP_BRIDGE_PX = 15
+"""Vertical closing kernel height used by ``measure()`` when the
+primary long-line opening returns fewer than ``RELAX_TRIGGER_N_LINES``
+peaks. 15 was empirically the largest value that recovered
+dust-broken scribes (frame 16667 in 55mm AIS 537016 / 1_1 / F11)
+without fusing adjacent dies in any of the 16 path-encoded
+validation cases. K ≥ 20 starts merging real die boundaries on
+high-mag cases (200mm + 6T) and the algorithm collapses to a 2x
+or sub-feature harmonic. K = 10 still leaves 16667 at +8% error."""
+
+RELAX_TRIGGER_N_LINES = 2
+"""``measure()`` retries the long-line extraction with
+``gap_bridge_px=RELAX_GAP_BRIDGE_PX`` only when the primary pass
+returns strictly fewer than this many peaks — i.e. when the primary
+would otherwise have nothing to compute a period from and fall back
+to the (less-trustworthy) 2D-FFT cross-check. A more eager trigger
+(``< 3`` / ``< 4``) was tried and regressed Sigma 150 + TC-2001 /
+1.5_1 and /2_1 (n_lines=3 primary returns the correct period; the
+retry-bridged map finds 4-5 extra spurious peaks at sub-feature
+pitch, throws off the median spacing). Restricting the retry to
+primary-failure cases preserves every currently-passing
+measurement and adds new measurements only where there was none
+before (e.g. 55mm AIS 537016 / 1_1 / F11 frame 16667 where dust
+spots interrupt the scribes, and the 100-400 + Z TC-1.4x / 1_1.86
+sub-1:1 case)."""
+
+
 def measure(
     path: Path, *,
     low_cut_sigma: float = 40.0, high_cut_sigma: float = 1.5,
@@ -410,7 +453,16 @@ def measure(
     min_line_length_frac: float = 0.40,
     p_min: int = 40, p_max: int = 400,
 ) -> WaferMeasurement:
-    """Run the full pipeline on a single image; return measurement."""
+    """Run the full pipeline on a single image; return measurement.
+
+    Primary pass uses a (L=40%-of-height, 1) morphological opening to
+    find scribe columns. If that returns fewer than
+    ``RELAX_TRIGGER_N_LINES`` peaks, retry with a
+    ``(RELAX_GAP_BRIDGE_PX, 1)`` binary closing pre-step to bridge
+    short vertical gaps (e.g. dust spots from shallow lighting that
+    locally interrupt scribes); the relaxed result is taken only if
+    it produces more peaks than the primary did.
+    """
     img = load_gray(path)
     mask = detect_wafer_mask(img)
     masked = img[mask]
@@ -422,6 +474,21 @@ def measure(
         min_line_length_frac=min_line_length_frac,
     )
     peaks = find_line_peaks(sig, p_min=p_min)
+    relaxed_reason = ""
+    if len(peaks) < RELAX_TRIGGER_N_LINES:
+        sig_relaxed = extract_long_line_columns(
+            bp, edge_threshold_pct=edge_threshold_pct,
+            min_line_length_frac=min_line_length_frac,
+            gap_bridge_px=RELAX_GAP_BRIDGE_PX,
+        )
+        peaks_relaxed = find_line_peaks(sig_relaxed, p_min=p_min)
+        if len(peaks_relaxed) > len(peaks):
+            sig = sig_relaxed
+            peaks = peaks_relaxed
+            relaxed_reason = (
+                f"used_gap_bridge_px={RELAX_GAP_BRIDGE_PX}_"
+                f"primary_n_lines<{RELAX_TRIGGER_N_LINES}"
+            )
     # 2D-FFT cross-check on the same band-passed image.
     cross_period = cross_check_period_2dfft(bp, p_min=p_min, p_max=p_max)
     if len(peaks) < 2:
@@ -462,6 +529,7 @@ def measure(
         image_width_px=img.shape[1], wafer_width_px=masked.shape[1],
         confidence=_confidence_label(int(len(peaks)), agrees),
         cross_check_period_px=cross_period,
+        reason=relaxed_reason,
     )
 
 

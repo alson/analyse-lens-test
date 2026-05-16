@@ -142,6 +142,51 @@ def test_detect_tilt_via_gradient_recovers_real_peak_past_aliasing_spike() -> No
     )
 
 
+# ---- Regression: scribe-gap-bridge retry -----------------------------------
+
+# A 55mm AIS 537016 / 1_1 / F11 frame where shallow lighting brings out dust
+# spots on the wafer; the dust visibly interrupts scribes into segments
+# shorter than the 40%-of-height long-line opening's threshold, so the
+# primary pipeline returns 0 peaks and the FFT fallback locks onto a 2x
+# harmonic (returns 2.247×). With the retry that pre-bridges short gaps via
+# binary_closing the algorithm recovers the true ~1.0× measurement.
+GAP_BRIDGE_FRAME = (
+    VALIDATION_ROOT
+    / "Nikon Micro-Nikkor 55mm f_2.8 AIS 537016"
+    / "1_1" / "F11"
+    / "16667|Nikon Micro-Nikkor 55mm f_2.8 AIS 537016|1_1|55.0 mm|F11|alm-20260205-121401-466.jpg"
+)
+
+
+def test_measure_gap_bridge_recovers_dust_broken_scribes(
+    anchor_period: float,
+) -> None:
+    """The picked-sharpest-F11 frame from this dir has scribes
+    interrupted by dust-spot reflections; primary long-line opening
+    returns 0 peaks at the default L=40% threshold. The retry with
+    gap_bridge_px=15 recovers 6 peaks and a magnification close to
+    the true 1.0× (matches every other measurable F11/F16 frame in
+    the same dir + GIMP-verified manual measurement)."""
+    if not GAP_BRIDGE_FRAME.exists():
+        pytest.skip(f"{GAP_BRIDGE_FRAME} not on disk")
+    m = measure(GAP_BRIDGE_FRAME)
+    assert m.period_px is not None, (
+        f"measurement still failed after gap-bridge retry: reason={m.reason!r}"
+    )
+    mag = m.period_px / anchor_period
+    assert 0.93 < mag < 1.08, (
+        f"expected ~1.0×, got {mag:.3f}× (period={m.period_px:.2f}, "
+        f"n_lines={m.n_lines}, reason={m.reason!r}). Without the retry "
+        f"this frame returns 2.247× via FFT fallback."
+    )
+    # Sanity: the retry mechanism should have been triggered (the
+    # primary couldn't have found 4 peaks here).
+    assert "gap_bridge" in m.reason, (
+        f"expected the retry path to fire (gap_bridge in reason), "
+        f"got reason={m.reason!r}"
+    )
+
+
 def test_detect_tilt_via_gradient_handles_no_signal() -> None:
     """Edge case: an image with no detectable edges anywhere in the
     detector's window must not raise. Returning either of the

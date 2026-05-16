@@ -484,35 +484,136 @@ The FFT also serves as a **fallback** when the primary returns
 None (sub-1:1 magnification where the wafer doesn't fill the
 frame, so < 2 long-line peaks survive the morphological filter).
 
-**Validation against 2026-01-29 path-encoded GT** (55 configs):
+**Validation against 2026-01-29 path-encoded GT** (55 configs;
+post-fixup labels, post-tilt-fix detector, and gap-bridge retry —
+see ### 7a.5 and ### 7a.6):
 
 | confidence | n  | mean abs dev | max  |
 |---|---|---|---|
-| HIGH       | 27 | 3.2 %        | 27.9 % |
-| MEDIUM     | 15 | 9.0 %        | 45.6 % |
-| LOW        | 11 | 19.8 %       | 124.7 % |
+| HIGH       | 27 | 2.2 %        | 8.8 % |
+| MEDIUM     | 17 | 5.5 %        | 26.9 % |
+| LOW        | 11 | 31.3 %       | 292.3 % |
 
-**Outliers that turned out to be GT label errors, not algorithm
-failures** (verified by vision-counting the actual F11 frames):
+HIGH + MEDIUM combined: n=44, mean 3.50 %, median 2.5 %, p90 5.3 %,
+max 26.9 % — the operationally-usable rows.
 
-* `Sigma 150 + TC-2001 / 1_1` — labelled 1:1 but the algorithm
-  reports 1.45× and the image visibly has ~9 dies (vs the 6 at
-  a true 1:1 frame). The user focused away from MFD trying to
-  match the 1:1 framing but didn't quite hit it.
-* `Sigma 105 + TC-1401 / 1_1` — same pattern: labelled 1:1 but
-  actually ~1.5×, ~4 dies visible.
-* `Sigma 105 + TC-1401 / 1.4_1` — companion shot to the above;
-  the labels were swapped at GT-measurement time so this one
-  is actually at ~1.0×.
+LOW max is now driven by the `100-400 / 1_2.60` sub-1:1 case where
+the gap-bridge retry produces a finite-but-wrong measurement at sub-
+feature pitch instead of returning `None`. Confidence stays "low"
+so downstream code (e.g. `rename_for_digikam._select_measured_mag`)
+still ignores it.
 
-The algorithm is more accurate than the 2026-01-29 GT in those
-three cases. After excluding the verified mislabels, HIGH-band
-mean error is well under 3 %.
+**Outliers that turned out to be GT label errors** — three rows the
+algorithm flagged in the original (pre-fixup) run; vision-counting
+the F11 frames confirmed and the labels were corrected in the
+dataset on 2026-05-16 (commit `8cd8f8e`-adjacent in the source
+data; fixup script at `analyse-lens-test/fixup-sigma-tc-mislabels-
+2026-01-29.py`):
+
+* `Sigma 150 + TC-2001 / 1_1` → renamed `1.5_1` — labelled 1:1 but
+  the algorithm reports 1.45× and the image visibly has ~9 dies
+  (vs the 6 at a true 1:1 frame). The user focused away from MFD
+  trying to match the 1:1 framing but didn't quite hit it.
+* `Sigma 105 + TC-1401 / 1_1` → renamed `1.5_1` — same pattern:
+  labelled 1:1 but actually ~1.5×.
+* `Sigma 105 + TC-1401 / 1.4_1` → renamed `1_1` — companion shot
+  to the above; the labels were swapped at GT-measurement time so
+  this one is actually at ~1.0×.
+
+A fourth issue — a partial-folder split, not catchable by the
+single-frame algorithm but visible in per-file Nikon FocusDistance
+EXIF — was also fixed in the same pass: `Sigma 105 + TC-2001 /
+2_1` held 232 stray 1:1 captures (seq 15777–16008) at the tail of
+the shoot order; their fd matched the 1_1 dir's fd exactly, so they
+were moved into `1_1/`.
 
 **Implementation**: `archive-2026-05/src/archive_2026_05/
 measure_wafer_squares.py`. Pure-helper unit tests + 16
 parametrised validation cases pass against the 2026-01-29 dataset
-with ≤ 10 % tolerance per case (3 % typical).
+with ≤ 10 % tolerance per case (2 % typical for HIGH).
+
+### 7a.5 Tilt-detector 0°-bin aliasing spike (2026-05-16)
+
+`detect_tilt_via_gradient` initially returned spurious +0.12° on
+some frames because the 8.06× Lanczos downsample inside
+`load_gray` aliases a fraction of the real tilted-scribe edges to
+exactly axis-aligned gradient direction (Sobel discretisation in
+a small kernel can't resolve sub-pixel sub-degree tilt). Those
+aliased edges accumulate in a single histogram bin at exactly 0°
+— a 1-bin-wide spike that outweighs the 4-6-bin-wide real peak at
++3-5° on frames whose real signal is weak (out-of-focus stack
+ends, F5.6 wide-open, sub-1:1 framing).
+
+Spatial signature: the 0°-bin gradients follow the die-pitch
+periodicity (their column-distribution spectrum peaks at the
+true period ≈ 146 px @ 1024-wide), so they are real scribe edges
+mis-classified, not noise / JPEG / Bayer.
+
+**Fix**: explicitly zero the two 0°-adjacent histogram bins before
+`argmax`. Smoothing the histogram was tried first but shifted
+plateau-shaped real peaks by 0.25° on three previously-passing
+configs (the 0.25° residual rotation broke downstream long-line
+opening, harmonics took over). The targeted zero-out only affects
+the known artifact bins and leaves every other measurement
+unchanged. Trade-off: a truly 0°-aligned wafer would be rejected —
+acceptable since every observed frame in this dataset is at +2-5°
+tilt; the prior would need relaxing on a different rig.
+
+In the 2026-01-29 manifest exactly one row was affected
+(`100-400 / 1_2.60`, tilt +0.12° → -0.62°). A frame-level audit on
+the 55mm AIS 537016 / 1_1 dir showed the same artifact recurring
+on F5.6 and one F8 frame the manifest doesn't pick — i.e. the fix
+also protects against the same failure mode on frames the algo
+*could* pick under a future selection-strategy change.
+
+### 7a.6 Gap-bridge retry on dust-broken scribes (2026-05-16)
+
+`55mm AIS 537016 / 1_1 / F11`'s picked-sharpest frame (16667) had
+the wafer scribes visibly interrupted by dust-spot specular
+reflections under shallow lighting. Each dust spot locally inverts
+the scribe-edge contrast for ~5-15 px, breaking what should be one
+~670-px-tall vertical line into multiple short segments. The
+default `(L=40%, 1)` morphological opening rejects all of them
+(individual segments are too short), n_lines drops to 0, and the
+2D-FFT cross-check picks a confidently-wrong 2×-ish harmonic (the
+algorithm's only measurable row at 124.7 % deviation against
+1.0× GT).
+
+**Fix**: after the primary `extract_long_line_columns`, if the
+primary returns fewer than 2 peaks, retry with a `(15, 1)` vertical
+`binary_closing` pre-step. The closing bridges short vertical gaps
+in the edge mask, letting dust-broken scribes survive the
+subsequent long-line opening. A `gap_bridge_px` kwarg on
+`extract_long_line_columns` makes the closing opt-in; `measure()`
+controls the retry. Confidence is reported through the normal
+n_lines + cross-check logic (so the retry's results stay
+distinguishable from primary-success ones; in practice the retry
+lands in MEDIUM).
+
+The trigger was tightened from "n_lines < 4" to "n_lines < 2"
+after the looser version regressed two Sigma-150 + TC-2001 rows.
+At n_lines=3 the primary correctly returns the few real die-pitch
+peaks; the retry, run at that point, finds 4-7 additional spurious
+peaks at sub-feature pitch and the median spacing collapses to a
+sub-feature harmonic. Restricting the retry to primary-failure
+(n_lines < 2) preserves every currently-passing measurement.
+
+Empirically `gap_bridge_px=15` is the largest value that doesn't
+fuse adjacent dies in any validation case — `K ≥ 20` regresses
+the 200mm + 6T rows; `K = 10` still leaves frame 16667 at ~+8 %
+error.
+
+**Coverage** (vs the pre-retry baseline on 2026-01-29):
+
+| row | pre | post |
+|---|---|---|
+| 55mm AIS 537016 / 1_1                  | +124.7 % | −1.6 %  |
+| 100-400 + Z TC-1.4x / 1_1.86           | unmeasured | −0.0 % |
+| 100-400 / 1_2.60                        | unmeasured | +292 % (still LOW) |
+| every other previously-measurable row  | unchanged | unchanged |
+
+HIGH+MEDIUM mean abs dev: 3.6 % → 3.5 % (with 2 more rows now in
+band).
 
 ## 8. How findings flow into the planner
 

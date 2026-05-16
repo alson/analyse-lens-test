@@ -161,18 +161,27 @@ sibling trees + crops.
   `focal_length_mm` columns are empty in every captured session).
   Step 2 gets magnification from session.json's `lens_configs[]`
   entry instead; step 3 gets focal length from EXIF.
-* **The 2026-01-29 GT has at least three confirmed mislabels**:
-  Sigma 150 + TC-2001 /1_1 and Sigma 105 + TC-1401 /1_1 are
-  actually ~1.5×, not 1.0×; the companion Sigma 105 + TC-1401
-  /1.4_1 is actually ~1.0×. The user tried to focus away from MFD
-  to match the bare-1:1 framing but didn't quite hit it. The
-  algorithm flags these (LOW/MEDIUM confidence) and vision
-  confirmed.
-* **Wafer-square algorithm fails on partial-wafer frames** (sub-1:1
-  magnification where the wafer doesn't fill the frame, e.g.
-  100-400 bare at 0.385×). The primary returns None and the
-  2D-FFT fallback gives a rough number flagged LOW. Vision review
-  is the safety net.
+* **The 2026-01-29 GT had three confirmed mislabels — now fixed.**
+  Sigma 150 + TC-2001 /1_1 → renamed to `1.5_1`; Sigma 105 + TC-1401
+  /1_1 → `1.5_1`; Sigma 105 + TC-1401 /1.4_1 → `1_1` (the user
+  focused away from MFD trying to match the 1:1 framing but didn't
+  quite hit it, then mis-labelled by intent at archival time). A
+  per-file Nikon FocusDistance audit also surfaced a fourth issue
+  — 232 stray 1:1 captures (seq 15777–16008) hiding in `Sigma 105
+  + TC-2001 /2_1` — those were moved into `1_1/`. Fix applied
+  2026-05-16; the one-off `analyse-lens-test/fixup-sigma-tc-
+  mislabels-2026-01-29.py` script does the rename / move / crop-
+  resync. After the fixup, all algorithm rows for these slugs sit
+  within ±4 % of the new labels. See ANALYSIS_NOTES.md §7a.4 for
+  details.
+* **Wafer-square algorithm partial-wafer failure mode partly
+  addressed.** Sub-1:1 frames (e.g. `100-400 / 1_2.60` where the
+  wafer covers ~27 % of frame width) still don't give trustworthy
+  numbers; the gap-bridge retry (§7a.6) now produces *some*
+  measurement instead of returning None, but for `1_2.60`
+  specifically the result is still wrong (sub-feature harmonic).
+  Confidence is "low" so downstream code ignores it. Vision review
+  remains the safety net for sub-1:1 configs.
 * **`-resized` sibling dirs** under each slug (e.g.
   `1_1-resized/`, `2_1-resized/`) are produced by the existing
   `make-crop-*` script AFTER step 4 — not by this pipeline.
@@ -186,7 +195,7 @@ sibling trees + crops.
 | script | unit tests | validation |
 |---|---|---|
 | `archive_to_nfs.py` | 25 | dry-run-verified against real source |
-| `measure_wafer_squares.py` | 18 | 55 cases on 2026-01-29 GT; HIGH band 3.2 % mean abs dev |
+| `measure_wafer_squares.py` | 21 | 55 cases on 2026-01-29 GT post-fixup; HIGH band 2.2 % mean abs dev, HIGH+MEDIUM 3.5 % over 44 rows |
 | `rename_for_digikam.py` | 26 | helper-function tests only; not end-to-end yet |
 | `sort_to_lens_tree.py` | 8 | synthetic-slug end-to-end + dry-run + no-op + refusal |
 | **total** | **77** | |
