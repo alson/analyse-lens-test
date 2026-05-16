@@ -167,7 +167,9 @@ uv run tile-sharpness characterise out/peaks_v2.csv
 Additional outputs in `out/` when the LSF + maze-FFT pipeline runs:
 
 * `per_shot_per_tile.csv` — one row per `(sweep, tile_ix, tile_iy,
-  shot_idx)` with `lsf_peak_amp`, `lsf_mtf50_cy_per_px`, `maze_fft_amp`,
+  shot_idx)` with `lsf_peak_amp`, `lsf_mtf50_cy_per_px`,
+  `trough_fwhm_px` (measured scribe-trough FWHM in samples; used by
+  the M-aware non-scribe filter — see below), `maze_fft_amp`,
   `maze_resolves`, plus the M-driven per-metric ROI sizes
   (`lsf_roi_px`, `maze_roi_px`) and `filesize_bytes` / `on_target` for
   back-compat.

@@ -47,17 +47,29 @@ findings were folded into `analyse-lens-test/SHARPNESS_METRICS.md`.
 > peaks_v2.csv → per-slug lens_characteristics.csv) that picks up from
 > the 2026-05-16 findings.
 >
-> **Implementation status (commit `9097def`, 2026-05-16):** sequencing
-> steps 1-6 of the IMPLEMENTATION_PLAN have landed. New modules:
-> `src/tile_sharpness/m_lookup.py` (manifest lookup),
-> `methods/lsf.py` (OpenCV LSD scribe detect + cross-section + FFT),
+> **Implementation status (initial commit `9097def`, 2026-05-16):**
+> sequencing steps 1-6 of the IMPLEMENTATION_PLAN have landed. New
+> modules: `src/tile_sharpness/m_lookup.py` (manifest lookup),
+> `methods/lsf.py` (OpenCV LSD scribe detect + cross-section + FFT;
+> Hough fallback added in `7cfd5dd`; ESF→LSF math in `17a8d6a`),
 > `methods/maze_fft.py` (M-aware annulus sum, matches the prototype to
-> 0.4 % on a real AIS centre tile), `phase1.py` (per_shot_per_tile.csv +
-> peaks_v2.csv), `characterise.py` (lens_characteristics.csv).
-> CLI gains `--manifest <path>` (repeatable), `--no-legacy`, and a
-> `characterise` subcommand. 60 tests pass. **Validation task 1
-> (out_55mm AIS centre maze-FFT amp ratio ≤ 1.05)** ✓ measured 1.0412.
-> Steps 7-8 (HTML report wiring + cohort re-runs) deferred.
+> 0.4 % on a real AIS centre tile), `phase1.py` (per_shot_per_tile.csv
+> + peaks_v2.csv; trough-FWHM filter in `3d3c31c`),
+> `characterise.py` (lens_characteristics.csv). CLI gains
+> `--manifest <path>` (repeatable), `--no-legacy`, and a
+> `characterise` subcommand. 72 tests pass.
+>
+> Validation status:
+>   * **Task 1** ✓ — out_55mm AIS centre maze-FFT amp ratio = 1.0412 (≤ 1.05).
+>   * **Task 3** ✓ — AF 200/4D 1:1 F11 centre subject MTF50 = 42.7 lp/mm
+>     (target ~33; within physical limits, f/11 diffraction ≈ 67 lp/mm).
+>     Uniformity_dx = 0.92, uniformity_fx = 1.02 (matches "high uniformity
+>     (sharp macro)" prediction).
+>   * Tasks 2, 4, 5, 6 not yet run.
+>   * Task 7 blocked on rail-step-mm calibration for older datasets.
+>
+> Steps 7-8 of the IMPLEMENTATION_PLAN (HTML report wiring + full
+> cohort re-runs) deferred.
 >
 > **M-aware non-scribe rejection (`trough_fwhm_px` filter).** LSD/Hough
 > accepts long dark lines regardless of width; some non-scribe features
@@ -220,9 +232,12 @@ build steps).
 
 ## Repository state
 
-`analyse-lens-test/` repo, recent commits:
+`analyse-lens-test/` repo, recent commits (tile-sharpness only):
 
 ```
+3d3c31c tile-sharpness: M-aware trough-FWHM filter for non-scribe rejection
+17a8d6a tile-sharpness: ESF→LSF MTF50 fixes scribe-width-limited reading
+7cfd5dd tile-sharpness: Hough fallback for scribe detection (43 % → 90 %)
 9097def tile-sharpness: implement LSF + maze-FFT pipeline (Phases 1-3)
 8fecab0 docs: 2026-05-16 methodology supersession + LSF/maze-FFT plan
 f869d78 sharpness POC empirical findings + project-conventions doc

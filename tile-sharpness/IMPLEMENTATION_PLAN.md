@@ -5,7 +5,7 @@ analysis. Companion to `SHARPNESS_METRICS.md` "2026-05-16 update";
 read that first for the methodology rationale.
 
 > **Status — 2026-05-16:** sequencing steps 1-6 are landed and tested
-> (68 passing tests across 6 modules). Steps 7-8 (HTML report wiring +
+> (72 passing tests across 6 modules). Steps 7-8 (HTML report wiring +
 > cohort re-runs) deferred.
 >
 > Validation:
@@ -362,36 +362,68 @@ Suggested order, each step shippable on its own:
 
 ## Open work after 2026-05-16 implementation
 
-Pending before validation tasks 2-7 from this plan can be run on
-real cohorts:
+### Done
 
-- ~~**Tighten scribe detection (priority).**~~ ✓ **done** — Hough
-  fallback wired in: detection rate 43 % → 90 % on out_55mm AIS
-  sweeps; mean span 690 → 3240 px. Radon-projection alternative
-  shelved as the Hough approach was sufficient.
-- **Validate maze-pitch on non-AIS datasets.** The
-  `MAZE_PITCH_UM = 13.0` constant is back-solved from one AIS
-  tile. Confirm the pitch is stable on the 200/4D and Sigma
-  cohorts before publishing absolute lp/mm numbers.
-- ~~**MTF50 absolute calibration.**~~ ✓ **done** — task 3 ran and
-  exposed that the trough-as-LSF method was scribe-width-limited at
-  ~11 lp/mm regardless of lens. Switched to ESF→LSF differentiation
-  of the trough's two edges, MTF50 per edge, averaged. AF 200/4D
-  centre now reads 42.7 lp/mm (was 11.1); AIS 287318 centre 45.1
-  (was 11.9). Both within physical limits and consistent with each
+- ~~**Tighten scribe detection (priority).**~~ ✓ Hough fallback
+  wired in: detection rate 43 % → 90 % on out_55mm AIS sweeps;
+  mean span 690 → 3240 px. Radon-projection alternative shelved as
+  the Hough approach was sufficient.
+- ~~**MTF50 absolute calibration.**~~ ✓ Task 3 ran and exposed that
+  the trough-as-LSF method was scribe-width-limited at ~11 lp/mm
+  regardless of lens. Switched to ESF→LSF differentiation of the
+  trough's two edges, MTF50 per edge, averaged. AF 200/4D centre
+  now reads 42.7 lp/mm (was 11.1); AIS 287318 centre 45.1 (was
+  11.9). Both within physical limits and consistent with each
   edge's MTF50 (45–53 lp/mm individually on AF 200/4D centre, see
   POC at `/tmp/poc_esf_lsf.py`).
-- ~~**Non-scribe feature rejection.**~~ ✓ **done** — M-aware
-  `trough_fwhm_px` filter in `phase1._score_shot` drops LSF readings
-  whose measured trough is below half the predicted scribe FWHM at
-  the sweep's M. AF 200/4D `(+1, 0)` 81 lp/mm outlier (FWHM=12.5 at
-  M=1.0, predicted 20) now NaN; uniformity_dx 1.41 → 0.92, fx 1.65 →
+- ~~**Non-scribe feature rejection.**~~ ✓ M-aware `trough_fwhm_px`
+  filter in `phase1._score_shot` drops LSF readings whose measured
+  trough is below half the predicted scribe FWHM at the sweep's M.
+  AF 200/4D `(+1, 0)` 81 lp/mm outlier (FWHM=12.5 at M=1.0,
+  predicted 20) now NaN; uniformity_dx 1.41 → 0.92, fx 1.65 →
   1.02.
-- **Sequencing steps 7-8.** HTML report integration of
-  `peaks_v2.csv` and full cohort re-runs. Once LSF detection is
-  reliable, regenerate `out_55mm/cross_lens_crops/` from
-  maze-FFT argmax (the existing crops are filesize-picked and
-  unsafe for further numerical analysis per HANDOVER.md).
+
+### Pending validation runs
+
+- **Task 2** — Bare NIKKOR Z 100-400 at 0.385× F11. Expected: centre
+  subject MTF50 ≈ 33 lp/mm, sensor MTF50 close to Nyquist
+  (pixel-limited), corner MTF50 ~10-15 (zoom corner softness). Tests
+  the low-M LSF path (maze gates off at M < 0.7); the M-aware
+  trough-FWHM threshold is already designed to accept real low-M
+  scribes (predicted FWHM ~7.7 px → threshold ~3.85 px).
+- **Task 4** — Sigma 150 + TC-2001 at 2:1 F11. Expected: centre
+  subject MTF50 ≈ 41 lp/mm. Tests M=2.0 behaviour — at that M the
+  LSF ROI is ~6900 px which exceeds the 5504-px Z7 frame height, so
+  the grid degenerates to centre-only per the
+  accuracy-over-granularity policy.
+- **Task 5** — Nikon AF 200/4D + 5T + 6T at 2:1 F11. Expected:
+  centre subject MTF50 ≈ 23 lp/mm; worse corner falloff than the
+  bare AF 200/4D from task 3.
+- **Task 6** — Cross-config ordering. Sigma + TC-2001 > both bare
+  configs (task 3 + bare 100-400) > 200/4D + 5T + 6T on subject-MTF50.
+  Validates that the cross-config comparison metric orders configs
+  correctly, matching the visual ranking established in the
+  2026-05-16 update.
+- **Task 7** — Subject-tilt sanity check (older datasets should show
+  per-slug `subject_tilt_*_deg` in the 3-6° range). ⚠ **Blocked**:
+  older datasets lack `rail_position_mm` in `shots.csv`; the current
+  `characterise.py` falls back to `argmax_shot_idx` for the plane
+  fit, so the reported tilts are in shot-index units (not degrees).
+  Needs a rail-step-mm calibration constant for older shoots — see
+  HANDOVER.md "Implementation status" for the workaround.
+- **Validate maze-pitch on non-AIS datasets.** The
+  `MAZE_PITCH_UM = 13.0` constant is back-solved from one AIS tile.
+  Confirm the pitch is stable on the 200/4D and Sigma cohorts before
+  publishing absolute lp/mm numbers.
+
+### Sequencing steps 7-8 (deferred)
+
+- HTML report integration of `peaks_v2.csv`.
+- Full cohort re-runs (`out_55mm`, `out_bare1to1`, `out_resized1to1`)
+  under the new pipeline. Once LSF detection is reliable, regenerate
+  `out_55mm/cross_lens_crops/` from maze-FFT argmax (the existing
+  crops are filesize-picked and unsafe for further numerical
+  analysis per HANDOVER.md).
 
 ## Pointers
 
