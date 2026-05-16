@@ -556,23 +556,94 @@ below); these three stand:
 User caliper measurement of the wafer: 9 die pitches = 47.9 mm →
 physical die pitch **5.322 mm**. With the Nikon Z7 sensor pitch of
 4.349 µm/px (= 229.97 px/mm) this gives a true-1:1 projected
-pitch of **5.322 × 229.97 = 1224 px** at full-res.
+pitch of **5.322 × 229.97 = 1224 px** at full-res. Used to compute
+"absolute mag" against this target.
 
-Re-expressed as absolute magnifications:
-`absolute_mag = algo_mag_vs_sigma_150 × 0.982` (the Sigma 150 anchor
-itself sits at 0.982× true 1:1, so algo readings shrink by ~1.8 %
-once converted).
+#### Anchor change: Sigma 150 → Nikon AF 200
 
-| Config | algo mag vs Sigma 150 | **absolute mag** | dev from true 1:1 |
-|---|---:|---:|---:|
-| Sigma 150 bare 1_1 (anchor) | 1.000× | **0.982×** | −1.8 % |
-| Sigma 105 bare 1_1 | 1.034× | **1.015×** | +1.5 % |
-| Nikon AF 200 f/4D 1_1 (your F11/F8 GIMP) | — | **1.000×** | 0 % |
-| NIKKOR Z MC 105 1_1 | 0.986× | **0.968×** | −3.2 % |
-| Nikon AF Micro 60mm f/2.8D 1_1 | 0.985× | **0.967×** | −3.3 % |
-| Nikon 55mm AIS 287318 1_1 | 0.975× | **0.957×** | −4.3 % |
-| Nikon 55mm AIS 537016 1_1 | 0.984× | **0.966×** | −3.4 % |
-| Nikon Auto 55mm f/3.5 (3 serials) | ~0.985× | ~0.967× | (DO NOT USE — see note) |
+The algo's anchor convention was initially `Sigma APO Macro 150mm /
+1_1` (arbitrarily picked as a "real 1:1 macro should be accurate").
+Subsequent session re-checks revealed the Sigma 150's distance
+encoder has a **broad dead zone around MFD**: shots taken against
+the hard mechanical stop, at the indicated 1:1 mark, and several
+degrees past the mark all report identical fd = 0.375837 m (only
+when the focus ring is rotated further does the encoder click to
+0.398107 m — a one-step jump). EXIF alone can't tell which
+position within this range the user was at, and the lens travels a
+few percent of magnification across the dead zone:
+
+- January 2026-01-29 Sigma 150 / 1_1: algo period 149.09 → **0.982× absolute**
+- May 2026-05-13_230021 Sigma 150 bare (4 apertures, median): ~155 → **~1.02× absolute**
+- 4.2 % session-to-session difference for "same" lens at "same" focus position.
+
+That's not algo noise — same EXIF, same shutter, same f/11, same
+image size; the user just rotated harder against the stop in May.
+
+The **Nikon AF Micro-Nikkor 200mm f/4D / 1_1 hard stop** is a
+mechanically tighter reference: user GIMP measurement on its
+sharpest F11 and F8 frames both put it at **exactly 1.000×
+absolute** (5-square span 6121.8 / 6127.5 px vs the caliper-derived
+6120 px target). The algo now uses Nikon AF 200 / 1_1 as the
+default anchor.
+
+The anchor's *period_px* is computed as the **median across all
+measurable apertures** of the anchor slug rather than the F11
+picked frame, because the AF 200 / 1_1 / F11 sharpest frame
+happens to be one where the long-line extractor latches on a
+sub-feature harmonic (algo reads 1.188×, while F16 + F8 + F5.3 +
+F5.6 all measure ~0.99×). Cross-aperture median (146.6 px @1024)
+is robust to that outlier and matches what the user's GIMP
+verifies.
+
+#### Lens focus-scale dead zone — 2026-05-16 sweep
+
+User took a controlled focus-distance sweep on the SD card:
+
+User took a controlled focus-distance sweep on the SD card (test
+shots 0308, 0310-0316; oldest first):
+
+```
+shot       focus-ring position             EXIF FocusDistance
+_DSC0308   against hard mechanical stop    0.375837 m
+_DSC0310   between hard stop and 1:1 mark  0.375837 m
+_DSC0311   at the indicated 1:1 mark       0.375837 m
+_DSC0312   just past the 1:1 mark          0.375837 m
+_DSC0313   a bit further past 1:1          0.375837 m
+_DSC0314   further past 1:1                0.398107 m  ← encoder steps
+_DSC0315                                    0.398107 m
+_DSC0316   between 0.38 and 0.4 m          0.398107 m
+```
+
+Conclusion: the Sigma 150's distance encoder has a **broad dead
+zone covering hard-stop → indicated 1:1 mark → a few degrees of
+slack past it** — all report exactly 0.375837 m. Only past the
+dead zone does it click to 0.398107 m (which is a fixed
+~0.025-dex jump, characteristic of the encoder's log-quantised
+output). The actual on-sensor magnification varies by ~4 % across
+this dead zone (May vs January Sigma 150 data above), so EXIF
+focus-distance is *not* a reliable indicator of which position
+inside the dead zone was used. The mechanical hard stop sits a
+hair past true 1:1 (~1.02× absolute); the indicated 1:1 mark sits
+a hair under (~0.98× absolute).
+
+#### Absolute calibration table
+
+Algo readings are relative to the new Nikon AF 200 / 1_1 anchor
+(anchor_period = 146.60 px @1024, ≡ true 1.000× by user GIMP
+verification). To convert to absolute: trust the algo's reading
+directly (anchor was chosen to match true 1:1).
+
+| Config | algo mag vs Nikon AF 200 | dev from true 1:1 | notes |
+|---|---:|---:|---|
+| **Nikon AF Micro-Nikkor 200mm f_4D / 1_1** (anchor) | **1.000×** | 0 % | hard-stop reference; GIMP-verified |
+| Sigma 105 bare / 1_1 | 1.052× | +5.2 % | lens-spec note: focus scale allows past 1:1 |
+| Sigma 150 bare / 1_1 (Jan 2026-01-29) | 1.000× | 0 % | indicated 1:1 mark, not hard stop |
+| (Sigma 150 bare / 1_1 May 2026-05-13)  | ~1.038× | +3.8 % | against hard stop, same lens |
+| NIKKOR Z MC 105 / 1_1 | 1.003× | +0.3 % | |
+| Nikon AF Micro 60mm f/2.8D / 1_1 | 1.002× | +0.2 % | |
+| Nikon 55mm AIS 287318 / 1_1 | 0.992× | −0.8 % | |
+| Nikon 55mm AIS 537016 / 1_1 | 1.001× | +0.1 % | gap-bridge retry |
+| Nikon Auto 55mm f/3.5 (3 serials) | ~1.002× | ~+0.2 % | (DO NOT USE — see note) |
 
 > **Auto 55mm f/3.5 caveat — not calibration data.** The user
 > shot the Auto 55mm f/3.5 with the Nikon K-series extension tubes
@@ -587,37 +658,34 @@ once converted).
 > cluster with the rest by coincidence; do not draw lens-design
 > conclusions from them.
 
-**Findings (Auto 55 excluded)**:
+**Findings (Auto 55 excluded; using Nikon AF 200 anchor)**:
 
-- The **Sigma 150 anchor is itself ~2 % under true 1:1**, so the
-  algo's reported "1.000×" is a *relative* baseline, not absolute.
-- **Sigma 105 is the only lens that goes past true 1:1**, by 1.5 %.
-  Confirms the lens-spec note that its focus scale allows slightly
-  past 1:1.
-- **Nikon AF Micro 200 f/4D / 1_1 measures at exact true 1:1**
-  (user GIMP 6121.8 / 6127.5 px on F8 / F11 vs the 6120 px
-  target). The algo's F11 reading of 1.188× was a sub-feature
-  harmonic which the multi-aperture warning correctly flagged
-  (F16, F5.3, F5.6, F8 all clustered at the right ~146 px period).
-- **Nikon F-mount macros (Z MC 105, 60mm f/2.8D, AIS 55mm × 2)
-  cluster at 3–4 % under true 1:1.** The AIS pair (0.957× and
-  0.966×) bracket 0.96×; the Z MC 105 and 60mm AF-D both sit at
-  0.968×. Tight enough across distinct lens designs (manual
-  Z-mount IF zoom-extending macro, AF F-mount, manual AIS) to
-  look like a shared rig-level systematic — probably the
-  wafer-on-stage position user-set for the 55mm AIS being the
-  reference, with subsequent lenses framed to match.
+- **Sigma 105 is the only lens that goes meaningfully past true
+  1:1** — 5.2 % over. The lens-spec note that its focus scale
+  allows slightly past 1:1 is confirmed and bigger than I'd
+  initially estimated against the (lower) Sigma 150 reference.
+- **Sigma 150 has a wide dead zone**: shooting at the indicated
+  1:1 mark gives ~1.00× absolute (Jan session), against the hard
+  stop gives ~1.04× (May session). EXIF FocusDistance is the same
+  across this whole range. The lens's mark-1:1 isn't a tight
+  reference; the hard stop is firmer but still tolerance-bound.
+- **The remaining Nikon macros (Z MC 105, 60mm f/2.8D, AIS 55mm
+  × 2) all sit within ±1 % of true 1:1.** The previous
+  "Nikon-cluster 3-4 % under true 1:1" interpretation was an
+  artefact of the Sigma 150 anchor being itself ~2 % under true
+  1:1, not a real lens-design pattern in the Nikon line. Once the
+  anchor moves to the AF-200's hard-stop reference, every Nikon
+  hard-stop macro lands within reading noise of 1.000×.
 
-The TC factors are independent of the absolute scale (they're
-intra-anchor ratios):
+The TC factors are independent of the anchor (they're slug-ratios,
+both numerator and denominator scale together):
 - Sigma TC-1401 effective: ~1.44× (3 % over nominal 1.4)
 - Sigma TC-2001 effective: ~1.96× (2 % under nominal 2.0)
 
-For downstream consumers: the algo's anchor convention (Sigma 150 =
-1.000×) is fine for relative comparisons; if absolute mags are
-needed, multiply by **0.982**. `measure_wafer_squares` could
-optionally take an `--absolute-anchor-mag=0.982` flag in the
-future to bake this in.
+For downstream consumers: with the Nikon AF 200 anchor, the algo's
+reported `algo_measured_mag` is **directly the absolute
+magnification** (within algo measurement noise, typically ±2-3 %).
+No post-conversion needed.
 
 A fourth issue — a partial-folder split, not catchable by the
 single-frame algorithm but visible in per-file Nikon FocusDistance

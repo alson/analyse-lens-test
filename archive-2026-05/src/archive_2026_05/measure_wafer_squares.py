@@ -430,6 +430,32 @@ sub-feature pitch, regardless of how confident each individual
 measurement claims to be."""
 
 
+DEFAULT_ANCHOR_SLUG = "Nikon AF Micro-Nikkor 200mm f_4D IF-ED"
+"""Default reference lens-config for the 1.000× anchor. The Nikon AF
+Micro 200mm f/4D's mechanical 1:1 stop is the most accurate true-1:1
+reference in the 2026-01-29 dataset — user GIMP measurement on its
+sharpest F11 and F8 frames both put it at exactly 1.000× absolute
+(5-square span 6121.8 / 6127.5 px vs the caliper-derived 6120 px
+target).
+
+Earlier versions of this script used Sigma 150 bare / 1_1 as the
+anchor, but session-to-session re-checks revealed the Sigma 150's
+indicated-1:1 mark sits ~1.8 % under true 1:1 while its hard
+mechanical stop sits ~2 % over — and the lens's distance encoder
+reports the same focus distance for both positions, so EXIF alone
+can't tell which one was used. The Nikon AF 200's hard stop is
+mechanically more precise.
+
+For the anchor's *period_px* the script uses the median across all
+measurable apertures of the anchor slug, not just the F11 picked
+frame, because the Nikon AF 200 / 1_1 / F11 sharpest frame happens
+to be a frame where the long-line extractor latches on a
+sub-feature harmonic (algo reports 1.188×) — but F8, F16, F5.3 and
+F5.6 all measure the correct ~0.97× relative to the F11 harmonic,
+i.e. the die scribes. The cross-aperture median is robust against
+single-aperture outliers like this."""
+
+
 @dataclass(frozen=True)
 class ConfigMeasurement:
     """Aggregated multi-aperture measurement for a lens-config dir.
@@ -754,6 +780,36 @@ def prepare_manifest(
         # Best aperture is the path's parent dir's name (the F<n>/ part).
         best_aperture = path.parent.name
         apertures_tried = ";".join(ap for ap, _p, _m in cm.per_aperture)
+
+        # Anchor slug: when measure_config picked F11 but F11 disagrees
+        # with the rest of the apertures (the known sub-feature-harmonic
+        # case on Nikon AF 200 / 1_1 / F11), override the displayed
+        # period with the cross-aperture median. Without this, the
+        # manifest's anchor row would show ~1.21× when prepare_manifest
+        # is simultaneously using ~0.99× internally to scale every other
+        # row. The override keeps the row's reported algo_measured_mag
+        # consistent with the anchor-period used for scaling, while
+        # preserving the warning so the substitution is visible.
+        is_anchor = (
+            anchor_slug and slug == anchor_slug and mag_label == "1_1"
+        )
+        if is_anchor and cm.warning and cm.best.period_px:
+            valid_periods_for_anchor = [
+                _m.period_px for _ap, _p, _m in cm.per_aperture
+                if _m.period_px is not None
+            ]
+            if valid_periods_for_anchor:
+                median_period = float(np.median(valid_periods_for_anchor))
+                # Find the aperture whose period is closest to the
+                # median, label that as the "best" so the displayed
+                # period and best_aperture stay in lockstep.
+                ap_diffs = [
+                    (abs((_m.period_px or float('inf')) - median_period),
+                     _ap, _p, _m)
+                    for _ap, _p, _m in cm.per_aperture
+                ]
+                ap_diffs.sort(key=lambda t: t[0])
+                _, best_aperture, path, m = ap_diffs[0]
         row = {
             "slug": slug,
             "mag_label": mag_label,
@@ -777,8 +833,19 @@ def prepare_manifest(
             "notes": m.reason or "",
         }
         rows.append(row)
-        if anchor_slug and slug == anchor_slug and mag_label == "1_1" and m.period_px:
-            anchor_period = m.period_px
+        # For the anchor slug, prefer the cross-aperture median over the
+        # F11-first picked period: the Nikon AF 200 / 1_1 / F11 sharpest
+        # frame is a known sub-feature-harmonic case (algo reports
+        # 1.188× while every other aperture gives ~1.000×), so picking
+        # F11 alone would mis-scale every other row by ~20 %. Median
+        # across apertures is robust to single outliers.
+        if anchor_slug and slug == anchor_slug and mag_label == "1_1":
+            valid_periods = [
+                _m.period_px for _ap, _p, _m in cm.per_aperture
+                if _m.period_px is not None
+            ]
+            if valid_periods:
+                anchor_period = float(np.median(valid_periods))
 
     # Second pass: compute algo_measured_mag against anchor.
     if anchor_period:
