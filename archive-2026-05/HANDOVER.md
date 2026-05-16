@@ -52,51 +52,42 @@ db01090 archive-2026-05: step-2 cross-check + step-3 rename_for_digikam
 9a7620d archive-2026-05: step-1 copy to NFS with audit-driven routing
 ```
 
-## What's running right now
+## Step 1 status — DONE (as of 2026-05-16, ~16:30 local)
 
-A `uv run python -m archive_2026_05.archive_to_nfs` is executing
-on bumblebee, started 2026-05-15 23:58 (was killed at some point
-and restarted 02:00 next day — design is idempotent so the
-restart resumed cleanly via skip-existing). Output goes to
-`/tmp/archive_2026_05.log` (Python in `-u` unbuffered mode).
+Step 1 (`archive_to_nfs.py`) finished cleanly. Final state on NFS:
 
-**Check progress:**
+- **21 dirs** under `2026-05-12/` (matches manifest target)
+- **31 dirs** under `2026-05-13/` (matches manifest target)
+- Process started 2026-05-15 23:58, restarted 02:00 after a kill,
+  finished ~16:30 on 2026-05-16. Wall-clock ~14.5 h, mostly NFS-bound.
+  Throughput recovered from ~7 MB/s (Wi-Fi) to ~14-18 MB/s after
+  the wired-LAN cable swap mid-run.
+
+**Broken symlinks at end of step 1: 5082.** Two patterns:
+
+1. **~7 `range_check.json` / `calibration.json`** symlinks pointing
+   into merge_source sessions that never had those files. Cosmetic.
+2. **~5075 `cur_step_NNNN[_X].jpg`** symlinks inside merged-dir
+   `f_<n>/` subtrees. The merge-symlink logic creates "current"
+   versions for what it expects to be overlapping captures, but
+   most of those step files don't exist in the underlying
+   merge_source. Example: `Z 24-120 + 61mm extension
+   (2026-05-08_201054)/f_8/` contains only `step_0092.jpg` and
+   `cropped/`, yet 200+ `cur_step_*` symlinks point into it.
+
+Not blocking step 2 — `sharpest_per_aperture` only walks top-level
+`F<n>/` dirs (case-sensitive), not the lowercase `f_<n>/` source
+subtrees where the broken `cur_step_*` symlinks live. But these
+should be investigated and either fixed in `archive_to_nfs.py`'s
+merge logic or pruned before treating the merged trees as drop-in
+equivalents of the source sessions.
+
+**To check broken symlinks**:
 ```sh
-ps -ef | grep archive_to_nfs                                       # is it alive?
-du -sh ~/shared/files/pics/digikam/test-raw-data/2026-05-1[23]     # bytes landed
-grep -cE '^  \[2026-05-1[23]\]' /tmp/archive_2026_05.log           # new copies
-grep -cE '^  \[skip-existing\]' /tmp/archive_2026_05.log           # skips
-tail /tmp/archive_2026_05.log                                      # latest activity
-```
-
-**Expected final state:** ~21 dirs under 2026-05-12 + ~31 dirs
-under 2026-05-13. Manifest in `archive_2026_05.manifest.ENTRIES`
-defines exactly what — see `__post_run_verification` below.
-
-**If it fails or hangs**: kill the python process, then re-invoke
-the same command. Skip-existing logic re-uses already-landed dirs;
-no double-copy. The user mentioned plugging in a wired LAN cable
-during the run — NFS hiccup during reconnect is benign.
-
-## Post-step-1 verification
-
-When the copy finishes (it logs an "== Summary ==" block at the
-end), run:
-
-```sh
-cd analyse-lens-test/archive-2026-05
-uv run python -m archive_2026_05.archive_to_nfs --verify-only
-# Expect: 0 broken symlinks under 2026-05-13/
 find ~/shared/files/pics/digikam/test-raw-data/2026-05-1[23] -xtype l | wc -l
-# Expect: 0
+# Expect: 5082 (current state)
+# Investigate: head of that list shows the patterns above
 ```
-
-If verify reports broken symlinks: investigate before running
-step 2. The four merged dirs (`merged_24-120_2026-05-08`,
-`merged_viltrox-85_2026-05-10`, `merged_100-400-6T_2026-05-14`,
-`merged_100-400-35mm_2026-05-15`) end up as symlinks back into
-`2026-05-12/<slug> (<src_session>)/` paths; broken links mean a
-merge-source dir is missing.
 
 ## Running steps 2-4
 
@@ -106,10 +97,20 @@ EXIF focal lengths).
 
 ```sh
 # Step 2: build the magnification manifest for 2026-05-13.
+# (Default anchor is now Nikon AF 200 f/4D — see §7a.8 in
+# ANALYSIS_NOTES for why. You can omit the --anchor flag entirely.)
 uv run python -m archive_2026_05.measure_wafer_squares prepare \
     --root ~/shared/files/pics/digikam/test-raw-data/2026-05-13 \
-    --out /tmp/wafer-manifest-2026-05-13.csv \
-    --anchor "Sigma APO Macro 150mm F2.8 EX DG OS HSM"
+    --out /tmp/wafer-manifest-2026-05-13.csv
+
+# Caveat: 2026-05-13 source-side dirs use lowercase f_<n>/ naming
+# (e.g. f_5_6, f_8, f_11, f_16). measure_wafer_squares'
+# sharpest_per_aperture only globs `F*` (capital F), so on the
+# raw 2026-05-13 tree it'll find no apertures and return None for
+# every config. Either run step 4 first (which renames f_<n>/ → F<n>/)
+# or temporarily patch sharpest_per_aperture to also accept f_*.
+# The 2026-01-29 dataset already has F<n>/ (Digikam-style), so the
+# above command works as-is on that one.
 ```
 
 Manifest columns are listed in
@@ -123,7 +124,7 @@ horizontal axis of the centre crop"); then run:
 ```sh
 uv run python -m archive_2026_05.measure_wafer_squares evaluate \
     --manifest /tmp/wafer-manifest-2026-05-13.csv \
-    --anchor "Sigma APO Macro 150mm F2.8 EX DG OS HSM"
+    --anchor "Nikon AF Micro-Nikkor 200mm f_4D IF-ED"
 ```
 
 Each HIGH-confidence row already has `algo_measured_mag` populated;
@@ -245,29 +246,156 @@ clean against fixture data.
 
 ## What the next session needs to do
 
-1. **Watch for step 1 to finish** (1-3 more hours when this was
-   handed over). When done, run `--verify-only` and the
-   `find -xtype l` check.
-2. **Run step 2** with `prepare`, eyeball the manifest, fill
-   `visual_count` for any LOW/MEDIUM-confidence rows by viewing
-   the sharpest-f/11 frame (use the Read tool on the image path
-   in the manifest), then `evaluate`.
-3. **Run step 3** (dry-run first, then real).
-4. **Run step 4** (dry-run first, then real).
-5. **Generate the resized + cropped siblings** via the existing
-   `make-crop-for-every-lens-magnification-focal-length-aperture.sh`
-   inside each `2026-05-13/<slug>/` dir.
-6. **End-to-end spot-check**: pick one merged-dir slug
-   (e.g. `2026-05-13/NIKKOR Z 100-400mm f_4.5-5.6 VR S + 35mm extension/`),
-   verify the symlinks still resolve back into 2026-05-12 after
-   the sort.
+Step 1 is DONE. Pickup points, in priority order:
+
+### 1. Investigate the 5082 broken symlinks (HIGH priority)
+
+The merged-dir trees have many `cur_step_NNNN[_X].jpg` symlinks
+pointing to step files that don't exist in the merge_source. Either
+the merge logic is wrong about which step files should be linked
+or the merge_source copy is incomplete. To investigate:
+
+```sh
+# Categorise:
+find ~/shared/files/pics/digikam/test-raw-data/2026-05-1[23] -xtype l > /tmp/broken.txt
+wc -l /tmp/broken.txt                                        # 5082 expected
+awk -F/ '{print $NF}' /tmp/broken.txt | awk -F. '{print "."$NF}' | sort | uniq -c
+# Spot-check one merge-source dir's actual content vs the linked names:
+ls "~/shared/files/pics/digikam/test-raw-data/2026-05-12/NIKKOR Z 24-120mm f_4 S + 61mm extension (2026-05-08_201054)/f_8/"
+```
+
+The fix probably lives in `archive_to_nfs.py`'s merge-symlink loop
+(it should only `ln` to source files that actually exist). Once
+fixed, either prune stale symlinks or re-run step 1 (idempotent).
+
+### 2. Path-glob fix in measure_wafer_squares for raw 2026-05-13 layout (REQUIRED before step 2)
+
+`sharpest_per_aperture` globs `F*` (capital F). The raw 2026-05-13
+tree uses lowercase `f_<n>/` directory names (e.g. `f_5_6`, `f_8`,
+`f_11`, `f_16`). Either:
+
+- (a) Run step 4 (`sort_to_lens_tree`) **before** step 2 — step 4
+  renames the F-aperture dirs to the Digikam capital convention.
+  But this contradicts the original "step 2 first" order.
+- (b) Tweak `sharpest_per_aperture` to also accept `f_*` (in
+  addition to `F*`). Lowercase-glob is a one-line change.
+- (c) Pre-rename the F-dirs as a quick shell loop before running
+  step 2.
+
+(b) is the right long-term move — it lets the algorithm run on
+raw, un-sorted trees too. Estimated 5 lines of code + a regression
+test that runs `sharpest_per_aperture` against a 2026-05-13 dir.
+
+### 3. Run steps 2-4 on 2026-05-13
+
+After (1) and (2), this is the originally-planned flow:
+
+- Step 2 `prepare` → /tmp/wafer-manifest-2026-05-13.csv
+- Eyeball the manifest. Rows with `algo_aperture_warning` set need
+  vision review (cross-aperture sub-feature-harmonic suspects).
+  Rows with `algo_confidence == low` need vision review too. For
+  each such row, view the image at `image_path` and fill
+  `visual_count` (= "die count along the horizontal axis of the
+  centre crop"). Then run `evaluate`.
+- Step 3 `rename_for_digikam` (dry-run, then real).
+- Step 4 `sort_to_lens_tree` (dry-run, then real).
+- Generate `-resized/` siblings via the existing crop scripts.
+
+### 4. End-to-end spot-check
+
+Pick one merged-dir slug (e.g. `2026-05-13/NIKKOR Z 100-400mm
+f_4.5-5.6 VR S + 35mm extension/`), verify the surviving symlinks
+still resolve into 2026-05-12 after the sort. Confirm
+`shots.csv`'s `filename` column is consistent with on-disk file
+locations.
+
+### 5. (Optional) Bake absolute-mag calibration into the algo
+
+Currently `algo_measured_mag` is the algo's relative reading
+against the Nikon AF 200 f/4D / 1_1 anchor (median across
+apertures). That's defined to be 1.000× of true 1:1 (caliper +
+GIMP verified), so `algo_measured_mag` is already absolute-mag
+within ±2-3 % algo noise. A future enhancement could:
+
+- Take an optional `--absolute-anchor-mag=<float>` CLI flag (default
+  1.0), and bake it as a column conversion (e.g. would let a user
+  re-anchor against a different physical reference if needed).
+- Or: include the caliper-derived true-1:1 pixel pitch (1224 px
+  full-res on Z7 with this wafer) as a calibration constant and
+  optionally output an `absolute_mag_via_caliper` column for cross-
+  check.
+
+Not blocking — the current Nikon-200 anchor already gives absolute
+mags directly.
+
+## What this session changed (2026-05-16 algorithm + dataset)
+
+**Algorithm fixes** (in commit-history order):
+
+- `8cd8f8e` — tilt detector suppresses the 0°-bin downsample-
+  aliasing spike (`detect_tilt_via_gradient`)
+- `8ae2ed4` — line extractor adds a binary-closing retry to bridge
+  dust-broken scribes (`measure()` retries with `gap_bridge_px=15`
+  when primary returns < 2 peaks)
+- `bfd6f29` — multi-aperture cross-check + disagreement warning
+  (`measure_config()`, `ConfigMeasurement` dataclass, new manifest
+  columns `algo_apertures_tried` / `algo_best_aperture` /
+  `algo_cross_aperture_dev_pct` / `algo_aperture_warning`)
+- `c89549d` — default anchor switched to Nikon AF Micro-Nikkor
+  200mm f/4D / 1_1; anchor period is now the cross-aperture median
+  (robust against the AF 200 / F11 sub-feature-harmonic outlier)
+
+**Dataset fixup** (one-off scripts at `analyse-lens-test/` repo
+root):
+
+- `cf3aed4` + `53fc212` — `fixup-sigma-tc-mislabels-2026-01-29.py`
+  applied. Final state of the Sigma+TC dirs:
+  - `Sigma 105 + TC-1401`: `1_1` ↔ `1.4_1` labels swapped (8342
+    file ops, via a `_tmp_swap` intermediate)
+  - `Sigma 105 + TC-2001 / 2_1`: 232 stray 1:1 captures (seq
+    15777-16008) moved into `1_1/`
+- `a2f5733` — `revert-sigma-150-tc-2001-1_1-rename-2026-01-29.py`
+  reverted an over-correction the original fixup applied based on
+  the algo's F11 reading (which was a sub-feature harmonic).
+  150 + TC-2001 / 1_1 dir is correctly back at the original label.
+
+**Lens findings** (ANALYSIS_NOTES §7a.8):
+
+| Lens / TC | Effective vs true 1:1 |
+|---|---:|
+| Nikon AF Micro 200 f/4D (anchor) | 1.000× (GIMP-verified, hard stop) |
+| Nikon Z MC 105 / 60mm / AIS 55mm | within ±1 % of true 1:1 |
+| Sigma 150 (indicated 1:1 mark) | ~1.00× |
+| Sigma 150 (hard mech stop)     | ~1.04× |
+| Sigma 105 bare                 | ~1.05× (focus scale allows past 1:1) |
+| Sigma TC-1401                  | 1.443× effective (3 % over nominal) |
+| Sigma TC-2001                  | 1.96× effective |
+| Kenko Pro 300 DG 1.4x          | 1.395× effective (closest to nominal) |
+
+Calibration anchored on caliper: physical die pitch = 5.322 mm
+(47.9 mm / 9 dies) → 1224 px at true 1:1 on Z7's 4.349 µm/px
+sensor.
+
+**Important behavioural note**: the Sigma 150's distance encoder
+has a broad dead zone covering hard stop → indicated 1:1 mark →
+several degrees of slack past the mark. All these positions report
+the same EXIF FocusDistance (0.375837 m). Don't trust EXIF
+FocusDistance alone to disambiguate within this range.
 
 ## Open questions for the next session
 
-None currently open. The Q3/Q4 plan questions and D1-D5 audit
-decisions are all resolved (see plan file). The algorithm
-investigation is concluded; further refinements would be
-diminishing returns.
+- Should `archive_to_nfs.py` only create merge symlinks for source
+  files that actually exist? (Currently creating 5075 dangling
+  `cur_step_*` symlinks.) Investigate before treating merged-dir
+  trees as canonical.
+- Should the algorithm's `sharpest_per_aperture` accept `f_*` as
+  well as `F*` to work on un-sorted 2026-05-13 trees? Likely yes;
+  small change.
+- Is the Sigma TC-1401's +3 % over-spec a real optical effect
+  (TC barrel built slightly long?) or a measurement artefact?
+  Reproduces cleanly on two host lenses (Sigma 150 and 105), so
+  probably real; Kenko TC-1.4 in the same dataset reads at
+  nominal 1.4, so it's TC-specific not host-lens-specific.
 
 ## Failure modes & remediation
 

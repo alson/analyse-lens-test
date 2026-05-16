@@ -679,8 +679,16 @@ directly (anchor was chosen to match true 1:1).
 
 The TC factors are independent of the anchor (they're slug-ratios,
 both numerator and denominator scale together):
-- Sigma TC-1401 effective: ~1.44× (3 % over nominal 1.4)
-- Sigma TC-2001 effective: ~1.96× (2 % under nominal 2.0)
+
+| TC | Nominal | Effective | Deviation | Source |
+|---|---:|---:|---:|---|
+| Kenko Pro 300 DG 1.4x | 1.4× | **1.395×** | −0.4 % | AF 200 + Kenko / 1.4_1 (lens at MFD, fd 0.501 m, lens-mag 1.0×) reads algo 1.395×; bare AF 200 / 1_1 (same fd, same lens-mag) reads 1.000× — TC factor = 1.395 / 1.000. HIGH conf, no warning. Cross-validated by AF 200 + Kenko / 1_1 (fd 0.596 m, lens backed off to 0.717×) reading 0.996× on sensor = 0.717 × 1.395 ≈ 1.0. |
+| Sigma TC-1401         | 1.4× | **1.443×** | +3.1 % | Sigma 150 + TC-1401 / 1.4_1 (lens at MFD) reads 1.443×; Sigma 150 bare / 1_1 reads 1.000× at the marked 1:1 stop. (Note: Sigma 150's MFD has the dead-zone issue — the +3.1 % may include a hard-stop-vs-marked component.) |
+| Sigma TC-2001         | 2.0× | **1.96×**  | −2.0 % | Sigma 150 + TC-2001 / 2_1 (lens at MFD) reads 1.96× against the Sigma 150 bare anchor. |
+
+Notable: the **Kenko is the most spec-accurate** of the three. The
+Sigma TC-1401's 3 % over-spec is unusual but reproduces cleanly
+across both Sigma 150 and Sigma 105 hosts.
 
 For downstream consumers: with the Nikon AF 200 anchor, the algo's
 reported `algo_measured_mag` is **directly the absolute
