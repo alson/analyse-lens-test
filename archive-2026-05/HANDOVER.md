@@ -195,7 +195,7 @@ sibling trees + crops.
 | script | unit tests | validation |
 |---|---|---|
 | `archive_to_nfs.py` | 25 | dry-run-verified against real source |
-| `measure_wafer_squares.py` | 21 | 55 cases on 2026-01-29 GT post-fixup; HIGH band 2.2 % mean abs dev, HIGH+MEDIUM 3.5 % over 44 rows |
+| `measure_wafer_squares.py` | 25 | 55 cases on 2026-01-29 GT post-fixup; HIGH band 2.2 % mean abs dev, HIGH+MEDIUM 3.5 % over 44 rows; 12 cross-aperture-disagreement warnings flag the rest |
 | `rename_for_digikam.py` | 26 | helper-function tests only; not end-to-end yet |
 | `sort_to_lens_tree.py` | 8 | synthetic-slug end-to-end + dry-run + no-op + refusal |
 | **total** | **77** | |

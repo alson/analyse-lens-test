@@ -15,13 +15,16 @@ import pytest
 from pathlib import Path
 
 from archive_2026_05.measure_wafer_squares import (
+    CROSS_APERTURE_AGREEMENT_THRESHOLD_PCT,
     detect_tilt_via_gradient,
     detect_wafer_mask,
     extract_long_line_columns,
     load_gray,
     measure,
+    measure_config,
     parse_mag_label,
     sharpest_f11_centre_crop,
+    sharpest_per_aperture,
 )
 
 import numpy as np
@@ -184,6 +187,102 @@ def test_measure_gap_bridge_recovers_dust_broken_scribes(
     assert "gap_bridge" in m.reason, (
         f"expected the retry path to fire (gap_bridge in reason), "
         f"got reason={m.reason!r}"
+    )
+
+
+# ---- Multi-aperture aggregation --------------------------------------------
+
+
+def test_sharpest_per_aperture_returns_one_per_F_dir() -> None:
+    """One entry per ``F<n>/`` subdir, ordered by aperture name."""
+    if not VALIDATION_ROOT.exists():
+        pytest.skip(f"{VALIDATION_ROOT} not on disk")
+    config = VALIDATION_ROOT / "Sigma APO Macro 150mm F2.8 EX DG OS HSM" / "1_1"
+    if not config.is_dir():
+        pytest.skip(f"{config} not on disk")
+    frames = sharpest_per_aperture(config)
+    assert len(frames) >= 2, f"expected ≥ 2 apertures, got {len(frames)}"
+    # All paths must point to the full-frame sibling (not the crop).
+    for ap, path in frames:
+        assert path.parent.name == ap, (
+            f"expected path under {ap}/, got {path.parent.name}/"
+        )
+        assert path.is_file()
+        # Should NOT be a pick.jpg.
+        assert path.name != "pick.jpg"
+
+
+def test_measure_config_prefers_F11_when_usable(anchor_period: float) -> None:
+    """The picking policy is F11-first (when F11 produced a usable
+    period without falling back to FFT). For an easy anchor 1:1 config
+    where every aperture agrees, that means the picked frame is from
+    F11/ and there's no cross-aperture warning."""
+    if not VALIDATION_ROOT.exists():
+        pytest.skip(f"{VALIDATION_ROOT} not on disk")
+    config = VALIDATION_ROOT / "Sigma APO Macro 150mm F2.8 EX DG OS HSM" / "1_1"
+    if not config.is_dir():
+        pytest.skip(f"{config} not on disk")
+    cm = measure_config(config)
+    assert cm is not None
+    assert cm.best_path.parent.name == "F11", (
+        f"expected F11-first selection, got {cm.best_path.parent.name}"
+    )
+    assert cm.max_cross_aperture_dev_pct < CROSS_APERTURE_AGREEMENT_THRESHOLD_PCT, (
+        f"anchor config disagreed across apertures: {cm.warning}"
+    )
+    assert cm.warning == "", cm.warning
+
+
+def test_measure_config_55mm_AIS_via_F11_with_gap_bridge(
+    anchor_period: float,
+) -> None:
+    """The picked-sharpest-F11 frame of 55mm AIS 537016 / 1_1 has
+    dust-broken scribes; the gap-bridge retry in measure() now
+    recovers it at MEDIUM confidence, so measure_config still uses
+    F11 (no cross-aperture rescue needed)."""
+    if not VALIDATION_ROOT.exists():
+        pytest.skip(f"{VALIDATION_ROOT} not on disk")
+    config = VALIDATION_ROOT / "Nikon Micro-Nikkor 55mm f_2.8 AIS 537016" / "1_1"
+    if not config.is_dir():
+        pytest.skip(f"{config} not on disk")
+    cm = measure_config(config)
+    assert cm is not None
+    assert cm.best.period_px is not None
+    mag = cm.best.period_px / anchor_period
+    assert 0.93 < mag < 1.08, (
+        f"expected ~1.0×, got {mag:.3f}× via {cm.best_path.parent.name}; "
+        f"per-aperture: "
+        f"{[(a, (m.period_px or 0)/anchor_period, m.confidence) for a, _, m in cm.per_aperture]}"
+    )
+
+
+def test_measure_config_warns_on_cross_aperture_disagreement(
+    anchor_period: float,
+) -> None:
+    """Sigma 150 + TC-2001 / 1.5_1 is a known config where F11 sees
+    the true die pitch (correct ~1.45×) but F16's edge-extractor
+    latches onto a sub-feature harmonic (~1.0×). measure_config must
+    (a) still pick F11 (F11-first policy), (b) emit a warning
+    flagging the F16 disagreement."""
+    if not VALIDATION_ROOT.exists():
+        pytest.skip(f"{VALIDATION_ROOT} not on disk")
+    config = (
+        VALIDATION_ROOT
+        / "Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-2001"
+        / "1.5_1"
+    )
+    if not config.is_dir():
+        pytest.skip(f"{config} not on disk")
+    cm = measure_config(config)
+    assert cm is not None
+    assert cm.best_path.parent.name == "F11", (
+        f"expected F11-first, got {cm.best_path.parent.name}"
+    )
+    assert cm.warning != "", "expected cross-aperture disagreement warning"
+    assert "cross_aperture_disagreement" in cm.warning
+    assert cm.max_cross_aperture_dev_pct > 20, (
+        f"F11 vs F16 should disagree by >20% on this config; "
+        f"got {cm.max_cross_aperture_dev_pct:.1f}%"
     )
 
 

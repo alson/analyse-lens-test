@@ -118,6 +118,38 @@ def sharpest_f11_centre_crop(config_dir: Path) -> Path | None:
     return None
 
 
+def sharpest_per_aperture(config_dir: Path) -> list[tuple[str, Path]]:
+    """Return ``[(aperture_name, full_frame_path), ...]`` — the
+    largest-centre-crop JPEG from every ``F<n>/`` aperture in the
+    config dir (one entry per aperture). Used by ``measure_config()``
+    for cross-aperture sanity-checking; lighting is fixed within a
+    lens-config across apertures (the user moves the tripod between
+    configs but not between aperture changes), so the *physical*
+    magnification is the same across these frames — disagreement
+    between aperture-level measurements is a strong signal that
+    one of the per-frame measurements is wrong rather than the rig
+    moved.
+    """
+    out: list[tuple[str, Path]] = []
+    for f_ap in sorted(config_dir.glob("F*")):
+        if not f_ap.is_dir() or f_ap.name == "F" or not f_ap.name.startswith("F"):
+            continue
+        crop_dir = f_ap / "cropped" / "center"
+        if not crop_dir.is_dir():
+            continue
+        cands = sorted(
+            (p for p in crop_dir.glob("*.jpg")
+             if p.is_file() and p.name != "pick.jpg"),
+            key=lambda p: p.stat().st_size, reverse=True,
+        )
+        for c in cands:
+            full = f_ap / c.name
+            if full.is_file():
+                out.append((f_ap.name, full))
+                break
+    return out
+
+
 def load_gray(path: Path, *, target_width: int = DOWNSAMPLE_W) -> np.ndarray:
     img = Image.open(path).convert("L")
     if target_width and img.width > target_width:
@@ -381,6 +413,39 @@ class WaferMeasurement:
     reason: str = ""
 
 
+CONFIDENCE_RANK = {"high": 0, "medium": 1, "low": 2, "": 3}
+"""Sort order for ``measure_config`` to pick the best per-aperture
+measurement: HIGH-confidence beats MEDIUM beats LOW. Within a band,
+higher n_lines is preferred."""
+
+CROSS_APERTURE_AGREEMENT_THRESHOLD_PCT = 10.0
+"""When the period measured from frames of *different* apertures of
+the *same* lens-config disagrees by more than this percentage, mark
+the config with a warning. Lighting and rig position are fixed
+across apertures of one config (the user moves the tripod between
+configs but not between aperture changes), so the magnification is
+physically the same — cross-aperture disagreement means one or more
+of the per-aperture measurements latched onto a wrong harmonic or
+sub-feature pitch, regardless of how confident each individual
+measurement claims to be."""
+
+
+@dataclass(frozen=True)
+class ConfigMeasurement:
+    """Aggregated multi-aperture measurement for a lens-config dir.
+
+    ``best`` is the picked per-aperture measurement (highest
+    confidence, ties broken by n_lines). ``per_aperture`` retains
+    every aperture's result for diagnostics. ``warning`` is non-empty
+    when ``max_cross_aperture_dev_pct`` exceeds the threshold.
+    """
+    best_path: Path
+    best: WaferMeasurement
+    per_aperture: tuple[tuple[str, Path, WaferMeasurement], ...]
+    max_cross_aperture_dev_pct: float = 0.0
+    warning: str = ""
+
+
 CROSS_CHECK_AGREEMENT_THRESHOLD_PCT = 10.0
 """When the 2D-FFT cross-check disagrees with the primary
 ``period_px`` by more than this percentage, downgrade the
@@ -533,6 +598,95 @@ def measure(
     )
 
 
+# ---- Multi-aperture aggregation ------------------------------------------
+
+
+def measure_config(config_dir: Path, **measure_kwargs) -> ConfigMeasurement | None:
+    """Measure the sharpest centre-crop frame from every aperture in
+    ``config_dir`` and pick the best result by confidence.
+
+    Returns ``None`` if the directory has no centre crops in any
+    aperture (e.g. mag dir without an ``F<n>/cropped/center/``
+    subtree). Otherwise returns a ``ConfigMeasurement`` whose
+    ``best`` field is the per-frame ``WaferMeasurement`` to use
+    downstream, plus per-aperture diagnostics and a cross-aperture
+    disagreement warning when applicable.
+
+    Use this instead of ``measure(sharpest_f11_centre_crop(...))``
+    when you have multiple apertures of one config: the sharpest F11
+    frame happens to be unmeasurable on some configs (dust spots,
+    framing edge cases), and another aperture's sharpest frame may
+    succeed where F11 didn't.
+    """
+    frames = sharpest_per_aperture(config_dir)
+    if not frames:
+        return None
+    per_aperture: list[tuple[str, Path, WaferMeasurement]] = []
+    for ap, path in frames:
+        m = measure(path, **measure_kwargs)
+        per_aperture.append((ap, path, m))
+    # Best-pick policy: prefer F11 when it produced a usable period
+    # (i.e. didn't fall back to the FFT cross-check). F11 was the
+    # algorithm's tuned-for aperture; empirically when F11 disagrees
+    # with another aperture, F11 is closer to the truth more often
+    # than not. The FFT-fallback path explicitly opts out of this
+    # preference — that case is what the multi-aperture mechanism
+    # exists to rescue.
+    f11 = next(
+        ((ap, p, m) for ap, p, m in per_aperture
+         if ap == "F11" and m.period_px is not None
+         and "primary_failed_using_fft_fallback" not in m.reason),
+        None,
+    )
+    valid = [(ap, p, m) for ap, p, m in per_aperture if m.period_px is not None]
+    if f11 is not None:
+        best_ap, best_path, best_m = f11
+    elif valid:
+        # F11 entirely failed (or FFT-fallback'd). Pick highest-
+        # confidence other aperture; ties broken by larger n_lines.
+        valid_sorted = sorted(
+            valid,
+            key=lambda t: (CONFIDENCE_RANK.get(t[2].confidence, 9), -t[2].n_lines),
+        )
+        best_ap, best_path, best_m = valid_sorted[0]
+    else:
+        # No measurement produced a period anywhere. Return the first
+        # aperture's result so callers still get the failure reason.
+        best_ap, best_path, best_m = per_aperture[0]
+    # Cross-aperture disagreement: max relative deviation among ALL
+    # valid measurements (not just same-confidence ones — the warning
+    # is most useful when one HIGH agrees with another HIGH on the
+    # wrong harmonic).
+    max_dev = 0.0
+    if len(valid) >= 2 and best_m.period_px:
+        for _ap, _p, m in valid:
+            if m is best_m or m.period_px is None:
+                continue
+            dev = abs(m.period_px - best_m.period_px) / best_m.period_px * 100.0
+            if dev > max_dev:
+                max_dev = dev
+    warning = ""
+    if max_dev > CROSS_APERTURE_AGREEMENT_THRESHOLD_PCT:
+        disagreeing_apertures = []
+        for ap, _p, m in valid:
+            if m.period_px and m is not best_m:
+                d = abs(m.period_px - best_m.period_px) / best_m.period_px * 100.0
+                if d > CROSS_APERTURE_AGREEMENT_THRESHOLD_PCT:
+                    disagreeing_apertures.append(f"{ap}:{m.period_px:.1f}px")
+        warning = (
+            f"cross_aperture_disagreement_{max_dev:.1f}pct "
+            f"(best={best_ap}:{best_m.period_px:.1f}px; "
+            f"others={','.join(disagreeing_apertures)})"
+        )
+    return ConfigMeasurement(
+        best_path=best_path,
+        best=best_m,
+        per_aperture=tuple(per_aperture),
+        max_cross_aperture_dev_pct=max_dev,
+        warning=warning,
+    )
+
+
 # ---- Path-encoded ground truth + manifest --------------------------------
 
 
@@ -551,6 +705,8 @@ MANIFEST_COLUMNS = [
     "slug", "mag_label", "claimed_mag", "image_path", "image_size_bytes",
     "algo_period_px", "algo_tilt_deg", "algo_n_lines", "algo_confidence",
     "algo_cross_check_period_px", "algo_measured_mag", "algo_deviation_pct",
+    "algo_apertures_tried", "algo_best_aperture",
+    "algo_cross_aperture_dev_pct", "algo_aperture_warning",
     "visual_count", "visual_count_anchor", "vision_measured_mag",
     "vision_confidence", "notes",
 ]
@@ -590,10 +746,14 @@ def prepare_manifest(
             slug, mag_label = parts
         else:
             continue
-        path = sharpest_f11_centre_crop(config_dir)
-        if path is None:
+        cm = measure_config(config_dir)
+        if cm is None:
             continue
-        m = measure(path)
+        m = cm.best
+        path = cm.best_path
+        # Best aperture is the path's parent dir's name (the F<n>/ part).
+        best_aperture = path.parent.name
+        apertures_tried = ";".join(ap for ap, _p, _m in cm.per_aperture)
         row = {
             "slug": slug,
             "mag_label": mag_label,
@@ -607,6 +767,13 @@ def prepare_manifest(
             "algo_cross_check_period_px": (
                 f"{m.cross_check_period_px:.2f}" if m.cross_check_period_px else ""
             ),
+            "algo_apertures_tried": apertures_tried,
+            "algo_best_aperture": best_aperture,
+            "algo_cross_aperture_dev_pct": (
+                f"{cm.max_cross_aperture_dev_pct:.1f}"
+                if cm.max_cross_aperture_dev_pct > 0 else ""
+            ),
+            "algo_aperture_warning": cm.warning,
             "notes": m.reason or "",
         }
         rows.append(row)

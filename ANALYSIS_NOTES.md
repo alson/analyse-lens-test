@@ -615,6 +615,58 @@ error.
 HIGH+MEDIUM mean abs dev: 3.6 % → 3.5 % (with 2 more rows now in
 band).
 
+### 7a.7 Cross-aperture sanity check (2026-05-16)
+
+Lighting and rig position are constant across all apertures of a
+single lens-config (the user changed the aperture ring between
+captures but didn't move the tripod or lights), so the *physical*
+magnification is identical across F-aperture frames within one
+config. Disagreement between per-aperture measurements is therefore
+a strong signal that at least one of them is wrong — independent of
+how confident any individual measurement claims to be.
+
+`measure_config(config_dir)` extends the single-frame `measure()`:
+takes the sharpest centre-crop from every `F<n>/` aperture, runs
+`measure()` on each, and returns a `ConfigMeasurement` containing
+the picked frame's `WaferMeasurement` plus per-aperture diagnostics
+and a `warning` string when the max cross-aperture period
+disagreement exceeds `CROSS_APERTURE_AGREEMENT_THRESHOLD_PCT` (10%).
+
+**Best-pick policy: F11-first.** The naïve "pick highest-confidence
+aperture" policy regressed several high-mag configs. The
+algorithm's morphological long-line opening was tuned for F11 frames
+where the wafer fills the frame and several die-pitch peaks are
+present; at higher F-stops (F16/F22) the diffraction-softened
+sub-features survive the opening too, sometimes presenting as a
+HIGH-confidence peak at sub-feature pitch that beats F11's
+LOW-confidence-but-correct die-pitch reading. Tally across the 13
+cross-aperture-disagreement rows in the 2026-01-29 set: F11 closer
+to truth in 7, F16/F8 closer in 3, inconclusive (sub-1:1) in 3.
+
+`measure_config` therefore prefers F11 whenever F11 produced a
+usable period (not None, not falling back to FFT cross-check) and
+only falls back to the highest-confidence other aperture when F11
+truly fails. The warning fires whether or not F11 is picked, so a
+disagreement is always surfaced to the caller.
+
+**Effect on the 2026-01-29 manifest** (post-fixup labels, post-tilt-
+fix, post-gap-bridge):
+
+| | n | mean | median | p90 | max |
+|---|---|---|---|---|---|
+| HIGH+MEDIUM | 44 | 3.50 % | 2.50 % | 5.3 % | 26.9 % |
+
+Per-row deviations are unchanged from the F11-only run (F11-first
+policy was constructed to preserve them). What the multi-aperture
+mechanism adds is the **12 cross-aperture disagreement warnings** —
+configs where at least one aperture's measurement diverges from the
+picked one by ≥ 10 %. Downstream consumers (notably
+`rename_for_digikam._select_measured_mag`) should treat warned rows
+as "needs vision-count" regardless of the per-row confidence.
+
+New manifest columns: `algo_apertures_tried`, `algo_best_aperture`,
+`algo_cross_aperture_dev_pct`, `algo_aperture_warning`.
+
 ## 8. How findings flow into the planner
 
 Summary of what each section of this document contributes to
