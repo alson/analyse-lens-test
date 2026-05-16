@@ -161,19 +161,26 @@ sibling trees + crops.
   `focal_length_mm` columns are empty in every captured session).
   Step 2 gets magnification from session.json's `lens_configs[]`
   entry instead; step 3 gets focal length from EXIF.
-* **The 2026-01-29 GT had three confirmed mislabels — now fixed.**
-  Sigma 150 + TC-2001 /1_1 → renamed to `1.5_1`; Sigma 105 + TC-1401
-  /1_1 → `1.5_1`; Sigma 105 + TC-1401 /1.4_1 → `1_1` (the user
-  focused away from MFD trying to match the 1:1 framing but didn't
-  quite hit it, then mis-labelled by intent at archival time). A
-  per-file Nikon FocusDistance audit also surfaced a fourth issue
-  — 232 stray 1:1 captures (seq 15777–16008) hiding in `Sigma 105
-  + TC-2001 /2_1` — those were moved into `1_1/`. Fix applied
-  2026-05-16; the one-off `analyse-lens-test/fixup-sigma-tc-
-  mislabels-2026-01-29.py` script does the rename / move / crop-
-  resync. After the fixup, all algorithm rows for these slugs sit
-  within ±4 % of the new labels. See ANALYSIS_NOTES.md §7a.4 for
-  details.
+* **The 2026-01-29 GT had label issues — mostly fixed.** Fixup
+  script `analyse-lens-test/fixup-sigma-tc-mislabels-2026-01-29.py`
+  applied (2026-05-16):
+  - `Sigma 105 + TC-1401 / 1_1 ↔ 1.4_1` were swapped → relabelled
+    as `1.5_1` (achieved mag, the TC-1401's effective factor is
+    ~1.5 not the nominal 1.4) and `1_1`.
+  - `Sigma 105 + TC-2001 / 2_1` had 232 stray 1:1 captures (seq
+    15777-16008) that a per-file Nikon FocusDistance audit
+    revealed — moved into `1_1/`.
+  - A fourth originally-planned rename
+    (`Sigma 150 + TC-2001 / 1_1 → 1.5_1`) was applied then
+    **reverted** the same day after a lens-focus-scale check and
+    user GIMP measurement both confirmed the dir is at ~1.0×
+    (the algo's F11 reading of 1.45× was a sub-feature harmonic).
+    Revert script:
+    `analyse-lens-test/revert-sigma-150-tc-2001-1_1-rename-2026-01-29.py`.
+
+  Multi-aperture cross-check (added later) would have flagged the
+  over-correction up front — F11 disagreed with F16/F8.5 by 32%.
+  See ANALYSIS_NOTES.md §7a.4 + §7a.7 for the full reasoning.
 * **Wafer-square algorithm partial-wafer failure mode partly
   addressed.** Sub-1:1 frames (e.g. `100-400 / 1_2.60` where the
   wafer covers ~27 % of frame width) still don't give trustworthy

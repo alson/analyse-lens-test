@@ -33,7 +33,17 @@ ROOT = Path("/home/alson/shared/files/pics/digikam/test-raw-data/2026-01-29")
 
 WHOLE_FOLDER_RENAMES = [
     # (slug, old_mag, new_mag)
-    ("Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-2001", "1_1", "1.5_1"),
+    #
+    # NOTE: The original commit of this script also renamed
+    #   "Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-2001" / "1_1" -> "1.5_1"
+    # based on the wafer-square algo's F11 reading of 1.45×. That was an
+    # algorithm artifact (F11 latched onto a sub-feature harmonic at
+    # ~1.5× the true die pitch). Lens focus-scale + direct GIMP die-pitch
+    # measurement subsequently showed this dir is actually ~1.02× on
+    # sensor — i.e. the original "1_1" label was right. That rename was
+    # reverted by `revert-sigma-150-tc-2001-1_1-rename-2026-01-29.py`;
+    # the entry is removed here so re-running this script doesn't
+    # re-apply the over-correction.
     ("Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401",     "1_1", "1.5_1"),
     ("Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401",     "1.4_1", "1_1"),
 ]

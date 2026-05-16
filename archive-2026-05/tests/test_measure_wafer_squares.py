@@ -259,17 +259,22 @@ def test_measure_config_55mm_AIS_via_F11_with_gap_bridge(
 def test_measure_config_warns_on_cross_aperture_disagreement(
     anchor_period: float,
 ) -> None:
-    """Sigma 150 + TC-2001 / 1.5_1 is a known config where F11 sees
-    the true die pitch (correct ~1.45×) but F16's edge-extractor
-    latches onto a sub-feature harmonic (~1.0×). measure_config must
-    (a) still pick F11 (F11-first policy), (b) emit a warning
-    flagging the F16 disagreement."""
+    """Sigma 150 + TC-2001 / 1_1 is a known config where F11's
+    line-extractor latches onto a sub-feature harmonic and reports
+    ~1.45× (LOW confidence), while F16's measurement of ~0.98× is
+    correct (matches the user's lens-focus-scale reading and a
+    direct GIMP die-pitch measurement of 1.027×). measure_config
+    must (a) still pick F11 per the F11-first policy (a HIGH-conf
+    F16 measurement is not enough to override F11 when both are
+    valid), (b) emit a warning flagging the >10% cross-aperture
+    disagreement so downstream code knows the picked F11 result is
+    suspect."""
     if not VALIDATION_ROOT.exists():
         pytest.skip(f"{VALIDATION_ROOT} not on disk")
     config = (
         VALIDATION_ROOT
         / "Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-2001"
-        / "1.5_1"
+        / "1_1"
     )
     if not config.is_dir():
         pytest.skip(f"{config} not on disk")

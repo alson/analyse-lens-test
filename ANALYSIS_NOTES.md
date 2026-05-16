@@ -504,21 +504,39 @@ so downstream code (e.g. `rename_for_digikam._select_measured_mag`)
 still ignores it.
 
 **Outliers that turned out to be GT label errors** — three rows the
-algorithm flagged in the original (pre-fixup) run; vision-counting
-the F11 frames confirmed and the labels were corrected in the
-dataset on 2026-05-16 (commit `8cd8f8e`-adjacent in the source
-data; fixup script at `analyse-lens-test/fixup-sigma-tc-mislabels-
-2026-01-29.py`):
+algorithm flagged in the original (pre-fixup) run; the labels were
+corrected in the dataset on 2026-05-16 (fixup script at
+`analyse-lens-test/fixup-sigma-tc-mislabels-2026-01-29.py`). One of
+the four originally-renamed dirs was subsequently reverted (see
+below); these three stand:
 
-* `Sigma 150 + TC-2001 / 1_1` → renamed `1.5_1` — labelled 1:1 but
-  the algorithm reports 1.45× and the image visibly has ~9 dies
-  (vs the 6 at a true 1:1 frame). The user focused away from MFD
-  trying to match the 1:1 framing but didn't quite hit it.
-* `Sigma 105 + TC-1401 / 1_1` → renamed `1.5_1` — same pattern:
-  labelled 1:1 but actually ~1.5×.
-* `Sigma 105 + TC-1401 / 1.4_1` → renamed `1_1` — companion shot
-  to the above; the labels were swapped at GT-measurement time so
-  this one is actually at ~1.0×.
+* `Sigma 105 + TC-1401 / 1.4_1` → renamed `1_1` — companion shot;
+  the labels were swapped at GT-measurement time so this one is
+  actually at ~1.0× (algo measures 1.010× HIGH, fd 0.335 m at lens
+  ~0.66× × TC ≈ 1.5 = 1.0× on sensor — all agree).
+* `Sigma 105 + TC-1401 / 1_1` → renamed `1.5_1` — labelled 1:1 but
+  actually ~1.5× (algo 1.456×; user GIMP measurement 3 squares =
+  5576 px = 1.54×; fd 0.316 m = Sigma 105 MFD = lens 1.0× × TC
+  empirically ~1.5 = 1.5× on sensor). User had intended 1.4× and
+  the apparent discrepancy is the Sigma TC-1401's effective factor
+  being ~1.45-1.55, not the nominal 1.4 (also visible in
+  Sigma 150 + TC-1401 / 1.4_1 measuring 1.443×).
+* `Sigma 105 + TC-2001 / 2_1 partial split` — 232 stray 1:1 captures
+  in seq range 15777–16008 moved into `1_1/` after per-file Nikon
+  FocusDistance audit revealed two distinct fd subgroups in the
+  folder.
+
+**One fixup rename was reverted (2026-05-16)** —
+`Sigma 150 + TC-2001 / 1_1` was renamed to `1.5_1` based on the
+algo's F11 reading of 1.45×, but that turned out to be a sub-feature
+harmonic. The lens focus-scale reading (fd 0.501 m = lens 1:2 =
+0.5× × TC-2 = **1.0× on sensor**) and user's GIMP die-pitch
+measurement (5 squares = 6172 px → ratio 1.027×) both put this dir
+at ~1:1, matching the user's stated shoot-target of "1:1, 1.4:1,
+2:1" for 150+TC-2001. The F16 and F8.5 frames in this dir
+correctly measured ~0.98× — only F11 latched onto the harmonic.
+Revert applied via
+`analyse-lens-test/revert-sigma-150-tc-2001-1_1-rename-2026-01-29.py`.
 
 A fourth issue — a partial-folder split, not catchable by the
 single-frame algorithm but visible in per-file Nikon FocusDistance
