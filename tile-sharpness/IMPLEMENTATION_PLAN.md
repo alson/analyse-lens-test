@@ -4,6 +4,16 @@ State as of 2026-05-16. Supersedes the POC's eight-method primary
 analysis. Companion to `SHARPNESS_METRICS.md` "2026-05-16 update";
 read that first for the methodology rationale.
 
+> **Status — 2026-05-16 (commit `9097def`):** sequencing steps 1-6
+> are landed and tested (60 passing tests across 6 modules). Steps
+> 7-8 (HTML report wiring + cohort re-runs) deferred. Validation
+> task 1 ✓ (out_55mm AIS centre maze-FFT amp ratio = 1.0412 ≤ 1.05);
+> tasks 2-7 not yet run — they need LSD-detection tightening first
+> (current detection rate ~43 % per-tile on the AIS sweeps;
+> tiles without a scribe get NaN subject-MTF50 and fall back to
+> maze-FFT only). See "Open work after 2026-05-16 implementation"
+> at the bottom of this file.
+
 ## Goal
 
 Replace the existing `filesize`-based "sharpest tile" picker AND
@@ -212,23 +222,36 @@ To verify before publishing any conclusions on the new pipeline:
 
 Suggested order, each step shippable on its own:
 
-1. `m_lookup.py` (uses existing wafer-manifest CSVs); test against
-   2026-01-29 `Sigma 150 1:1` anchor.
-2. `methods/lsf.py` (LSD + cross-section + LSF MTF50). Unit-test on
-   the AF 200/4D 1:1 F11 sharpest frame.
-3. `methods/maze_fft.py` (annulus sum). Unit-test against the
-   AIS-55mm-tile maze peak from the prototype agent script at
-   `/tmp/ais_fft_analysis.py` (known peak at ~0.333 cy/px).
-4. Phase 1 wiring (`analyse.py` emits `per_shot_per_tile.csv`).
-   Run on `out_55mm` to validate AIS argmax pick.
-5. Phase 2 wiring (`peaks_v2.csv`). Validate against the
-   `/tmp/ais_fft_analysis_run2.log` numbers.
-6. Phase 3 (`characterise.py`). Validate against the planned
-   decentering / curvature numbers on a known-clean slug.
-7. Wire `peaks_v2` into the HTML report.
-8. Run on `out_bare1to1`, `out_resized1to1`, `out_55mm` cohorts;
-   add a row in the HTML report's per-cohort summary for the
-   new column set.
+1. ✓ **done** — `m_lookup.py` (uses existing wafer-manifest CSVs);
+   tested against 2026-01-29 `Sigma 150 1:1` anchor. 13 tests.
+2. ✓ **done** — `methods/lsf.py` (LSD + cross-section + LSF MTF50).
+   7 tests on synthetic Gaussian scribes; real-tile verification on
+   AIS 287318 centre. **Caveat**: LSD finds scribes as fragmented
+   400-700 px segments; current thresholds
+   (`min_length_px=200`, `darkness_margin=15`) yield ~43 %
+   per-tile detection on AIS sweeps — tractable but needs
+   tightening before validation tasks 2-6.
+3. ✓ **done** — `methods/maze_fft.py` (annulus sum). 8 tests;
+   matches the prototype at `/tmp/ais_fft_worker.py` to 0.4 % on a
+   real AIS centre tile.
+4. ✓ **done** — Phase 1 wiring (`phase1.py` emits
+   `per_shot_per_tile.csv`). Runs on `out_55mm`; validates AIS
+   centre maze argmax. **Architecture note**: implemented as a
+   separate `phase1.py` module rather than extending `analyse.py`'s
+   `MethodSpec` Path→float scorer signature — the new metrics need
+   source-path + M + per-sweep scribe-cache context that the legacy
+   scorer signature can't carry.
+5. ✓ **done** — Phase 2 (`peaks_v2.csv`). Folded into `phase1.py`'s
+   `_rollup_peaks_v2()`. Validation task 1 passes: AIS centre maze
+   amp ratio 1.0412 ≤ 1.05.
+6. ✓ **done** — Phase 3 (`characterise.py`). 8 tests; one new CLI
+   subcommand. Decentering / tilt / curvature numbers produced for
+   AIS; tasks 2-6 (centre MTF50 absolute checks against AF 200/4D
+   etc.) not yet validated — blocked on LSF detection improvement.
+7. ⏳ **deferred** — Wire `peaks_v2` into the HTML report.
+8. ⏳ **deferred** — Run on `out_bare1to1`, `out_resized1to1`,
+   `out_55mm` cohorts; add a row in the HTML report's per-cohort
+   summary for the new column set.
 
 ## Out of scope for v1
 
@@ -260,25 +283,86 @@ Suggested order, each step shippable on its own:
   fall back to path-parsed claimed M (which is fine when the
   user's labels match reality; flagged otherwise).
 
-## Open questions to resolve during implementation
+## Open questions — resolutions
 
-- **LSF reference frequency for argmax**: pick a fixed
-  spatial frequency (e.g., 0.10 cy/px on sensor) for the
-  `lsf_peak_amp` column, or use the per-shot MTF50 itself?
-  MTF50 is more interpretable but more noise-prone in low-signal
-  shots. Tentative: ship both columns, decide which drives argmax
-  empirically.
-- **Maze frequency calibration**: ship with `maze_pitch_um = 13.0`
-  (back-solved from one AIS 55mm 1:1 tile; period 3 px × 4.35 µm).
-  Validate against one frame per dataset family to confirm the
-  pitch is stable across captures.
-- **9-position sampling exact tile indices**: the current 5×7 grid
-  uses `ix ∈ [-3, +3]`, `iy ∈ [-2, +2]`. DX corners would be
-  `(±2, ±1)` roughly; FX corners `(±3, ±2)`. Verify against the
-  actual DX-region size on Z7.
-- **Plane fit weighting**: weight per-tile by inverse-variance of
-  the argmax (noisier tiles down-weighted)? Probably overkill for
-  v1; uniform weighting is fine.
+- **LSF reference frequency for argmax** — resolved: `lsf_peak_amp`
+  is the |FFT| magnitude at `ref_freq_cy_per_px=0.10`. Both
+  `lsf_peak_amp` and `lsf_mtf50_cy_per_px` columns ship in
+  `per_shot_per_tile.csv`; the rollup uses `lsf_peak_amp` for
+  argmax when maze doesn't resolve.
+- **Maze frequency calibration** — kept at `maze_pitch_um = 13.0`.
+  Validated on AIS 287318 centre: new annulus sum agrees with the
+  prototype's hand-tuned 0.30–0.36 band to 0.4 %. Cross-dataset
+  validation still TODO when the pipeline runs on non-AIS sweeps.
+- **9-position sampling exact tile indices** — resolved by
+  switching to a grid-extent-based selection (in `characterise.py`):
+  FX corners are `(ix_min, iy_min) …`, DX corners are one step
+  inward along each diagonal. Generalises naturally to the
+  M-driven shrinking grid; degenerate cases (≤ 5 distinct cells)
+  emit `NaN` aggregates with an `n_positions` + `note` flag.
+- **Plane fit weighting** — uniform weighting in v1, as expected.
+
+## Decisions made during the 2026-05-16 implementation
+
+- **Manifest discovery**: `--manifest <path>` CLI arg, repeatable
+  (no canonical default path; the existing prototypes at
+  `/tmp/wafer-manifest-*.csv` are not stable). Falls back to
+  path-parsed `claimed_mag` per sweep with
+  `m_source = "path_parsed"`.
+- **Scribe detector**: OpenCV LSD via `opencv-contrib-python`.
+- **LSF ROI strategy**: on-demand full-JPEG decode + numpy slice
+  per (shot, tile); no new tile-cache size. The existing 1024-px
+  TurboJPEG-crop cache is reused only for filesize / on_target
+  legacy columns (matched to the new ROI grid by `(ix, iy)` since
+  both grids share the MCU-aligned centre and step).
+- **ROI size vs grid granularity — accuracy wins**: ROI sizes are
+  M-driven first; the tile grid is built around the ROIs.
+  Overlapping tile cells are acceptable when
+  `max(lsf_roi_px, maze_roi_px) > grid_step_px`. At extreme M
+  where the LSF ROI is larger than the frame, the grid degenerates
+  to a single centre-only ROI. Recorded in
+  `feedback_accuracy_over_granularity.md` in the user's memory.
+- **Phase 1 vs `MethodSpec` registry**: the new LSF + maze-FFT
+  scorers do NOT plug into the legacy `METHODS` dict (whose
+  `Scorer = Callable[[Path], float | None]` signature can't carry
+  M / source-path / scribe-cache context). They live in
+  `phase1.py`, which calls them directly. The eight POC methods
+  remain in the registry for cross-validation in `peaks.csv`.
+
+## Open work after 2026-05-16 implementation
+
+Pending before validation tasks 2-7 from this plan can be run on
+real cohorts:
+
+- **Tighten scribe detection (priority).** Current LSD config
+  (`min_length_px=200`, `darkness_margin=15`,
+  `min_length_ratio=0.15`) achieves ~43 % per-tile detection on
+  out_55mm AIS sweeps. The wafer scribes show up in LSD output as
+  400-700 px fragmented segments rather than one near-full-span
+  line. Two tractable approaches:
+  - **Hough fallback**: when LSD finds no dark segment past the
+    threshold, run `skimage.transform.probabilistic_hough_line` on
+    Canny edges and link collinear fragments. Initial spike on
+    AIS centre ROI: Hough returned 117 lines with top length
+    727 px — meaningfully longer than the LSD top.
+  - **Radon projection through a smoothed ROI**: blur σ ≈ 10 px to
+    suppress maze texture, then find the orientation + offset of
+    the deepest dark band via Radon transform. More principled
+    than line-fitting; one parameter per ROI.
+- **Validate maze-pitch on non-AIS datasets.** The
+  `MAZE_PITCH_UM = 13.0` constant is back-solved from one AIS
+  tile. Confirm the pitch is stable on the 200/4D and Sigma
+  cohorts before publishing absolute lp/mm numbers.
+- **MTF50 absolute calibration.** AIS 287318 centre measured at
+  11.9 lp/mm subject space; the plan's task-3 expectation
+  (AF 200/4D bare at 1:1 F11 ≈ 33 lp/mm) is for a different lens
+  at a smaller aperture. Need to run the pipeline on AF 200/4D
+  to anchor the absolute scale.
+- **Sequencing steps 7-8.** HTML report integration of
+  `peaks_v2.csv` and full cohort re-runs. Once LSF detection is
+  reliable, regenerate `out_55mm/cross_lens_crops/` from
+  maze-FFT argmax (the existing crops are filesize-picked and
+  unsafe for further numerical analysis per HANDOVER.md).
 
 ## Pointers
 

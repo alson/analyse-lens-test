@@ -137,6 +137,75 @@ After `cross-lens-crops`:
 
 * `tile_<ix>_<iy>/<method>__<lens>__shot_<k>.jpg` — peak crops per (method, lens) side-by-side, with `README.txt` listing per-method picks.
 
+## LSF + maze-FFT pipeline (2026-05-16 methodology)
+
+Per `SHARPNESS_METRICS.md` "2026-05-16 update", primary sharpness
+analysis runs through the `phase1` + `characterise` modules (the
+eight POC methods stay available as cross-validation columns in
+`peaks.csv`). The `analyse` subcommand grew two flags + one new
+follow-up subcommand:
+
+```sh
+# Phase 1 + Phase 2: per_shot_per_tile.csv + peaks_v2.csv
+uv run tile-sharpness analyse <sweep> [<sweep>...] \
+    --out out/ \
+    --manifest /path/to/wafer-manifest-2026-01-29.csv \
+    [--manifest /path/to/another.csv ...] \
+    [--no-legacy]
+
+# Phase 3: lens_characteristics.csv (one row per sweep)
+uv run tile-sharpness characterise out/peaks_v2.csv
+```
+
+* `--manifest` is repeatable — supply one or more wafer-manifest CSVs
+  produced by `archive-2026-05/measure_wafer_squares`. Without a
+  matching manifest row the pipeline falls back to path-parsed
+  `claimed_mag` and flags `m_source = "path_parsed"` in the output.
+* `--no-legacy` skips the 8-method `peaks.csv` / `agreement.csv` pass
+  for fast iteration on the new methodology.
+
+Additional outputs in `out/` when the LSF + maze-FFT pipeline runs:
+
+* `per_shot_per_tile.csv` — one row per `(sweep, tile_ix, tile_iy,
+  shot_idx)` with `lsf_peak_amp`, `lsf_mtf50_cy_per_px`, `maze_fft_amp`,
+  `maze_resolves`, plus the M-driven per-metric ROI sizes
+  (`lsf_roi_px`, `maze_roi_px`) and `filesize_bytes` / `on_target` for
+  back-compat.
+* `peaks_v2.csv` — one row per `(sweep, tile_ix, tile_iy)`. Picks
+  the primary metric per the IMPLEMENTATION_PLAN's rule
+  (`maze_fft` when `maze_resolves`, else `lsf`, else
+  `filesize_fallback` for off-target tiles). Includes subject-space
+  MTF50 (`mtf50_subject_lp_per_mm`).
+* `lens_characteristics.csv` (after `characterise`) — per-slug
+  centre + DX-ring + FX-ring MTF50, uniformity, peak-value
+  decentering (per the IMPLEMENTATION_PLAN: peak-VALUE, not
+  peak-INDEX), plane-fit subject-tilt + field-curvature.
+  `n_positions` and `note` flag degenerate grids — at extreme M the
+  M-driven ROI may not permit all 9 conceptual positions.
+
+ROI sizing is M-driven: `lsf_roi_px = max(3 × die_period_px, 1024)`
+and `maze_roi_px = max(64 × maze_period_px, 256)`, then aligned up to
+a 16-multiple. Per the accuracy-over-granularity policy in
+`CLAUDE.md`, ROIs may overlap with neighbouring tile cells; at extreme
+M a sweep may degenerate to a single centre-only ROI.
+
+Scribe detection uses OpenCV LSD (`opencv-contrib-python`) — the
+longest dark line that's at least `min_length_px=200` pixels and
+sits `darkness_margin=15` units below the ROI mean. Initial
+validation on `out_55mm` shows ~43 % per-tile detection rate; tiles
+without a detected scribe fall back to maze-FFT for argmax (which
+works at M ≥ 0.7×) but get `NaN` `mtf50_subject_lp_per_mm`.
+Tightening the detector (Hough fallback that links fragmented edges
+into a long composite line, or Radon projection through a smoothed
+image) is the next iteration before validation tasks 2-6.
+
+### Validation (out_55mm, task 1 from IMPLEMENTATION_PLAN)
+
+AIS 287318 vs 537016 centre-tile maze-FFT amp ratio = **1.0412**
+(target ≤ 1.05). The POC's reported "5.8× decentering" was a
+filesize mis-pick artifact and is no longer visible under the
+maze-FFT picker.
+
 ## Empirical findings (POC 2026-05-15) *— partially superseded; see 2026-05-16 update below*
 
 Validated on four cohorts: a within-sweep manual review (24-120 +

@@ -46,6 +46,30 @@ findings were folded into `analyse-lens-test/SHARPNESS_METRICS.md`.
 > for the three-phase pipeline (per-shot per-tile CSV → corrected
 > peaks_v2.csv → per-slug lens_characteristics.csv) that picks up from
 > the 2026-05-16 findings.
+>
+> **Implementation status (commit `9097def`, 2026-05-16):** sequencing
+> steps 1-6 of the IMPLEMENTATION_PLAN have landed. New modules:
+> `src/tile_sharpness/m_lookup.py` (manifest lookup),
+> `methods/lsf.py` (OpenCV LSD scribe detect + cross-section + FFT),
+> `methods/maze_fft.py` (M-aware annulus sum, matches the prototype to
+> 0.4 % on a real AIS centre tile), `phase1.py` (per_shot_per_tile.csv +
+> peaks_v2.csv), `characterise.py` (lens_characteristics.csv).
+> CLI gains `--manifest <path>` (repeatable), `--no-legacy`, and a
+> `characterise` subcommand. 60 tests pass. **Validation task 1
+> (out_55mm AIS centre maze-FFT amp ratio ≤ 1.05)** ✓ measured 1.0412.
+> Steps 7-8 (HTML report wiring + cohort re-runs) deferred.
+>
+> **Known limitation worth tightening:** scribe-detection rate on the
+> AIS sweeps came out at 43 % per-tile (LSD min_length_px=200,
+> darkness_margin=15, min_length_ratio=0.15). Tiles without a detected
+> scribe get NaN `mtf50_subject_lp_per_mm` and the rollup falls back to
+> maze-FFT — which works for AIS at M=1.0 (where maze resolves) but
+> leaves subject-MTF50 sparse on low-M / off-target tiles. Two
+> tractable improvements before validation tasks 2-6: tighten LSD
+> parameters via a Hough fallback (linking fragmented edges into a
+> long composite line, since LSD finds the wafer scribe as 400-700 px
+> segments rather than a single near-full-span line), or detect via
+> Radon projection through a smoothed image.
 
 ## TL;DR
 
@@ -178,6 +202,8 @@ build steps).
 `analyse-lens-test/` repo, recent commits:
 
 ```
+9097def tile-sharpness: implement LSF + maze-FFT pipeline (Phases 1-3)
+8fecab0 docs: 2026-05-16 methodology supersession + LSF/maze-FFT plan
 f869d78 sharpness POC empirical findings + project-conventions doc
 cdf1c67 tile-sharpness POC + long-distance metrics doc
 ```
@@ -216,6 +242,28 @@ uv run tile-sharpness cross-lens-crops out_<name>/peaks.csv \
 ./scripts/finalize_cohorts.sh                          # compare + crops
 uv run python scripts/cross_cohort_summary.py          # mean-rank tables + CV
 ```
+
+The 2026-05-16 LSF + maze-FFT pipeline runs via the same `analyse`
+subcommand, with two new flags + a follow-up subcommand:
+
+```sh
+# Run Phase 1 + Phase 2 only (per_shot_per_tile.csv + peaks_v2.csv).
+# --manifest is repeatable; --no-legacy skips the 8-method pass.
+uv run tile-sharpness analyse <sweep> [<sweep>...] \
+    --out out_<name>/ \
+    --manifest /path/to/wafer-manifest-2026-01-29.csv \
+    --no-legacy
+
+# Phase 3 rollup: per-slug centre/DX/FX MTF50 + uniformity +
+# peak-value decentering + plane-fit tilt + curvature.
+uv run tile-sharpness characterise out_<name>/peaks_v2.csv
+# → writes out_<name>/lens_characteristics.csv
+```
+
+The new pipeline needs `archive-2026-05/measure_wafer_squares` output
+to resolve M per sweep (drives ROI sizing + subject-MTF50 conversion);
+falls back to path-parsed `claimed_mag` per sweep if no manifest row
+matches, with `m_source = "path_parsed"` flagged in the CSV.
 
 The three cohorts that produced the current findings:
 
