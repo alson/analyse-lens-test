@@ -4,6 +4,49 @@ State as of 2026-05-16. Picks up after the cross-cohort tile-sharpness
 runs landed in commit `f869d78` (analyse-lens-test) and the empirical
 findings were folded into `analyse-lens-test/SHARPNESS_METRICS.md`.
 
+> **2026-05-16 follow-up — read this before any prior conclusions.**
+> A second empirical pass surfaced two findings that supersede parts of
+> the POC report below:
+>
+> 1. **`filesize` argmax fails at sharp configs.** On AIS 55mm at 1:1
+>    F8, only 26 % / 46 % of tiles agree between filesize and maze-FFT
+>    argmax. Filesize systematically picks 6-10 shots too late. At the
+>    centre tile of AIS 287318 it under-reported the lens's true sharpness
+>    by 2.13× through pure focus mis-pick. The POC's "filesize 5/5
+>    within-sweep" validation was on a *soft* config (24-120 + Raynox
+>    M-250) where the bell curve has a sharp peak; on sharp configs it
+>    saturates and flattens.
+> 2. **The AIS-copy "decentering" was a measurement artifact.** Once
+>    each tile is judged at its own FFT-amp peak (not filesize's pick),
+>    AIS 287318 and AIS 537016 are within 1 % at every tile and both
+>    centred on the sensor. The previously reported 5.8× centre-tile
+>    gap and the "287318 top edge 6.3× stronger than its own centre"
+>    were both filesize mis-picking on 287318.
+>
+> **New methodology** (full details in
+> `SHARPNESS_METRICS.md` "2026-05-16 update — methodology supersedes
+> the POC"): per-tile scribe-LSF MTF50 + maze 2D-FFT amplitude. Both
+> sized by measured magnification. Cross-config metric is subject-space
+> MTF50. The eight POC methods remain available as cross-validation
+> columns but no longer drive primary analysis. Resampled cohorts are
+> for human visual comparison only — measurement runs on native frames.
+>
+> **Status of the `out_55mm/cross_lens_crops/` JPEGs**: these are
+> filesize-picked and are not safe for any further numerical analysis.
+> Visual review is fine (filesize picks *some* sharp shot, just not
+> always the sharpest). Regenerate them via maze-FFT argmax before
+> publishing any AIS cross-copy comparisons.
+>
+> Artefacts from the 2026-05-16 analysis: `/tmp/ais55_decentering_*.png`
+> (per-copy maze-FFT amplitude heatmaps); `/tmp/ais_fft_analysis_run2.log`
+> (definitive run log); scripts at `/tmp/ais_fft_analysis*.py`. Visual
+> validation crops at `/tmp/ais287318_centre_*.png` (also on `nufan:/tmp/`).
+>
+> **Implementation plan**: see `IMPLEMENTATION_PLAN.md` in this directory
+> for the three-phase pipeline (per-shot per-tile CSV → corrected
+> peaks_v2.csv → per-slug lens_characteristics.csv) that picks up from
+> the 2026-05-16 findings.
+
 ## TL;DR
 
 A POC has compared 8 sharpness metrics against the wafer dataset on
@@ -40,7 +83,23 @@ pending" below.
 
 ## What's pending
 
-### 1. Manual eyeball review of cross-lens disagreement crops *(headline TODO)*
+### 1. Manual eyeball review of cross-lens disagreement crops *(partly superseded — see 2026-05-16 update at top)*
+
+**Status as of 2026-05-16**: the disagreement-crops review is *less*
+load-bearing now that the path forward is scribe-LSF + maze-FFT subject-
+space MTF50 (which makes its own predictions independent of filesize /
+wavelet / mtfmapper). The eyeball priorities that remain useful:
+
+* The Sigma 150 + TC-2001 vs AF 200/4D + 5T + 6T comparison at 2:1
+  (validated: TC chain looks ~1.8× sharper, matching the metric).
+* The 100-400 2:1-resized vs native (to *see* Lanczos halo on
+  resampled data — validates "don't measure on resampled").
+* Scribes-as-lines confirmation at 400 % zoom on a single die-boundary
+  in a 1:1 macro frame.
+
+The original POC-era tasks below are kept for completeness but
+deprioritised; only revisit if you specifically want to decide
+whether to retain ``radial_fft`` / ``mtfmapper`` as cohort columns.
 
 The three cross-cohort runs produced side-by-side per-method peak
 tiles. The numbers say wavelet_ratio and filesize agree closely with

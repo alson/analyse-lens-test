@@ -137,7 +137,7 @@ After `cross-lens-crops`:
 
 * `tile_<ix>_<iy>/<method>__<lens>__shot_<k>.jpg` — peak crops per (method, lens) side-by-side, with `README.txt` listing per-method picks.
 
-## Empirical findings (POC 2026-05-15)
+## Empirical findings (POC 2026-05-15) *— partially superseded; see 2026-05-16 update below*
 
 Validated on four cohorts: a within-sweep manual review (24-120 +
 Raynox M-250 @ F8), bare native macros at 1:1 F8 (4 lenses), resized
@@ -183,6 +183,41 @@ Raynox M-250 @ F8), bare native macros at 1:1 F8 (4 lenses), resized
 Disagreement of more than ~2 ranks between primary and sanity-check
 on a 4–6-lens cohort is the threshold for manual inspection via
 `cross-lens-crops`.
+
+## 2026-05-16 update — methodology shift
+
+A follow-up empirical pass on the AIS 55mm cohort surfaced a
+filesize-argmax failure mode at sharp configs and replaced the
+recommended-setup table above. **Read `../SHARPNESS_METRICS.md`
+"2026-05-16 update — methodology supersedes the POC" before
+running any new cohort.** Short version:
+
+* `filesize` argmax picks 6-10 shots past true peak on sharp configs
+  (1:1+ with quality glass, F8-F11), with disagreement rates of
+  54-74 % vs maze-FFT argmax on AIS 55mm. Use maze-FFT or scribe-LSF
+  argmax for sharp configs; `filesize` is fine on soft chains where
+  the bell curve has a steep peak.
+* New primary methods: **scribe-LSF MTF50** (universal) and
+  **fine-maze 2D-FFT amplitude** (sensitive, requires M ≥ 0.7×).
+  Both subsume the eight POC methods.
+* Cross-config metric is **subject-space MTF50** (`= MTF50_sensor ×
+  M × 229.9` on Z7). Resized cohorts are kept for visual comparison
+  only — Lanczos overshoot biases any measurement on them by ~20 %.
+* Per-metric ROI sizing depends on measured magnification (from
+  `archive-2026-05/measure_wafer_squares`). The fixed 1024-px tile
+  works for maze-FFT at 1:1 (340 cycles per side) but is too small
+  for scribe LSF (die period ~1100 px at 1:1).
+* Cross-lens crop directories under `out_*/cross_lens_crops/` are
+  filesize-picked and are **not safe** for further numerical analysis
+  at sharp configs. Eyeball review is fine; numerical re-runs should
+  regenerate via FFT-argmax picks.
+
+The eight POC scoring methods remain available as cross-validation
+columns. Empirical reversal worth noting: the POC's "AIS 287318 looks
+5.8× softer than 537016 at the centre tile" finding was a filesize
+mis-pick artifact, not a real optical difference; the two AIS copies
+are essentially identical when each tile is evaluated at its own
+maze-FFT amplitude peak.
 
 ## Caveats
 

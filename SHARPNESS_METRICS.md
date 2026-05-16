@@ -45,6 +45,13 @@ many crops are ideal targets. Cross-lens comparison reduces to
 > manual review) and has the worst noise of any tested method
 > across same-model lens copies (CV = 0.54). See "Empirical
 > results" near the bottom of this document.
+>
+> **2026-05-16 update:** the slanted-edge approach was revived in a
+> different form (FFT the dark-trough cross-section directly as an
+> LSF, skip mtfmapper). Combined with a 2D-FFT on the wafer's
+> fine-maze grid for the high-frequency band, this replaces the
+> POC's eight-method comparison. See "2026-05-16 update —
+> methodology supersedes the POC" at the bottom of this document.
 
 - Binary already built locally: `MTF mapper/workspace/mtfmapper/bin/mtf_mapper`.
 - AUR alternative: `mtfmapper-git`.
@@ -246,7 +253,7 @@ file-size proxy. If not, fall back to §2 (radial power-spectrum fit).
 
 ---
 
-## Empirical results — POC 2026-05-15
+## Empirical results — POC 2026-05-15 *(partially superseded — see 2026-05-16 update below)*
 
 The recommendations above were tested against four datasets using the
 ``tile-sharpness/`` POC. **The slanted-edge MTF "gold standard" claim
@@ -446,3 +453,209 @@ May need installing (Arch):
   <https://www.strollswithmydog.com/resolution-model-digital-cameras-iii/>
 - Wikipedia, "Optical transfer function" —
   <https://en.wikipedia.org/wiki/Optical_transfer_function>
+
+---
+
+## 2026-05-16 update — methodology supersedes the POC
+
+A follow-up empirical pass (driven by visual disagreement between
+``filesize``-picked cross-lens crops on the AIS 55mm cohort) invalidated
+two of the POC's conclusions and replaced the recommended-setup table.
+The POC section above is retained as a historical record; this section
+is the current source-of-truth.
+
+### Filesize argmax fails at sharp configs
+
+The POC's "filesize 5/5 within-sweep" claim was validated on the
+24-120 + Raynox M-250 sweep — a *soft-chain* config with a steep
+bell curve. At *sharp* configs (1:1+ with quality glass, F8-F11),
+JPEG file size saturates against high-detail content and the curve
+flattens near the true peak; small focus errors stop moving the
+file size.
+
+Verified on AIS 55mm at 1:1 F8 (35 tiles × 2 lens copies × full
+sweep): **only 26 % / 46 % of tiles agree within ±1 shot** between
+``filesize`` argmax and maze-FFT amplitude argmax across the sweep.
+Filesize systematically picks 6-10 shots **too late**. At the centre
+tile of one AIS copy, FFT-amp at the filesize-picked shot is
+**2.13× lower** than at the FFT-picked shot — i.e. filesize
+under-reported that lens's sharpness by 2× through pure focus mis-pick.
+
+**Practical consequence**: any cross-lens comparison done on
+filesize-picked peak crops at high-sharpness configs is corrupted
+by mis-picking, not by lens differences. The POC's earlier
+"AIS 287318 looks 5.8× softer than 537016 at the centre tile"
+finding was such an artifact — once each tile is judged at its own
+FFT-amp peak, the two copies are within 1 %.
+
+**Visually confirmed 2026-05-16**: side-by-side eyeball at 200-400 %
+of the AIS 287318 centre tile at filesize-pick (within-sweep shot 37,
+FFT-amp 281) vs FFT-pick (shot 30, FFT-amp 600) shows the FFT-pick
+**unambiguously sharper** — the fine maze grid is clearly defined,
+while the filesize-pick is visibly smudged. The methodology pivot
+is empirically settled, not a marginal call. PNGs preserved at
+``/tmp/ais287318_centre_{filesize_pick_shot037,fft_pick_shot030}.png``
+on bumblebee + nufan.
+
+### The new methodology
+
+Two complementary metrics, computed per tile from the **native frame**
+(not resampled, not a fixed-size centre crop):
+
+1. **Scribe LSF — universal, works at any magnification.** Detect
+   the dominant near-full-span scribe (LSD or morphological opening;
+   no tilt-correction so the slant is preserved). Take the dark-trough
+   cross-section perpendicular to it, FFT directly as a line-spread
+   function, read MTF50 off the |FFT| curve. **Skip the
+   differentiation step** that classic slanted-edge uses (ESF → LSF) —
+   the trough cross-section *is* the LSF, since wafer scribes are
+   narrow dark lines, not step edges. Confirmed empirically: scribe
+   FWHM is comparable to optical edge rise at this rig's typical
+   apertures, so ESF math leaks the opposite side of the scribe into
+   the integration window.
+
+2. **Fine-maze 2D-FFT — high-resolution discriminator at M ≥ ~0.7×.**
+   The wafer carries a fine maze/grid structure (period ~13 µm
+   physical, ~3 px on Z7 at 1:1) that's universal across every die
+   *except inside the scribes themselves*. 2D-FFT the tile, sum
+   amplitude in the annulus around the maze fundamental (~0.33 cy/px
+   at 1:1; scales with M). Higher amplitude = more high-frequency
+   content survives the optical chain = sharper. **Two orders of
+   magnitude more sensitive** to real lens-quality differences than
+   bulk-energy proxies (5.5× cross-copy ratio at the maze fundamental
+   vs ~2 % CV in filesize across same-model copies).
+
+   **Self-gating**: the maze period in pixels scales linearly with M.
+   Below ~0.7× the period aliases (sub-Nyquist on the sensor) and
+   the FFT amplitude is noise. Read MTF at the maze fundamental from
+   the scribe LSF; if that MTF is above the noise threshold, the
+   maze method is valid for this image. Below the threshold, fall
+   back to scribe LSF only.
+
+3. **JPEG vs NEF is not a concern.** Paired analysis on three sharp
+   configs measured JPEG-derived edge widths to be within **≤ 2 %**
+   of NEF-derived widths (in fact slightly *narrower* — the in-camera
+   tone curve compresses midtones rather than blurring). Shoot
+   JPEG; the cap on absolute MTF50 is at most a few percent and
+   doesn't affect within- or cross-config rankings.
+
+### Subject-space MTF50 is the cross-config metric
+
+    MTF50_subject_lp_per_mm = MTF50_sensor_cy_per_px × M × 1000 / pixel_pitch_µm
+
+On Z7 (pitch 4.35 µm):
+
+    lp/mm_subject = MTF50_sensor_cy_per_px × M × 229.9
+
+This collapses every config onto one axis — bare zoom at 0.385×,
+sharp macro at 1:1, TC at 2:1, diopter chain at 2:1, etc. — without
+resampling. Empirically validated against visual ranking on a 5-config
+preview: ranks bare 100-400 (33 lp/mm) ≈ bare AF 200/4D (33 lp/mm) <
+Sigma 150 + TC-2001 (41 lp/mm), with 200/4D + 5T + 6T at 23 lp/mm.
+Bare 100-400 at 0.385× was found to be pixel-limited (Nyquist =
+44 lp/mm subject), all others optics-limited.
+
+Resampling (``1_1-resized``, ``2_1-resized``) is **not needed for
+measurement** and actively contaminates it via Lanczos overshoot
+(the 100-400 resized to 2:1 measures 40 lp/mm in resampled pixels
+vs 33 lp/mm true — the 20 % gain is fake high-frequency content,
+not optical detail; see §0.0 of ``resize-bulk/RESIZED_COMPARISON.md``).
+Resized cohorts are kept only for human visual side-by-side review.
+
+### M-driven crop sizing
+
+The measured magnification (from ``measure_wafer_squares``) drives
+the analysis ROI size per metric:
+
+| metric | rule (px on sensor) |
+|---|---|
+| scribe LSF | ``max(3 × die_period_px, 1024)`` |
+| maze 2D-FFT (single-tile measurement) | ``max(64 × maze_period_px, 256)`` |
+| maze 2D-FFT (decentering-map tile) | ``max(40 × maze_period_px, 128)`` |
+
+So a 1024×1024 tile-sharpness POC tile is **fine for the maze FFT**
+at 1:1 (340 cycles per side) but **too small for scribe LSF** at 1:1
+(die period ~1100 px, tile contains < 1 die). Per-metric ROIs replace
+the one-size-fits-all 1024 tile.
+
+**Dependency reversal**: ``measure_wafer_squares`` (archive-2026-05
+step 2) is now a **load-bearing input** to the sharpness pipeline,
+not just a folder-labelling step. Without M per config the sharpness
+metric can't size its ROIs or convert to subject space.
+
+### Cross-frame report (rail-coverage column set)
+
+Per (lens, mag, focal, aperture) slug — derived from existing
+per-position tile measurements at centre + 4 DX-ring corners + 4 FX-ring
+corners:
+
+| field | meaning |
+|---|---|
+| ``mtf50_centre_lpmm`` | subject-space MTF50 from the centre tile |
+| ``mtf50_dx_corner_lpmm`` | mean over 4 DX-ring corners |
+| ``mtf50_fx_corner_lpmm`` | mean over 4 FX-ring corners |
+| ``uniformity_dx`` | ``mtf50_dx / mtf50_centre`` |
+| ``uniformity_fx`` | ``mtf50_fx / mtf50_centre`` |
+| ``decentering_dx`` | peak-VALUE asymmetry across the 4 DX corners |
+| ``decentering_fx`` | peak-VALUE asymmetry across the 4 FX corners |
+| ``subject_tilt_deg`` | wafer-plane tilt recovered from per-slug plane fit on ``peak_idx`` across the 9 positions |
+| ``field_curvature_mm_rms`` | residual after subtracting the subject-tilt plane, in µm of focus shift |
+
+The decentering pair (DX-ring vs FX-ring) distinguishes element-tilt
+(uniform across rings) from element-shift (grows from DX to FX). Use
+peak-VALUE, not peak-INDEX — index asymmetry is contaminated by
+subject tilt + field curvature.
+
+Subject-tilt is **per-slug**, not session-wide (the rig is moved
+between magnifications even within one session — older shoots
+have larger and more variable subject tilt than recent ones). The
+mag × tilt interaction is `1/M`-scaling: low-mag configs are
+where un-corrected subject tilt most strongly contaminates the
+field-curvature read.
+
+### Updated recommended setup
+
+| use case | primary | sanity check |
+|---|---|---|
+| within-sweep argmax, M ≥ 0.7× *and* on-target | maze-FFT amp | scribe-LSF amp at chosen shot |
+| within-sweep argmax, M < 0.7× *or* maze aliased | scribe-LSF amp | filesize (only if no scribe present) |
+| within-sweep argmax, off-target tile | ``filesize`` (degenerate; off-target tiles shouldn't be argmaxed) | — |
+| per-tile cross-lens sharpness, M ≥ 0.7× | maze-FFT amp | scribe-LSF MTF50 |
+| per-tile cross-lens sharpness, M < 0.7× | scribe-LSF MTF50 | filesize (peak-shot only) |
+| cross-config / cross-magnification ranking | subject-space MTF50 (from scribe LSF) | maze-FFT decentering-map peak |
+| decentering / field-uniformity per lens | maze-FFT amp map across the tile grid | DX-ring vs FX-ring peak-value asymmetry |
+
+Key shift from POC: **filesize is not primary anywhere for on-target
+tiles.** It saturates at sharp configs (the failure shown above) and
+adds no information that maze-FFT or LSF doesn't. It's retained only
+as the degenerate fallback for off-target tiles, where neither maze
+nor scribe have anything to measure — and those tiles shouldn't drive
+argmax decisions anyway. The "filesize as soft-config primary"
+framing from the POC was a 2026-05-15 hypothesis the 2026-05-16
+maze-FFT evidence supersedes.
+
+The POC's eight scoring methods (``filesize``, ``mtfmapper``,
+``radial_fft``, ``edge_decay``, ``laplacian_var``, ``tenengrad``,
+``dct_kurtosis``, ``wavelet_ratio``) all remain available as
+cohort columns for cross-validation, but no longer drive primary
+analysis: ``mtfmapper`` failed (§1 above); ``radial_fft`` and
+``edge_decay`` are within-sweep argmax-only; the autofocus classics
+and ``wavelet_ratio`` / ``dct_kurtosis`` are content-fooled at narrow
+comparisons; none replicate maze-FFT's frequency-direct readout at
+a known target frequency.
+
+### Open work
+
+- Implement scribe-LSF MTF50 and maze-FFT amplitude as production
+  methods in ``tile-sharpness/methods.py`` (LSF replaces mtfmapper;
+  maze-FFT is new). Wire ``measure_wafer_squares`` M into the ROI
+  sizing.
+- Add the 9-position cross-frame columns (centre + DX-ring +
+  FX-ring) to ``rail-coverage/``.
+- Re-run the ``out_55mm`` cohort with maze-FFT argmax instead of
+  filesize to fix the AIS-copy comparison (already validated as
+  identical within 1 %, but the per-tile peak crops in
+  ``out_55mm/cross_lens_crops/`` are still filesize-picked and need
+  regeneration before being used for any further visual review).
+- Re-evaluate other sharp-config cohorts (``out_bare1to1``) where
+  filesize mis-picking may have skewed cross-lens conclusions.

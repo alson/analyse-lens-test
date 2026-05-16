@@ -43,6 +43,33 @@ docs and are linked from here.
   Validated in the ``tile-sharpness/`` POC — see that subproject's
   README for the concrete shape this takes.
 
+- **Cross-config sharpness is subject-space MTF50, not resampled
+  pixels.** For "which lens / accessory gives more useful resolution"
+  comparisons across configurations with different magnifications,
+  compute ``MTF50_subject_lp_per_mm = MTF50_sensor_cy_per_px × M ×
+  229.9`` (Z7 pitch factor). Resampled cohorts (``1_1-resized``,
+  ``2_1-resized``) are for *visual* human comparison only —
+  Lanczos overshoot contaminates them by ~20 % at large scale-up
+  factors, biasing any metric computed on them. Operate on native
+  frames for measurement.
+
+- **Sharpness pipeline depends on measured magnification.** The
+  per-config M from ``archive-2026-05/measure_wafer_squares`` is
+  now a load-bearing input to sharpness analysis (drives per-metric
+  ROI sizing + subject-space conversion). Step 2 of the archive
+  pipeline is no longer just folder-labelling; sharpness can't run
+  without it.
+
+- **Filesize is a degenerate fallback only, not a primary sharpness
+  proxy.** ``filesize`` argmax saturates at sharp configs (visually
+  confirmed: at AIS 55mm 1:1 F8 it under-reports the centre-tile
+  sharpness by 2× through pure focus mis-pick). Scribe-LSF works
+  universally and doesn't saturate; maze-FFT is even more sensitive
+  where M ≥ ~0.7×. Filesize is kept only for off-target tiles where
+  neither scribe nor maze have anything to measure — and those tiles
+  shouldn't drive argmax decisions anyway. See ``SHARPNESS_METRICS.md``
+  "2026-05-16 update" for the full picture.
+
 ## Lens-test rig semantics
 
 These apply to ``run-lens-test/``, ``rail-coverage/``,
