@@ -76,7 +76,15 @@ working setup is:
 * `mtf_mapper` runs on **nufan** (Ubuntu 25.10, OpenCV 4.10). The
   binary was rebuilt there in-tree at `MTF mapper/workspace/mtfmapper/bin/mtf_mapper`.
   Since the workspace is on the shared mount, the path resolves
-  identically on both hosts.
+  identically on both hosts. The previous locally-built (Arch) binary
+  no longer exists — it was removed during a failed local rebuild
+  attempt; nufan is now the canonical host for this method.
+  Apt packages required for the rebuild on Ubuntu 25.10:
+  `libopencv-dev libeigen3-dev libtclap-dev qtbase5-dev`
+  `libqt5charts5-dev libexiv2-dev gnuplot exiv2 dcraw subversion`.
+  Build steps: ``cd "MTF mapper/workspace/mtfmapper" && rm -rf
+  CMakeCache.txt CMakeFiles && cmake ../mtfmapper-code && make
+  -j$(nproc)``.
 * The tile cache lives on the shared mount at
   `~/shared/projects/personal/fotografie/.tile-sharpness-cache/`,
   so nufan can read tile JPEGs by path without copying.
