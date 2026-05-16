@@ -210,6 +210,95 @@ def extract_long_line_columns(
     return opened.sum(axis=0).astype(np.float32)
 
 
+def _long_line_mask_2d(
+    img: np.ndarray, *,
+    edge_threshold_pct: float = 80.0, min_line_length_frac: float = 0.40,
+) -> np.ndarray:
+    """2D binary mask of pixels on a long vertical OR long horizontal
+    edge. Sub-features (short edges) are zeroed; only the
+    wafer-spanning scribes remain. Used by the 2D-FFT cross-check."""
+    h, w = img.shape
+    sx = np.abs(sobel(img, axis=1))
+    sy = np.abs(sobel(img, axis=0))
+    thr_x = np.percentile(sx, edge_threshold_pct)
+    thr_y = np.percentile(sy, edge_threshold_pct)
+    Lv = max(5, int(h * min_line_length_frac))
+    Lh = max(5, int(w * min_line_length_frac))
+    v_long = binary_opening(sx > thr_x, structure=np.ones((Lv, 1), dtype=bool))
+    h_long = binary_opening(sy > thr_y, structure=np.ones((1, Lh), dtype=bool))
+    return (v_long | h_long).astype(np.float32)
+
+
+def _fft_score_at_period(spec: np.ndarray, P: float) -> float:
+    """Sum magnitudes at the expected 2D-FFT peak locations for a
+    square grid at period P. ``spec`` is the **centred** 2D magnitude
+    spectrum (post-fftshift)."""
+    n_rows, n_cols = spec.shape
+    cy, cx = n_rows // 2, n_cols // 2
+    if P <= 0:
+        return 0.0
+    kx = n_cols / P
+    ky = n_rows / P
+    if kx > cx - 1 or ky > cy - 1:
+        return 0.0
+    def at(y: float, x: float) -> float:
+        y0, x0 = int(np.floor(y)), int(np.floor(x))
+        dy, dx = y - y0, x - x0
+        if y0 < 0 or x0 < 0 or y0 + 1 >= n_rows or x0 + 1 >= n_cols:
+            return 0.0
+        return float(
+            spec[y0, x0] * (1 - dy) * (1 - dx)
+            + spec[y0 + 1, x0] * dy * (1 - dx)
+            + spec[y0, x0 + 1] * (1 - dy) * dx
+            + spec[y0 + 1, x0 + 1] * dy * dx
+        )
+    s_v = at(cy, cx + kx) + at(cy, cx - kx)           # vertical-scribe peaks
+    s_h = at(cy + ky, cx) + at(cy - ky, cx)           # horizontal-scribe peaks
+    s_cross = (
+        at(cy + ky, cx + kx) + at(cy + ky, cx - kx)
+        + at(cy - ky, cx + kx) + at(cy - ky, cx - kx)
+    )
+    return s_v + s_h + 0.5 * s_cross
+
+
+def cross_check_period_2dfft(
+    img: np.ndarray, *, p_min: int = 40, p_max: int = 400,
+) -> float | None:
+    """Independent period estimate via 2D-FFT on the long-line mask.
+
+    Fails differently from the median-of-spacings primary, so a
+    disagreement is a useful "needs vision review" signal. Also
+    serves as a fallback when the primary returns None (insufficient
+    detected lines)."""
+    mask = _long_line_mask_2d(img)
+    if mask.sum() < 50:                # essentially no long lines
+        return None
+    signal = mask - mask.mean()
+    win_y = np.hanning(signal.shape[0])[:, None]
+    win_x = np.hanning(signal.shape[1])[None, :]
+    spec = np.abs(np.fft.fftshift(np.fft.fft2(signal * win_y * win_x)))
+    p_max_eff = min(p_max, min(signal.shape) // 2)
+    if p_max_eff <= p_min:
+        return None
+    scores: dict[int, float] = {}
+    best = (None, -np.inf)
+    for P_int in range(p_min, p_max_eff + 1):
+        s = _fft_score_at_period(spec, float(P_int))
+        scores[P_int] = s
+        if s > best[1]:
+            best = (P_int, s)
+    P_init = best[0]
+    if P_init is None:
+        return None
+    # Sub-bin parabolic refinement when both neighbours are in range.
+    if (P_init - 1) in scores and (P_init + 1) in scores:
+        a, b, c = scores[P_init - 1], scores[P_init], scores[P_init + 1]
+        denom = a - 2 * b + c
+        offset = 0.5 * (a - c) / denom if denom != 0 else 0.0
+        return float(P_init) + offset
+    return float(P_init)
+
+
 def find_line_peaks(sig: np.ndarray, *, p_min: int = 40):
     if sig.max() <= 0:
         return np.array([])
@@ -253,18 +342,48 @@ class WaferMeasurement:
     spacings: tuple[float, ...]
     image_width_px: int
     wafer_width_px: int
-    confidence: str = ""    # "high" (n_lines ≥ 5), "medium" (3-4), "low" (≤ 2)
+    confidence: str = ""    # "high" / "medium" / "low" — combined flag
+    cross_check_period_px: float | None = None
+    """2D-FFT-based period from the same image. Used as an
+    independent cross-check; when it disagrees with the primary
+    period_px by >10% the confidence is downgraded."""
     reason: str = ""
 
 
-def _confidence_label(n_lines: int) -> str:
-    """A simple bucket based on how many distinct die boundaries the
-    pipeline detected. Median-of-2 spacings (n_lines == 3) is more
-    fragile than median-of-many; we surface this for downstream
-    consumers who may want to send low-confidence configs to vision."""
-    if n_lines >= 5:
+CROSS_CHECK_AGREEMENT_THRESHOLD_PCT = 10.0
+"""When the 2D-FFT cross-check disagrees with the primary
+``period_px`` by more than this percentage, downgrade the
+confidence by one bucket. Set at 10 % because cross-check
+disagreements within that band are usually quantisation noise
+(sub-pixel limits at high mag) rather than algorithm conflict."""
+
+
+def _periods_agree(p_primary: float, p_cross: float | None) -> bool:
+    """True iff the cross-check period is within
+    ``CROSS_CHECK_AGREEMENT_THRESHOLD_PCT`` of the primary."""
+    if p_cross is None or p_primary <= 0:
+        return False
+    return abs(p_primary - p_cross) / p_primary * 100.0 <= CROSS_CHECK_AGREEMENT_THRESHOLD_PCT
+
+
+def _confidence_label(n_lines: int, cross_check_agrees: bool) -> str:
+    """Combined confidence bucket based on (a) how many distinct die
+    boundaries the primary pipeline detected and (b) whether the
+    2D-FFT cross-check agrees with the primary period.
+
+    HIGH:   n_lines ≥ 5 AND cross-check agrees
+    MEDIUM: (n_lines ≥ 5 AND disagreement) OR (n_lines ∈ [3, 4] AND agreement)
+    LOW:    n_lines ≤ 2 OR (n_lines ∈ [3, 4] AND disagreement)
+
+    The agreement leg matters most at high mag where n_lines is
+    naturally small; a disagreement there means either pipeline
+    picked a harmonic, and the result needs vision review.
+    """
+    if n_lines >= 5 and cross_check_agrees:
         return "high"
-    if n_lines >= 3:
+    if n_lines >= 5:
+        return "medium"
+    if n_lines >= 3 and cross_check_agrees:
         return "medium"
     return "low"
 
@@ -288,7 +407,22 @@ def measure(
         min_line_length_frac=min_line_length_frac,
     )
     peaks = find_line_peaks(sig, p_min=p_min)
+    # 2D-FFT cross-check on the same band-passed image.
+    cross_period = cross_check_period_2dfft(bp, p_min=p_min, p_max=p_max)
     if len(peaks) < 2:
+        # Primary failed (insufficient lines). Fall back to the 2D-FFT
+        # cross-check if it produced anything — useful at sub-1:1 mag
+        # where the wafer doesn't fill the frame and the primary
+        # can't detect ≥2 long-line peaks.
+        if cross_period is not None:
+            return WaferMeasurement(
+                period_px=cross_period, tilt_deg=tilt, n_lines=0,
+                spacings=(), image_width_px=img.shape[1],
+                wafer_width_px=masked.shape[1],
+                confidence="low",
+                cross_check_period_px=cross_period,
+                reason="primary_failed_using_fft_fallback",
+            )
         return WaferMeasurement(
             period_px=None, tilt_deg=tilt, n_lines=int(len(peaks)),
             spacings=(), image_width_px=img.shape[1], wafer_width_px=masked.shape[1],
@@ -306,11 +440,13 @@ def measure(
         period = float(valid[0])
     else:
         period = float(np.median(spacings))
+    agrees = _periods_agree(period, cross_period)
     return WaferMeasurement(
         period_px=period, tilt_deg=tilt, n_lines=int(len(peaks)),
         spacings=tuple(float(s) for s in spacings),
         image_width_px=img.shape[1], wafer_width_px=masked.shape[1],
-        confidence=_confidence_label(int(len(peaks))),
+        confidence=_confidence_label(int(len(peaks)), agrees),
+        cross_check_period_px=cross_period,
     )
 
 
@@ -331,7 +467,7 @@ def parse_mag_label(mag_str: str) -> float:
 MANIFEST_COLUMNS = [
     "slug", "mag_label", "claimed_mag", "image_path", "image_size_bytes",
     "algo_period_px", "algo_tilt_deg", "algo_n_lines", "algo_confidence",
-    "algo_measured_mag", "algo_deviation_pct",
+    "algo_cross_check_period_px", "algo_measured_mag", "algo_deviation_pct",
     "visual_count", "visual_count_anchor", "vision_measured_mag",
     "vision_confidence", "notes",
 ]
@@ -385,6 +521,9 @@ def prepare_manifest(
             "algo_tilt_deg": f"{m.tilt_deg:+.2f}",
             "algo_n_lines": m.n_lines,
             "algo_confidence": m.confidence,
+            "algo_cross_check_period_px": (
+                f"{m.cross_check_period_px:.2f}" if m.cross_check_period_px else ""
+            ),
             "notes": m.reason or "",
         }
         rows.append(row)
