@@ -15,7 +15,7 @@ read that first for the methodology rationale.
 >   * Tasks 2/4/5/6 not yet run.
 >   * Task 7 still blocked on rail-step-mm calibration for older datasets.
 >
-> Three follow-up commits sit on top of the initial `9097def`:
+> Four follow-up commits sit on top of the initial `9097def`:
 >   * Hough-fallback scribe detector — raised AIS per-tile scribe rate
 >     from 43 % → 90 %.
 >   * ESF→LSF MTF50 refactor — split the trough at its minimum, treat
@@ -28,6 +28,18 @@ read that first for the methodology rationale.
 >     impulses, and SHARPNESS_METRICS.md's "scribe FWHM is comparable
 >     to optical edge rise" claim doesn't hold at the rig's typical
 >     apertures.
+>   * M-aware trough-FWHM rejection in `phase1._score_shot` —
+>     a `trough_fwhm_px` column now flows through
+>     `per_shot_per_tile.csv`; rows where the measured trough is below
+>     half of the predicted scribe FWHM at the sweep's M (predicted =
+>     `SCRIBE_WIDTH_UM × M / sensor_pitch`) get their LSF columns
+>     NaN-out. Catches non-scribe features (bond-pad shadows etc.) that
+>     LSD/Hough accepts as long dark lines but whose narrow troughs
+>     don't support the ESF→LSF method. Effect on AF 200/4D task 3
+>     rollup: the `(+1, 0)` 81 lp/mm outlier (FWHM=12.5 vs predicted 20)
+>     is now dropped; uniformity_dx 1.41 → 0.92, uniformity_fx 1.65 →
+>     1.02 — corners now correctly read as slightly softer than centre,
+>     consistent with the plan's "high uniformity (sharp macro)" target.
 >
 > See "Open work after 2026-05-16 implementation" for remaining items.
 
@@ -369,6 +381,12 @@ real cohorts:
   (was 11.9). Both within physical limits and consistent with each
   edge's MTF50 (45–53 lp/mm individually on AF 200/4D centre, see
   POC at `/tmp/poc_esf_lsf.py`).
+- ~~**Non-scribe feature rejection.**~~ ✓ **done** — M-aware
+  `trough_fwhm_px` filter in `phase1._score_shot` drops LSF readings
+  whose measured trough is below half the predicted scribe FWHM at
+  the sweep's M. AF 200/4D `(+1, 0)` 81 lp/mm outlier (FWHM=12.5 at
+  M=1.0, predicted 20) now NaN; uniformity_dx 1.41 → 0.92, fx 1.65 →
+  1.02.
 - **Sequencing steps 7-8.** HTML report integration of
   `peaks_v2.csv` and full cohort re-runs. Once LSF detection is
   reliable, regenerate `out_55mm/cross_lens_crops/` from

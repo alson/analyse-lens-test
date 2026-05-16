@@ -2,14 +2,23 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
-from tile_sharpness.phase1 import _align_up, _roi_sizes, _rollup_peaks_v2
+from tile_sharpness.phase1 import (
+    SCRIBE_WIDTH_UM,
+    TROUGH_FWHM_REJECTION_FRACTION,
+    _align_up,
+    _expected_scribe_fwhm_px,
+    _roi_sizes,
+    _rollup_peaks_v2,
+    _trough_fwhm_samples,
+)
 from tile_sharpness.sweeps import Shot, Sweep
 
 
 def _row(
     *, ix=0, iy=0, k=0, fs=None, on_target=True, lsf_amp=1.0, lsf_mtf=0.10,
-    maze_amp=None, maze_resolves=False, rail_mm=None,
+    maze_amp=None, maze_resolves=False, rail_mm=None, trough_fwhm=20,
 ) -> dict:
     return {
         "sweep": "test-sweep",
@@ -26,6 +35,7 @@ def _row(
         "m": 1.0,
         "m_source": "algo_high",
         "scribe_detected": True,
+        "trough_fwhm_px": trough_fwhm,
         "lsf_peak_amp": lsf_amp,
         "lsf_mtf50_cy_per_px": lsf_mtf,
         "maze_resolves": maze_resolves,
@@ -124,6 +134,38 @@ def test_rollup_off_target_no_filesize_skips():
     ]
     out = _rollup_peaks_v2(rows, sweep, M=1.0)
     assert out == []
+
+
+def test_trough_fwhm_samples_counts_below_half_depth():
+    """Helper counts samples below (min + max) / 2."""
+    import numpy as np
+    profile = np.array([200, 200, 150, 100, 80, 100, 150, 200, 200], dtype=float)
+    # min=80, max=200, half=140. Samples below 140: indices 3, 4, 5 → 3 samples
+    # (100, 80, 100)
+    assert _trough_fwhm_samples(profile) == 3
+
+
+def test_expected_scribe_fwhm_scales_with_M():
+    """Predicted FWHM = SCRIBE_WIDTH_UM × M / Z7_pitch."""
+    pitch = 4.35
+    assert _expected_scribe_fwhm_px(1.0) == pytest.approx(SCRIBE_WIDTH_UM / pitch)
+    assert _expected_scribe_fwhm_px(2.0) == pytest.approx(2 * SCRIBE_WIDTH_UM / pitch)
+    assert _expected_scribe_fwhm_px(0.385) == pytest.approx(0.385 * SCRIBE_WIDTH_UM / pitch)
+
+
+def test_trough_fwhm_threshold_catches_AF200_outlier():
+    """At M=1.0 with FWHM=8 (the AF 200/4D (+1, 0) anomaly), reject."""
+    expected = _expected_scribe_fwhm_px(1.0)  # ~20 at M=1.0
+    threshold = TROUGH_FWHM_REJECTION_FRACTION * expected
+    assert 8 < threshold  # the AF 200/4D outlier gets rejected
+    assert 17 > threshold  # real-scribe FWHM (17-22) passes
+
+
+def test_trough_fwhm_threshold_accepts_low_M_scribe():
+    """At M=0.385 a real scribe has FWHM ~7.7 px; threshold should accept."""
+    expected = _expected_scribe_fwhm_px(0.385)  # ~7.7 at M=0.385
+    threshold = TROUGH_FWHM_REJECTION_FRACTION * expected
+    assert 4 >= threshold  # real-scribe FWHM at low M still passes
 
 
 def test_rollup_multiple_tiles():

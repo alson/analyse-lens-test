@@ -47,10 +47,37 @@ from .sweeps import Sweep
 # archive-2026-05/measure_wafer_squares manifest".)
 SCRIBE_PITCH_UM = 5000.0
 
+# Physical scribe groove WIDTH on the wafer in micrometres. Back-solved from
+# the AIS 287318 + AF 200/4D 1:1 F11 centre tiles where the measured
+# trough FWHM was 17-22 sensor pixels — at 4.35 µm pitch that's 74-96 µm
+# physical, midpoint ~87 µm. Used to gate out non-scribe features that
+# the LSD/Hough detector accepts but whose trough is too narrow to support
+# the ESF→LSF method (a few-px-wide dark feature has overlapping
+# left/right edges, so the differentiation can't isolate the optical PSF).
+SCRIBE_WIDTH_UM = 87.0
+
+# Reject LSF readings whose measured trough FWHM is below this fraction of
+# the expected scribe FWHM at the sweep's magnification. 0.5 catches the
+# AF 200/4D (+1, 0) non-scribe outlier (FWHM=8 at M=1.0, expected 20 →
+# 8/20 = 0.4 < 0.5) while leaving real low-M scribes intact (M=0.385 →
+# expected FWHM ~7.7, threshold ~3.85, so a real FWHM ≥ 4 is accepted).
+TROUGH_FWHM_REJECTION_FRACTION = 0.5
+
 # Cross-config conversion: cycles/pixel on sensor → line-pairs/mm on subject.
 # On Z7 (4.35 µm pitch) one cycle/px equals 1000/4.35 = 229.9 lp/mm on sensor,
 # divided back by M to subject space.
 Z7_SUBJECT_FACTOR = 1000.0 / SENSOR_PITCH_UM_Z7
+
+
+def _trough_fwhm_samples(profile: np.ndarray) -> int:
+    """Count samples below the half-depth of the cross-section profile."""
+    half = (profile.min() + profile.max()) / 2
+    return int((profile < half).sum())
+
+
+def _expected_scribe_fwhm_px(M: float) -> float:
+    """Predicted scribe FWHM on the sensor at magnification ``M`` (Z7 pitch)."""
+    return SCRIBE_WIDTH_UM * M / SENSOR_PITCH_UM_Z7
 
 
 def _align_up(n: int, step: int = MCU_SIZE) -> int:
@@ -159,12 +186,24 @@ def _score_shot(
         maze_roi = _crop_box(full, (cx - half_maze, cy - half_maze, cx + half_maze, cy + half_maze))
 
         seg_t = scribes_data.get((ix, iy))
+        trough_fwhm: int | None = None
         if seg_t is not None:
             seg = Segment(x0=seg_t[0], y0=seg_t[1], x1=seg_t[2], y1=seg_t[3])
             profile = cross_section(lsf_roi, seg)
+            trough_fwhm = _trough_fwhm_samples(profile)
             lsf_amp = lsf_peak_amp(profile)
             lsf_mtf = lsf_mtf50(profile)
             scribe_detected = True
+            # M-aware trough-width gate: reject readings whose trough is
+            # too narrow to be a real wafer scribe at this M. The
+            # LSD/Hough detector accepts long dark features regardless
+            # of width; this filter drops sub-scribe-width features
+            # (bond-pad shadows, single dark texture lines) before they
+            # contaminate the per-tile MTF50 with anomalously-high values.
+            expected_fwhm = _expected_scribe_fwhm_px(M)
+            if trough_fwhm < TROUGH_FWHM_REJECTION_FRACTION * expected_fwhm:
+                lsf_amp = float("nan")
+                lsf_mtf = None
         else:
             lsf_amp = float("nan")
             lsf_mtf = None
@@ -192,6 +231,7 @@ def _score_shot(
             "m": M,
             "m_source": m_source,
             "scribe_detected": scribe_detected,
+            "trough_fwhm_px": trough_fwhm,
             "lsf_peak_amp": lsf_amp,
             "lsf_mtf50_cy_per_px": lsf_mtf,
             "maze_resolves": maze_resolves,

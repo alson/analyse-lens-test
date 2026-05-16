@@ -216,6 +216,14 @@ point, each side treated as an ESF, differentiated to an LSF,
 FFTed; MTF50 is the arithmetic mean of the left and right per-edge
 values.
 
+Phase 1 also gates out non-scribe features that LSD/Hough accepts
+as long dark lines but whose troughs are too narrow to support the
+ESF→LSF method (bond-pad shadows, single dark texture artefacts,
+etc.). The measured trough FWHM is recorded in
+`per_shot_per_tile.csv` as `trough_fwhm_px`; rows where it falls
+below half the predicted scribe FWHM at the sweep's M
+(`SCRIBE_WIDTH_UM × M / sensor_pitch`) get their LSF columns NaN-out.
+
 ### Validation (tasks 1 + 3 from IMPLEMENTATION_PLAN)
 
 * AIS 287318 vs 537016 centre-tile maze-FFT amp ratio = **1.0412**

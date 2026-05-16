@@ -59,6 +59,17 @@ findings were folded into `analyse-lens-test/SHARPNESS_METRICS.md`.
 > (out_55mm AIS centre maze-FFT amp ratio ≤ 1.05)** ✓ measured 1.0412.
 > Steps 7-8 (HTML report wiring + cohort re-runs) deferred.
 >
+> **M-aware non-scribe rejection (`trough_fwhm_px` filter).** LSD/Hough
+> accepts long dark lines regardless of width; some non-scribe features
+> (bond-pad shadows, single dark texture lines) slip through with
+> 5-12 px troughs even when real scribes at that M would be 20+ px
+> wide. `phase1._score_shot` now records the measured trough FWHM and
+> NaN-out the LSF columns when it's below half the predicted scribe
+> FWHM at the sweep's M (`SCRIBE_WIDTH_UM × M / sensor_pitch`).
+> AF 200/4D task 3 effect: `(+1, 0)` 81 lp/mm outlier (FWHM=12.5,
+> predicted 20) → NaN; uniformity_dx 1.41 → 0.92, fx 1.65 → 1.02 —
+> corners now correctly read as slightly softer than centre.
+>
 > **MTF50 method fixed: ESF→LSF differentiation, per-edge averaging.**
 > The previous "FFT the whole trough as LSF" reading was
 > scribe-width-limited (~11 lp/mm subject across every config tested),
