@@ -188,11 +188,17 @@ sibling trees + crops.
 
   Caliper measurement of the physical wafer (47.9 mm / 9 dies =
   5.322 mm physical pitch) gives absolute calibration. Sigma 150
-  anchor reads 0.982× of true 1:1; Nikon AF 200 f/4D / 1_1 reads
-  exact 1.000× (user GIMP-verified); Nikon F-mount MF macros
-  (MC 105, 60 f/2.8D, AIS 55, Auto 55) cluster at 0.96-0.97×
-  (3-4 % under true 1:1, design-level focus-scale offset). See
-  ANALYSIS_NOTES.md §7a.4 + §7a.7 + §7a.8 for the full reasoning.
+  anchor reads 0.982× of true 1:1; Sigma 105 1.015×; Nikon AF 200
+  f/4D / 1_1 exactly 1.000× (user GIMP-verified); Nikon Z MC 105,
+  60mm f/2.8D and AIS 55mm cluster at 0.96-0.97× (3-4 % under
+  true 1:1, likely a shared rig-level framing offset). **The
+  Nikon Auto 55mm f/3.5 readings are NOT calibration data** —
+  shot with K-series extension tubes (M-tube/PK-13 not usable on
+  the FTZ-DSLR-era setup), total length a hair over 27.5 mm, so
+  the lens was deliberately focused under 1:2 to match the
+  reference framing. Convert algo readings to absolute mag with
+  ×0.982. See ANALYSIS_NOTES.md §7a.4 + §7a.7 + §7a.8 for full
+  reasoning.
 
 * **Archive step-1 broken-symlink count (2026-05-16): 5082.** The
   `archive_to_nfs.py` merge-symlink logic creates

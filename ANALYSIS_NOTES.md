@@ -558,37 +558,55 @@ physical die pitch **5.322 mm**. With the Nikon Z7 sensor pitch of
 4.349 µm/px (= 229.97 px/mm) this gives a true-1:1 projected
 pitch of **5.322 × 229.97 = 1224 px** at full-res.
 
-Re-expressed as absolute magnifications (algo period × 8.0625 ÷
-1224):
+Re-expressed as absolute magnifications:
+`absolute_mag = algo_mag_vs_sigma_150 × 0.982` (the Sigma 150 anchor
+itself sits at 0.982× true 1:1, so algo readings shrink by ~1.8 %
+once converted).
 
 | Config | algo mag vs Sigma 150 | **absolute mag** | dev from true 1:1 |
 |---|---:|---:|---:|
 | Sigma 150 bare 1_1 (anchor) | 1.000× | **0.982×** | −1.8 % |
 | Sigma 105 bare 1_1 | 1.034× | **1.015×** | +1.5 % |
 | Nikon AF 200 f/4D 1_1 (your F11/F8 GIMP) | — | **1.000×** | 0 % |
-| NIKKOR Z MC 105 1_1 | 0.986× | 0.968× | −3.2 % |
-| Nikon AF Micro 60mm f/2.8D 1_1 | 0.985× | 0.967× | −3.3 % |
-| Nikon 55mm AIS 287318 1_1 | 0.975× | 0.957× | −4.3 % |
-| Nikon 55mm AIS 537016 1_1 | 0.984× | 0.966× | −3.4 % |
-| Nikon Auto 55 (avg over 3 serials) | 0.985× | 0.967× | −3.3 % |
+| NIKKOR Z MC 105 1_1 | 0.986× | **0.968×** | −3.2 % |
+| Nikon AF Micro 60mm f/2.8D 1_1 | 0.985× | **0.967×** | −3.3 % |
+| Nikon 55mm AIS 287318 1_1 | 0.975× | **0.957×** | −4.3 % |
+| Nikon 55mm AIS 537016 1_1 | 0.984× | **0.966×** | −3.4 % |
+| Nikon Auto 55mm f/3.5 (3 serials) | ~0.985× | ~0.967× | (DO NOT USE — see note) |
 
-**Findings**:
+> **Auto 55mm f/3.5 caveat — not calibration data.** The user
+> shot the Auto 55mm f/3.5 with the Nikon K-series extension tubes
+> (the original 27.5 mm Nikon M extension tube and the PK-13 AI
+> extension ring weren't safely usable on the FTZ-or-DSLR setup),
+> and the K-series total length was a bit over 27.5 mm. To match
+> framing with another reference lens (probably the AIS 55mm
+> f/2.8), the Auto 55 was deliberately focused **a bit under 1:2**.
+> Its "1_1" label reflects the per-shot directory placement
+> alongside the AIS 55, not the lens's actual 1:1 position. Treat
+> the Auto 55 entries above as bonus data points that happen to
+> cluster with the rest by coincidence; do not draw lens-design
+> conclusions from them.
+
+**Findings (Auto 55 excluded)**:
 
 - The **Sigma 150 anchor is itself ~2 % under true 1:1**, so the
   algo's reported "1.000×" is a *relative* baseline, not absolute.
-  Converting to absolute mag = `algo_mag × (1224/1201.85) =
-  algo_mag × 1.0184`.
 - **Sigma 105 is the only lens that goes past true 1:1**, by 1.5 %.
-  The lens-spec note that its focus scale allows slightly past 1:1
-  is confirmed.
-- **Nikon AF Micro 200 f/4D's 1_1 frame measures at exact true 1:1**
-  (user GIMP 6121.8 px / 6127.5 px on F8 / F11 vs 6120 px target).
-  The algo's F11 reading of 1.188× was a sub-feature harmonic which
-  the multi-aperture warning correctly flagged.
-- **All Nikon F-mount MF macros (Z MC 105, 60mm f/2.8D, AIS 55mm
-  x2, Auto 55mm × 3 serials) sit 3–4 % under true 1:1**. The
-  cluster is tight across serials, so this is a design-level
-  focus-scale offset, not per-lens drift.
+  Confirms the lens-spec note that its focus scale allows slightly
+  past 1:1.
+- **Nikon AF Micro 200 f/4D / 1_1 measures at exact true 1:1**
+  (user GIMP 6121.8 / 6127.5 px on F8 / F11 vs the 6120 px
+  target). The algo's F11 reading of 1.188× was a sub-feature
+  harmonic which the multi-aperture warning correctly flagged
+  (F16, F5.3, F5.6, F8 all clustered at the right ~146 px period).
+- **Nikon F-mount macros (Z MC 105, 60mm f/2.8D, AIS 55mm × 2)
+  cluster at 3–4 % under true 1:1.** The AIS pair (0.957× and
+  0.966×) bracket 0.96×; the Z MC 105 and 60mm AF-D both sit at
+  0.968×. Tight enough across distinct lens designs (manual
+  Z-mount IF zoom-extending macro, AF F-mount, manual AIS) to
+  look like a shared rig-level systematic — probably the
+  wafer-on-stage position user-set for the 55mm AIS being the
+  reference, with subsequent lenses framed to match.
 
 The TC factors are independent of the absolute scale (they're
 intra-anchor ratios):
@@ -597,9 +615,9 @@ intra-anchor ratios):
 
 For downstream consumers: the algo's anchor convention (Sigma 150 =
 1.000×) is fine for relative comparisons; if absolute mags are
-needed, multiply by 1.018. `measure_wafer_squares` could
-optionally take a `--absolute-anchor-mag=0.982` flag in the future
-to bake this in.
+needed, multiply by **0.982**. `measure_wafer_squares` could
+optionally take an `--absolute-anchor-mag=0.982` flag in the
+future to bake this in.
 
 A fourth issue — a partial-folder split, not catchable by the
 single-frame algorithm but visible in per-file Nikon FocusDistance
