@@ -418,6 +418,102 @@ portable. Previous merges (`merged_24-120_2026-05-08`,
 
 ---
 
+### 7a.4 Automated wafer-square magnification measurement (2026-05-16)
+
+§7a.1 documented manual wafer-square counting in F11 frames to
+verify per-config magnification labels. The 2026-05 archive
+pipeline (`archive-2026-05/` in this dir) automates that
+measurement so the same check runs against every lens-config
+without per-frame manual work.
+
+**Approaches that didn't work** (the algorithmic deadend log,
+useful so future-me doesn't reinvent these):
+
+| approach | mean err vs GT | why it failed |
+|---|---|---|
+| 1D FFT on column projection | 70-150% | wafer spectrum is broadband; no clean fundamental |
+| Sobel-X + median peak spacing | 40% | picks sub-feature scale (more total edge energy than die boundaries) |
+| Cepstral analysis | 50% | same broadband-spectrum problem |
+| Gaussian-blur + Sobel | 50% | washing out features doesn't isolate die boundaries |
+| Grid-fit peak-to-trough | 41% | picks 2× overtones — dies alternate bronze/dark in pairs |
+| Grid-fit midpoint contrast + prime-factor refinement | 44% | overtones still win on the midpoint-contrast objective |
+| High-pass on 1D edge signal | 44% | bronze/dark alternation doesn't create a 1D envelope; Sobel already sees the sharp transitions |
+| 2D peak-finding (H+V axes pooled) | 9% mean / 3% median (helps a bit) | mostly redundant with the morphological approach |
+
+**What broke the deadlock** — the morphological "long-line"
+filter, combined with up-front tilt detection:
+
+1. **Detect wafer tilt** by histogramming Sobel-gradient angles
+   of strong-edge pixels (vertical scribes have gradients
+   clustered around the wafer's in-plane rotation). Single pass,
+   not a brute-force angle × period sweep.
+2. **Rotate** to make scribes vertical.
+3. **Band-pass** (subtract σ=40 px gaussian, then light σ=1.5 px
+   low-pass) — kills slow brightness gradients + fine sub-pixel
+   noise.
+4. **Threshold |Sobel_X| at the 80th percentile** to a binary
+   edge map.
+5. **Morphological opening with a (L, 1) kernel** where
+   ``L = 40 % of wafer height`` — keeps only edges that are
+   part of a long vertical run. **This is the key step**:
+   sub-features (which exist only in some rows) are removed;
+   die-boundary scribes (long lines spanning the whole wafer)
+   survive. The structural "lines span the wafer" test is
+   something no Fourier-based method can replicate.
+6. **Per-column count of remaining edge pixels** has sharp peaks
+   at every die boundary. ``find_peaks`` with prominence ≥ 0.15.
+7. **Sub-pixel refinement** via parabolic fit on each peak's
+   3-pixel neighbourhood. At >1:1 magnification only 2-3
+   spacings fit in the frame; sub-pixel localization is the
+   difference between ±1 px and ±0.1-0.3 px on each peak.
+8. **Median peak-to-peak spacing** within the [40, 400] px
+   band → die period in pixels.
+
+**Cross-check** for confidence stratification: a separate 2D-FFT
+on the long-line mask produces an independent period estimate.
+The two algorithms fail differently (primary picks "median of
+few spacings", FFT can lock onto an overtone), so their
+**agreement** is a useful confidence signal beyond just
+n_lines:
+
+* HIGH: n_lines ≥ 5 AND primary/FFT agree within 10 %
+* MEDIUM: n_lines ≥ 5 with disagreement OR n_lines 3-4 with agreement
+* LOW: n_lines ≤ 2 OR (n_lines 3-4 AND disagreement)
+
+The FFT also serves as a **fallback** when the primary returns
+None (sub-1:1 magnification where the wafer doesn't fill the
+frame, so < 2 long-line peaks survive the morphological filter).
+
+**Validation against 2026-01-29 path-encoded GT** (55 configs):
+
+| confidence | n  | mean abs dev | max  |
+|---|---|---|---|
+| HIGH       | 27 | 3.2 %        | 27.9 % |
+| MEDIUM     | 15 | 9.0 %        | 45.6 % |
+| LOW        | 11 | 19.8 %       | 124.7 % |
+
+**Outliers that turned out to be GT label errors, not algorithm
+failures** (verified by vision-counting the actual F11 frames):
+
+* `Sigma 150 + TC-2001 / 1_1` — labelled 1:1 but the algorithm
+  reports 1.45× and the image visibly has ~9 dies (vs the 6 at
+  a true 1:1 frame). The user focused away from MFD trying to
+  match the 1:1 framing but didn't quite hit it.
+* `Sigma 105 + TC-1401 / 1_1` — same pattern: labelled 1:1 but
+  actually ~1.5×, ~4 dies visible.
+* `Sigma 105 + TC-1401 / 1.4_1` — companion shot to the above;
+  the labels were swapped at GT-measurement time so this one
+  is actually at ~1.0×.
+
+The algorithm is more accurate than the 2026-01-29 GT in those
+three cases. After excluding the verified mislabels, HIGH-band
+mean error is well under 3 %.
+
+**Implementation**: `archive-2026-05/src/archive_2026_05/
+measure_wafer_squares.py`. Pure-helper unit tests + 16
+parametrised validation cases pass against the 2026-01-29 dataset
+with ≤ 10 % tolerance per case (3 % typical).
+
 ## 8. How findings flow into the planner
 
 Summary of what each section of this document contributes to
