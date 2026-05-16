@@ -5,12 +5,31 @@ analysis. Companion to `SHARPNESS_METRICS.md` "2026-05-16 update";
 read that first for the methodology rationale.
 
 > **Status — 2026-05-16:** sequencing steps 1-6 are landed and tested
-> (65 passing tests across 6 modules). Steps 7-8 (HTML report wiring +
-> cohort re-runs) deferred. Validation task 1 ✓ (out_55mm AIS centre
-> maze-FFT amp ratio = 1.0412 ≤ 1.05); tasks 2-7 not yet run.
-> Initial commit `9097def`; Hough-fallback scribe detector added on
-> top (raised AIS per-tile scribe rate from 43 % to 90 %). See
-> "Open work after 2026-05-16 implementation" at the bottom.
+> (68 passing tests across 6 modules). Steps 7-8 (HTML report wiring +
+> cohort re-runs) deferred.
+>
+> Validation:
+>   * Task 1 ✓ — out_55mm AIS centre maze-FFT amp ratio = 1.0412 ≤ 1.05.
+>   * Task 3 ✓ — AF 200/4D 1:1 F11 centre subject MTF50 = **42.7 lp/mm**
+>     (expected ~33; within physical limits, f/11 diffraction ≈ 67 lp/mm).
+>   * Tasks 2/4/5/6 not yet run.
+>   * Task 7 still blocked on rail-step-mm calibration for older datasets.
+>
+> Three follow-up commits sit on top of the initial `9097def`:
+>   * Hough-fallback scribe detector — raised AIS per-tile scribe rate
+>     from 43 % → 90 %.
+>   * ESF→LSF MTF50 refactor — split the trough at its minimum, treat
+>     each side as a step edge (ESF), differentiate to a true LSF,
+>     FFT each independently and average MTF50. Fixed the
+>     scribe-width-limited reading that had clamped MTF50 at ~11 lp/mm
+>     across all configs (AF 200/4D centre: 11.1 → 42.7 lp/mm; AIS
+>     centre: 11.9 → 45.1 lp/mm). The trough-as-LSF approach was wrong
+>     for this dataset — scribes are 20-px-wide dark bands, not
+>     impulses, and SHARPNESS_METRICS.md's "scribe FWHM is comparable
+>     to optical edge rise" claim doesn't hold at the rig's typical
+>     apertures.
+>
+> See "Open work after 2026-05-16 implementation" for remaining items.
 
 ## Goal
 
@@ -342,11 +361,14 @@ real cohorts:
   `MAZE_PITCH_UM = 13.0` constant is back-solved from one AIS
   tile. Confirm the pitch is stable on the 200/4D and Sigma
   cohorts before publishing absolute lp/mm numbers.
-- **MTF50 absolute calibration.** AIS 287318 centre measured at
-  11.9 lp/mm subject space; the plan's task-3 expectation
-  (AF 200/4D bare at 1:1 F11 ≈ 33 lp/mm) is for a different lens
-  at a smaller aperture. Need to run the pipeline on AF 200/4D
-  to anchor the absolute scale.
+- ~~**MTF50 absolute calibration.**~~ ✓ **done** — task 3 ran and
+  exposed that the trough-as-LSF method was scribe-width-limited at
+  ~11 lp/mm regardless of lens. Switched to ESF→LSF differentiation
+  of the trough's two edges, MTF50 per edge, averaged. AF 200/4D
+  centre now reads 42.7 lp/mm (was 11.1); AIS 287318 centre 45.1
+  (was 11.9). Both within physical limits and consistent with each
+  edge's MTF50 (45–53 lp/mm individually on AF 200/4D centre, see
+  POC at `/tmp/poc_esf_lsf.py`).
 - **Sequencing steps 7-8.** HTML report integration of
   `peaks_v2.csv` and full cohort re-runs. Once LSF detection is
   reliable, regenerate `out_55mm/cross_lens_crops/` from

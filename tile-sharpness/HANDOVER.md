@@ -59,6 +59,16 @@ findings were folded into `analyse-lens-test/SHARPNESS_METRICS.md`.
 > (out_55mm AIS centre maze-FFT amp ratio ≤ 1.05)** ✓ measured 1.0412.
 > Steps 7-8 (HTML report wiring + cohort re-runs) deferred.
 >
+> **MTF50 method fixed: ESF→LSF differentiation, per-edge averaging.**
+> The previous "FFT the whole trough as LSF" reading was
+> scribe-width-limited (~11 lp/mm subject across every config tested),
+> because wafer scribes are 20-px-wide dark bands, not impulses.
+> Replaced with classic slanted-edge mechanics: split the trough at
+> its deepest point, treat each side as an ESF, differentiate to an
+> LSF, FFT each independently, average MTF50. AF 200/4D 1:1 F11
+> centre: 11.1 → 42.7 lp/mm; AIS 287318 centre: 11.9 → 45.1 lp/mm.
+> Validation task 1 unchanged (centre maze-FFT amp ratio 1.0412).
+>
 > **Hough fallback raised scribe-detection rate on the AIS sweeps from
 > 43 % → 90 % per-tile.** When LSD's longest dark
 > segment falls below the length threshold, `detect_scribe()` now runs

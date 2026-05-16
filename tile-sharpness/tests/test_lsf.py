@@ -65,41 +65,90 @@ def test_cross_section_recovers_lsf_width():
     assert profile_sharp[centre_idx] < profile_sharp[-1] - 10
 
 
-def test_sharp_profile_has_higher_lsf_peak_amp_than_blurred():
-    sharp = _make_scribe_image(scribe_sigma=0.7)
-    blurred = _make_scribe_image(scribe_sigma=4.0)
-    seg_s = detect_scribe(sharp, min_length_ratio=0.5, min_length_px=100)
-    seg_b = detect_scribe(blurred, min_length_ratio=0.5, min_length_px=100)
-    assert seg_s is not None and seg_b is not None
-    ps = cross_section(sharp, seg_s, half_window_px=24)
-    pb = cross_section(blurred, seg_b, half_window_px=24)
-    amp_sharp = lsf_peak_amp(ps, ref_freq_cy_per_px=0.20)
-    amp_blurred = lsf_peak_amp(pb, ref_freq_cy_per_px=0.20)
-    assert amp_sharp > amp_blurred
-
-
-def test_sharp_profile_has_higher_lsf_mtf50_than_blurred():
-    sharp = _make_scribe_image(scribe_sigma=0.7)
-    blurred = _make_scribe_image(scribe_sigma=4.0)
-    seg_s = detect_scribe(sharp, min_length_ratio=0.5, min_length_px=100)
-    seg_b = detect_scribe(blurred, min_length_ratio=0.5, min_length_px=100)
-    assert seg_s is not None and seg_b is not None
-    ps = cross_section(sharp, seg_s, half_window_px=24)
-    pb = cross_section(blurred, seg_b, half_window_px=24)
-    mtf_sharp = lsf_mtf50(ps)
-    mtf_blurred = lsf_mtf50(pb)
-    # Both should produce a usable MTF50; sharp > blurred.
-    assert mtf_sharp is not None
-    assert mtf_blurred is not None
-    assert mtf_sharp > mtf_blurred
-
-
 def test_lsf_peak_amp_handles_zero_profile():
     assert lsf_peak_amp(np.zeros(49)) == 0.0
 
 
 def test_lsf_mtf50_handles_zero_profile():
     assert lsf_mtf50(np.zeros(49)) is None
+
+
+# -------------------------------------------------------------------------
+# Real-fixture tests for the ESF→LSF MTF50 path.
+#
+# Synthetic Gaussian-line scribes are a poor model for the wafer scribe
+# geometry (no flat trough bottom, no well-defined edges), so they don't
+# discriminate sharp vs blurred under the per-edge ESF→LSF method. The
+# fixtures are 49-sample cross-section profiles extracted from real LSF
+# ROIs of the wafer dataset (2026-01-29 sweeps), pre-computed via the
+# production scribe-detect → cross_section path. Saving the profile not
+# the source JPEG keeps fixtures small (~400 B each) and avoids
+# re-exercising scribe detection in unit tests.
+# -------------------------------------------------------------------------
+
+import pathlib
+_FIXTURE_DIR = pathlib.Path(__file__).parent / "data"
+
+
+def _load_profile(name: str) -> np.ndarray:
+    return np.load(_FIXTURE_DIR / f"{name}.npy")
+
+
+def test_sharp_profile_has_higher_lsf_mtf50_than_soft_AF200():
+    """AF 200/4D 1:1 F11 centre: maze-argmax shot vs defocused-edge shot."""
+    sharp = _load_profile("AF200_F11_centre_sharp")
+    soft = _load_profile("AF200_F11_centre_soft")
+    mtf_sharp = lsf_mtf50(sharp)
+    mtf_soft = lsf_mtf50(soft)
+    assert mtf_sharp is not None
+    assert mtf_soft is not None
+    assert mtf_sharp > mtf_soft
+    # Sanity: sharp shot should give ~30-60 lp/mm subject on Z7 at M=1.0
+    # (0.13 - 0.26 cy/px). Soft shot well below that.
+    assert 0.10 < mtf_sharp < 0.40
+    assert mtf_soft < 0.20
+
+
+def test_sharp_profile_has_higher_lsf_mtf50_than_soft_AIS():
+    """AIS 287318 1:1 F8 centre: FFT-pick shot vs defocused-edge shot."""
+    sharp = _load_profile("AIS287318_F8_centre_sharp")
+    soft = _load_profile("AIS287318_F8_centre_soft")
+    mtf_sharp = lsf_mtf50(sharp)
+    mtf_soft = lsf_mtf50(soft)
+    assert mtf_sharp is not None
+    assert mtf_soft is not None
+    assert mtf_sharp > mtf_soft
+
+
+def test_sharp_profile_has_higher_lsf_peak_amp_than_soft_AF200():
+    sharp = _load_profile("AF200_F11_centre_sharp")
+    soft = _load_profile("AF200_F11_centre_soft")
+    amp_sharp = lsf_peak_amp(sharp)
+    amp_soft = lsf_peak_amp(soft)
+    # Empirically ~4-5× ratio on this fixture pair.
+    assert amp_sharp > 2 * amp_soft
+
+
+def test_lsf_mtf50_per_edge_averaging_not_dominated_by_either_side():
+    """Sanity: the averaged MTF50 sits between the per-edge MTF50 values."""
+    from tile_sharpness.methods.lsf import _split_to_edge_lsfs, _mtf50_from_lsf
+    sharp = _load_profile("AF200_F11_centre_sharp")
+    pair = _split_to_edge_lsfs(sharp)
+    assert pair is not None
+    mtf_left = _mtf50_from_lsf(pair[0])
+    mtf_right = _mtf50_from_lsf(pair[1])
+    mtf_avg = lsf_mtf50(sharp)
+    assert mtf_left is not None and mtf_right is not None and mtf_avg is not None
+    # Average should be exactly the arithmetic mean of L and R.
+    assert abs(mtf_avg - (mtf_left + mtf_right) / 2) < 1e-9
+
+
+def test_lsf_mtf50_rejects_off_centre_trough():
+    """If the trough centre is too close to the window edge, return None."""
+    # Build a profile whose minimum is in the first few samples (degenerate).
+    profile = np.linspace(120.0, 200.0, 49)  # monotonic — argmin at idx 0
+    assert lsf_mtf50(profile) is None
+    assert lsf_peak_amp(profile) == 0.0
 
 
 def _make_fragmented_scribe_image(

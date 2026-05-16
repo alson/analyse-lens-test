@@ -208,12 +208,23 @@ per-tile scribe detection (LSD-only: 43 %). Cost: Hough adds ~3 s
 per ROI but Phase 1 caches scribe detection at the filesize-argmax
 shot, so it's sweep-level overhead, not per-shot.
 
-### Validation (out_55mm, task 1 from IMPLEMENTATION_PLAN)
+MTF50 is computed via classic slanted-edge mechanics rather than
+FFTing the whole trough — wafer scribes are 20-px-wide dark bands,
+not impulses, so the trough-FFT path is scribe-width-limited at
+~11 lp/mm regardless of lens. The trough is split at its deepest
+point, each side treated as an ESF, differentiated to an LSF,
+FFTed; MTF50 is the arithmetic mean of the left and right per-edge
+values.
 
-AIS 287318 vs 537016 centre-tile maze-FFT amp ratio = **1.0412**
-(target ≤ 1.05). The POC's reported "5.8× decentering" was a
-filesize mis-pick artifact and is no longer visible under the
-maze-FFT picker.
+### Validation (tasks 1 + 3 from IMPLEMENTATION_PLAN)
+
+* AIS 287318 vs 537016 centre-tile maze-FFT amp ratio = **1.0412**
+  (target ≤ 1.05). The POC's reported "5.8× decentering" was a
+  filesize mis-pick artifact and is no longer visible under the
+  maze-FFT picker.
+* AF 200/4D 1:1 F11 centre subject MTF50 = **42.7 lp/mm** (expected
+  ~33; well within the f/11 diffraction-limit envelope of ~67 lp/mm).
+  AIS 287318 centre: 45.1 lp/mm.
 
 ## Empirical findings (POC 2026-05-15) *— partially superseded; see 2026-05-16 update below*
 

@@ -317,64 +317,153 @@ def cross_section(
     return sampled.mean(axis=1)
 
 
-def _fft_mag_spectrum(profile: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Return ``(freqs_cy_per_px, mag)`` of a centred 1-D profile.
+_FFT_PAD = 256
+_MIN_EDGE_SAMPLES = 6
 
-    The profile is centred (DC subtracted) and Hann-windowed before the
-    FFT to suppress edge leakage. Returns the positive-frequency half;
-    DC bin is dropped (it would always sum to ~0 after centring anyway).
+
+def _split_to_edge_lsfs(profile: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+    """Split a scribe-trough cross-section into two edge LSFs.
+
+    Wafer scribes are dark *bands* ~20 px wide (intrinsic groove
+    geometry on the wafer), not impulses. FFTing the trough directly
+    measures the convolution of the lens PSF with the scribe shape, so
+    MTF50 saturates at the scribe-width limit (~11 lp/mm subject on
+    Z7 at M=1.0) regardless of how sharp the lens actually is —
+    verified 2026-05-16 on AIS 287318 + AF 200/4D 1:1 F11 (both
+    clamped to ~11 lp/mm via the trough-FFT path; AF 200/4D should
+    measure ~33-50 lp/mm).
+
+    Fix: treat each edge of the trough as an edge spread function
+    (ESF), differentiate to get a true LSF whose width reflects the
+    optical edge response only. Split the trough at its minimum,
+    reverse the right half so it reads "background → trough" like the
+    left, differentiate each independently. Returned LSFs are
+    mean-subtracted so DC bin contributions are bounded.
+
+    Note: averaging the two ESFs **before** differentiating smears the
+    edge transitions when L and R aren't pixel-aligned (decentering,
+    detected-scribe position quantisation), pulling MTF50 ~2× below
+    the single-edge value. Callers should average MTF50 / amplitude
+    results from the two LSFs *after* the FFT instead.
+
+    Returns ``None`` when the trough centre sits too close to either
+    end of the cross-section window (degenerate slice; we need at
+    least ``_MIN_EDGE_SAMPLES`` background-side samples on each side
+    for a stable ESF).
     """
-    if profile.size < 4:
+    if profile.size < 2 * _MIN_EDGE_SAMPLES:
+        return None
+    centre = int(np.argmin(profile))
+    if centre < _MIN_EDGE_SAMPLES or centre > profile.size - _MIN_EDGE_SAMPLES - 1:
+        return None
+    left_esf = profile[:centre + 1].astype(np.float64)
+    right_esf = profile[centre:][::-1].astype(np.float64)
+    left_lsf = np.gradient(left_esf)
+    right_lsf = np.gradient(right_esf)
+    return left_lsf - left_lsf.mean(), right_lsf - right_lsf.mean()
+
+
+def _lsf_fft(lsf: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Zero-pad to ``_FFT_PAD`` and return ``(freqs_cy_per_px, |FFT|)``.
+
+    Padding adds sub-bin frequency resolution; the DC bin is dropped
+    (mean is already zero by construction). Empty arrays on degenerate
+    input.
+    """
+    if lsf is None or lsf.size == 0:
         return np.array([]), np.array([])
-    centred = profile - profile.mean()
-    win = np.hanning(centred.size)
-    f = np.fft.rfft(centred * win)
-    mag = np.abs(f)
-    freqs = np.fft.rfftfreq(centred.size, d=1.0)
-    # Drop DC.
+    if _FFT_PAD > lsf.size:
+        padded = np.zeros(_FFT_PAD)
+        offset = (_FFT_PAD - lsf.size) // 2
+        padded[offset:offset + lsf.size] = lsf
+        lsf = padded
+    mag = np.abs(np.fft.rfft(lsf))
+    freqs = np.fft.rfftfreq(lsf.size, d=1.0)
     return freqs[1:], mag[1:]
 
 
-def lsf_peak_amp(profile: np.ndarray, ref_freq_cy_per_px: float = 0.10) -> float:
-    """Magnitude of |FFT(profile)| at the closest bin to ``ref_freq_cy_per_px``.
-
-    Returns 0.0 on degenerate input. Higher = sharper at this reference
-    frequency. The default reference (0.10 cy/px on sensor) sits well
-    below Nyquist and above the noise floor on JPEG-quantised tiles.
-    """
-    freqs, mag = _fft_mag_spectrum(profile)
-    if freqs.size == 0:
-        return 0.0
-    idx = int(np.argmin(np.abs(freqs - ref_freq_cy_per_px)))
-    return float(mag[idx])
-
-
-def lsf_mtf50(profile: np.ndarray) -> float | None:
-    """Return the frequency at which |FFT(profile)| falls to half its peak.
-
-    Looks for the first crossing past the global magnitude maximum. If
-    the spectrum stays above 0.5 × peak out to Nyquist (rare —
-    indicates a near-impulse profile, i.e. extremely sharp scribe with
-    almost no leakage), returns ``None``. Caller should treat ``None``
-    as "MTF50 saturated at Nyquist" for ranking.
-    """
-    freqs, mag = _fft_mag_spectrum(profile)
+def _mtf50_from_lsf(lsf: np.ndarray) -> float | None:
+    """MTF50 on sensor (cy/px) from one LSF, or ``None`` if MTF saturates."""
+    freqs, mag = _lsf_fft(lsf)
     if freqs.size == 0 or mag.max() <= 0:
         return None
-    # Search past the global peak — the LSF spectrum should be
-    # monotonically decreasing after its low-frequency lobe.
+    norm = mag / mag.max()
     peak_idx = int(np.argmax(mag))
-    peak = mag[peak_idx]
-    half = 0.5 * peak
-    for k in range(peak_idx + 1, mag.size):
-        if mag[k] <= half:
-            # Linear interpolate the crossing for sub-bin accuracy.
+    for k in range(peak_idx + 1, norm.size):
+        if norm[k] <= 0.5:
             if k == 0:
                 return float(freqs[0])
             f0, f1 = freqs[k - 1], freqs[k]
-            m0, m1 = mag[k - 1], mag[k]
+            m0, m1 = norm[k - 1], norm[k]
             if m0 == m1:
                 return float(f1)
-            t = (m0 - half) / (m0 - m1)
+            t = (m0 - 0.5) / (m0 - m1)
             return float(f0 + (f1 - f0) * t)
     return None
+
+
+def lsf_peak_amp(profile: np.ndarray, ref_freq_cy_per_px: float = 0.10) -> float:
+    """Mean |FFT(LSF)| at ``ref_freq_cy_per_px``, averaged across left + right edges.
+
+    The trough is split into two ESFs (background→trough on each side),
+    each is differentiated to a separate LSF, FFTed, and the magnitude
+    at the bin nearest ``ref_freq_cy_per_px`` is read. The arithmetic
+    mean of the two values is returned.
+
+    Returns 0.0 on degenerate input (trough too close to the window
+    edge, or input too short — see :func:`_split_to_edge_lsfs`).
+    Higher = sharper at this reference frequency. The default
+    (0.10 cy/px on sensor) sits well below Nyquist and above the
+    noise floor on JPEG-quantised tiles.
+    """
+    pair = _split_to_edge_lsfs(profile)
+    if pair is None:
+        return 0.0
+    amps: list[float] = []
+    for lsf in pair:
+        freqs, mag = _lsf_fft(lsf)
+        if freqs.size == 0:
+            continue
+        idx = int(np.argmin(np.abs(freqs - ref_freq_cy_per_px)))
+        amps.append(float(mag[idx]))
+    if not amps:
+        return 0.0
+    return float(np.mean(amps))
+
+
+def lsf_mtf50(profile: np.ndarray) -> float | None:
+    """MTF50 frequency on sensor (cycles per pixel) from a trough profile.
+
+    The trough is split into two ESFs (left and right of the deepest
+    point), each is differentiated to a separate LSF (see
+    :func:`_split_to_edge_lsfs`), each LSF's MTF50 is computed
+    independently (zero-padded FFT → first crossing of 0.5 past the
+    peak, sub-bin interpolated), and the **arithmetic mean of the
+    two MTF50 values** is returned. Averaging after the FFT preserves
+    each edge's effective resolution; averaging the ESFs before
+    differentiating would smear non-aligned edges and pull MTF50
+    ~2× low (verified 2026-05-16 on AF 200/4D centre).
+
+    Returns ``None`` when:
+      * the trough cross-section is degenerate (centre too close to
+        the window edge, or input too short — see
+        :func:`_split_to_edge_lsfs`),
+      * neither LSF produces a usable MTF50 (both spectra stay above
+        0.5 × peak out to Nyquist — rare; indicates a sub-pixel-width
+        LSF, e.g. a small non-scribe feature picked up by the
+        detector).
+
+    Callers should treat ``None`` as "no usable MTF50 at this
+    tile/shot".
+    """
+    pair = _split_to_edge_lsfs(profile)
+    if pair is None:
+        return None
+    mtf50s: list[float] = []
+    for lsf in pair:
+        m = _mtf50_from_lsf(lsf)
+        if m is not None:
+            mtf50s.append(m)
+    if not mtf50s:
+        return None
+    return float(np.mean(mtf50s))
