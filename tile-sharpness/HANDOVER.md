@@ -59,17 +59,17 @@ findings were folded into `analyse-lens-test/SHARPNESS_METRICS.md`.
 > (out_55mm AIS centre maze-FFT amp ratio ≤ 1.05)** ✓ measured 1.0412.
 > Steps 7-8 (HTML report wiring + cohort re-runs) deferred.
 >
-> **Known limitation worth tightening:** scribe-detection rate on the
-> AIS sweeps came out at 43 % per-tile (LSD min_length_px=200,
-> darkness_margin=15, min_length_ratio=0.15). Tiles without a detected
-> scribe get NaN `mtf50_subject_lp_per_mm` and the rollup falls back to
-> maze-FFT — which works for AIS at M=1.0 (where maze resolves) but
-> leaves subject-MTF50 sparse on low-M / off-target tiles. Two
-> tractable improvements before validation tasks 2-6: tighten LSD
-> parameters via a Hough fallback (linking fragmented edges into a
-> long composite line, since LSD finds the wafer scribe as 400-700 px
-> segments rather than a single near-full-span line), or detect via
-> Radon projection through a smoothed image.
+> **Hough fallback raised scribe-detection rate on the AIS sweeps from
+> 43 % → 90 % per-tile.** When LSD's longest dark
+> segment falls below the length threshold, `detect_scribe()` now runs
+> `skimage.transform.probabilistic_hough_line` on Canny edges, groups
+> lines by angle, clusters by perpendicular offset, and spans the
+> dominant cluster's endpoints to recover a single long composite line.
+> Compute cost: one Hough call (~3 s on a 3456 px ROI) at most once per
+> (sweep, tile) — Phase 1 caches scribe detection at the filesize-argmax
+> shot, so this is sweep-level overhead, not per-shot. Composite spans
+> average 3240 px vs LSD's 690 px — a 4.7× longer cross-section anchor,
+> giving more samples for the LSF profile.
 
 ## TL;DR
 

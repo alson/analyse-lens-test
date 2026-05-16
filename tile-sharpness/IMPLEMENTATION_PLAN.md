@@ -4,15 +4,13 @@ State as of 2026-05-16. Supersedes the POC's eight-method primary
 analysis. Companion to `SHARPNESS_METRICS.md` "2026-05-16 update";
 read that first for the methodology rationale.
 
-> **Status — 2026-05-16 (commit `9097def`):** sequencing steps 1-6
-> are landed and tested (60 passing tests across 6 modules). Steps
-> 7-8 (HTML report wiring + cohort re-runs) deferred. Validation
-> task 1 ✓ (out_55mm AIS centre maze-FFT amp ratio = 1.0412 ≤ 1.05);
-> tasks 2-7 not yet run — they need LSD-detection tightening first
-> (current detection rate ~43 % per-tile on the AIS sweeps;
-> tiles without a scribe get NaN subject-MTF50 and fall back to
-> maze-FFT only). See "Open work after 2026-05-16 implementation"
-> at the bottom of this file.
+> **Status — 2026-05-16:** sequencing steps 1-6 are landed and tested
+> (65 passing tests across 6 modules). Steps 7-8 (HTML report wiring +
+> cohort re-runs) deferred. Validation task 1 ✓ (out_55mm AIS centre
+> maze-FFT amp ratio = 1.0412 ≤ 1.05); tasks 2-7 not yet run.
+> Initial commit `9097def`; Hough-fallback scribe detector added on
+> top (raised AIS per-tile scribe rate from 43 % to 90 %). See
+> "Open work after 2026-05-16 implementation" at the bottom.
 
 ## Goal
 
@@ -225,12 +223,14 @@ Suggested order, each step shippable on its own:
 1. ✓ **done** — `m_lookup.py` (uses existing wafer-manifest CSVs);
    tested against 2026-01-29 `Sigma 150 1:1` anchor. 13 tests.
 2. ✓ **done** — `methods/lsf.py` (LSD + cross-section + LSF MTF50).
-   7 tests on synthetic Gaussian scribes; real-tile verification on
-   AIS 287318 centre. **Caveat**: LSD finds scribes as fragmented
-   400-700 px segments; current thresholds
-   (`min_length_px=200`, `darkness_margin=15`) yield ~43 %
-   per-tile detection on AIS sweeps — tractable but needs
-   tightening before validation tasks 2-6.
+   12 tests on synthetic Gaussian + fragmented scribes; real-tile
+   verification on AIS 287318 centre. **Two-stage detector**: LSD
+   first (fast); if its longest dark segment falls below the length
+   threshold, fall back to `detect_scribe_hough` (Canny +
+   probabilistic Hough + angle-binning + perpendicular-offset
+   clustering + endpoint spanning). 2026-05-16 AIS measurement:
+   per-tile scribe rate 43 % → 90 % from the fallback alone; mean
+   spanned length 690 → 3240 px.
 3. ✓ **done** — `methods/maze_fft.py` (annulus sum). 8 tests;
    matches the prototype at `/tmp/ais_fft_worker.py` to 0.4 % on a
    real AIS centre tile.
@@ -334,21 +334,10 @@ Suggested order, each step shippable on its own:
 Pending before validation tasks 2-7 from this plan can be run on
 real cohorts:
 
-- **Tighten scribe detection (priority).** Current LSD config
-  (`min_length_px=200`, `darkness_margin=15`,
-  `min_length_ratio=0.15`) achieves ~43 % per-tile detection on
-  out_55mm AIS sweeps. The wafer scribes show up in LSD output as
-  400-700 px fragmented segments rather than one near-full-span
-  line. Two tractable approaches:
-  - **Hough fallback**: when LSD finds no dark segment past the
-    threshold, run `skimage.transform.probabilistic_hough_line` on
-    Canny edges and link collinear fragments. Initial spike on
-    AIS centre ROI: Hough returned 117 lines with top length
-    727 px — meaningfully longer than the LSD top.
-  - **Radon projection through a smoothed ROI**: blur σ ≈ 10 px to
-    suppress maze texture, then find the orientation + offset of
-    the deepest dark band via Radon transform. More principled
-    than line-fitting; one parameter per ROI.
+- ~~**Tighten scribe detection (priority).**~~ ✓ **done** — Hough
+  fallback wired in: detection rate 43 % → 90 % on out_55mm AIS
+  sweeps; mean span 690 → 3240 px. Radon-projection alternative
+  shelved as the Hough approach was sufficient.
 - **Validate maze-pitch on non-AIS datasets.** The
   `MAZE_PITCH_UM = 13.0` constant is back-solved from one AIS
   tile. Confirm the pitch is stable on the 200/4D and Sigma

@@ -21,6 +21,8 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 from scipy.ndimage import map_coordinates
+from skimage.feature import canny
+from skimage.transform import probabilistic_hough_line
 
 
 @dataclass(frozen=True)
@@ -55,17 +57,49 @@ def detect_scribe(
     min_length_ratio: float = 0.15,
     min_length_px: int = 200,
     darkness_margin: float = 15.0,
+    hough_fallback: bool = True,
 ) -> Segment | None:
     """Return the longest sufficiently-dark line in ``image_2d``.
 
-    The wafer scribes appear in LSD output as 400-700 px segments inside
-    a ~3456 px ROI — fragmented enough that the original 60 %-of-ROI
-    threshold rejected real scribes. The accepting criterion is now
-    intentionally loose: pick the longest LSD segment whose along-line
-    mean intensity is at least ``darkness_margin`` units below the
-    ROI mean (so genuine dark lines, not bright edges). Returns
-    ``None`` if no segment meets the joint length + darkness threshold.
+    Two-stage detector:
+
+    1. **LSD** (OpenCV) finds intensity-edge segments. We keep the
+       longest segment whose along-line mean is at least
+       ``darkness_margin`` units below the ROI mean. The wafer
+       scribes appear in LSD output as 400-700 px segments inside a
+       ~3456 px ROI — fragmented enough that the original
+       60 %-of-ROI threshold rejected real scribes.
+    2. **Hough fallback** (when ``hough_fallback=True`` and LSD finds
+       nothing): :func:`detect_scribe_hough` runs
+       ``probabilistic_hough_line`` on Canny edges, groups lines by
+       angle, clusters by perpendicular offset, and spans each
+       cluster's endpoints to recover a single long composite line.
+       On the 2026-05-16 AIS POC this raised per-tile detection from
+       66 % to 89 %.
+
+    Returns ``None`` if neither stage finds a qualifying dark line.
     """
+    seg = _detect_scribe_lsd(
+        image_2d,
+        min_length_ratio=min_length_ratio,
+        min_length_px=min_length_px,
+        darkness_margin=darkness_margin,
+    )
+    if seg is not None:
+        return seg
+    if hough_fallback:
+        return detect_scribe_hough(image_2d, darkness_margin=darkness_margin)
+    return None
+
+
+def _detect_scribe_lsd(
+    image_2d: np.ndarray,
+    *,
+    min_length_ratio: float,
+    min_length_px: int,
+    darkness_margin: float,
+) -> Segment | None:
+    """OpenCV LSD pass. Internal — call :func:`detect_scribe` instead."""
     if image_2d.ndim != 2:
         raise ValueError(f"expected 2-D image, got shape {image_2d.shape}")
     h, w = image_2d.shape
@@ -95,6 +129,142 @@ def detect_scribe(
         if length > best_len:
             best_len = length
             best = Segment(x0=float(x0), y0=float(y0), x1=float(x1), y1=float(y1))
+    return best
+
+
+def detect_scribe_hough(
+    image_2d: np.ndarray,
+    *,
+    canny_sigma: float = 2.0,
+    hough_threshold: int = 150,
+    hough_min_length: int = 250,
+    hough_max_gap: int = 30,
+    angle_bin_deg: float = 5.0,
+    perp_distance_px: float = 8.0,
+    darkness_margin: float = 15.0,
+    min_spanned_length_px: int = 600,
+) -> Segment | None:
+    """Recover a single long scribe by linking collinear Hough fragments.
+
+    Pipeline:
+
+    1. Canny edge map on the ROI.
+    2. :func:`skimage.transform.probabilistic_hough_line` on the edges.
+    3. Bin lines by angle (``angle_bin_deg`` bins); the dominant bin
+       is the candidate scribe orientation.
+    4. Within the dominant bin, cluster lines by perpendicular offset
+       from the ROI centre (``perp_distance_px`` tolerance) — lines
+       on the same infinite line have similar offset.
+    5. For each cluster, project all endpoints onto the cluster's
+       direction vector; the extremes span a composite line segment.
+    6. Reject spans below ``min_spanned_length_px`` or above the
+       darkness threshold (``roi_mean - darkness_margin``).
+    7. Return the longest dark span, or ``None``.
+
+    POC'd 2026-05-16 on AIS 287318 1:1 F8: 8 of 35 tile-shots that LSD
+    rejected got a usable scribe through this path. Composite spans
+    average ~3240 px vs LSD's ~690 px (4.7× longer cross-section
+    anchor), so the resulting LSF profile averages over more pixels
+    and is less noise-prone. Compute cost is ~3 s on a 3456 px ROI;
+    Phase 1 only calls scribe detection once per (sweep, tile) at
+    the filesize-argmax shot, so this is sweep-level overhead, not
+    per-shot.
+    """
+    if image_2d.ndim != 2:
+        raise ValueError(f"expected 2-D image, got shape {image_2d.shape}")
+
+    arr = image_2d.astype(np.float32)
+    arr_norm = arr / 255.0 if float(arr.max()) > 1.5 else arr
+    edges = canny(arr_norm, sigma=canny_sigma)
+    if int(edges.sum()) < 100:
+        return None
+
+    raw_lines = probabilistic_hough_line(
+        edges,
+        threshold=hough_threshold,
+        line_length=hough_min_length,
+        line_gap=hough_max_gap,
+    )
+    if not raw_lines:
+        return None
+
+    h, w = arr.shape
+    cx0, cy0 = w / 2, h / 2
+    n = len(raw_lines)
+    angles = np.zeros(n)
+    offsets = np.zeros(n)
+    lengths = np.zeros(n)
+    p0s = np.zeros((n, 2))
+    p1s = np.zeros((n, 2))
+    for i, (p0, p1) in enumerate(raw_lines):
+        x0, y0 = p0
+        x1, y1 = p1
+        # Line direction is undirected → fold angle into [0, 180).
+        ang = np.arctan2(y1 - y0, x1 - x0) * 180 / np.pi
+        angles[i] = ang % 180.0
+        dx, dy = x1 - x0, y1 - y0
+        L = float(np.hypot(dx, dy))
+        # Signed perpendicular distance from (cx0, cy0) to the line.
+        offsets[i] = (dy * (cx0 - x0) - dx * (cy0 - y0)) / L
+        lengths[i] = L
+        p0s[i] = (x0, y0)
+        p1s[i] = (x1, y1)
+
+    # Find the dominant angle bin by total line length.
+    bin_count = max(int(180 / angle_bin_deg), 1)
+    bin_total = [0.0] * bin_count
+    bin_members: list[list[int]] = [[] for _ in range(bin_count)]
+    for i, a in enumerate(angles):
+        b = int(a // angle_bin_deg) % bin_count
+        bin_total[b] += lengths[i]
+        bin_members[b].append(i)
+    dominant_bin = int(np.argmax(bin_total))
+    candidates = bin_members[dominant_bin]
+    if not candidates:
+        return None
+
+    # Cluster the dominant bin's lines by perpendicular offset.
+    cand_arr = np.array(candidates)
+    sort_idx = np.argsort(offsets[cand_arr])
+    sorted_offsets = offsets[cand_arr][sort_idx]
+    sorted_cands = cand_arr[sort_idx]
+
+    clusters: list[list[int]] = []
+    current = [int(sorted_cands[0])]
+    current_off = sorted_offsets[0]
+    for j in range(1, len(sorted_cands)):
+        if abs(sorted_offsets[j] - current_off) <= perp_distance_px:
+            current.append(int(sorted_cands[j]))
+        else:
+            clusters.append(current)
+            current = [int(sorted_cands[j])]
+        current_off = sorted_offsets[j]
+    clusters.append(current)
+
+    cutoff = float(arr.mean()) - darkness_margin
+    best: Segment | None = None
+    best_len = 0.0
+    for cl in clusters:
+        cl_ang_rad = np.deg2rad(angles[cl].mean())
+        ux, uy = np.cos(cl_ang_rad), np.sin(cl_ang_rad)
+        endpts = np.vstack([p0s[cl], p1s[cl]])
+        projections = endpts @ np.array([ux, uy])
+        i_lo, i_hi = int(np.argmin(projections)), int(np.argmax(projections))
+        x_lo, y_lo = endpts[i_lo]
+        x_hi, y_hi = endpts[i_hi]
+        span = float(np.hypot(x_hi - x_lo, y_hi - y_lo))
+        if span < min_spanned_length_px:
+            continue
+        ts = np.linspace(0.0, 1.0, 32)
+        xs = x_lo + (x_hi - x_lo) * ts
+        ys = y_lo + (y_hi - y_lo) * ts
+        samples = map_coordinates(arr, np.vstack([ys, xs]), order=1, mode="nearest")
+        if float(samples.mean()) >= cutoff:
+            continue
+        if span > best_len:
+            best_len = span
+            best = Segment(x0=float(x_lo), y0=float(y_lo),
+                           x1=float(x_hi), y1=float(y_hi))
     return best
 
 

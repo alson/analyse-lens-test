@@ -189,15 +189,24 @@ a 16-multiple. Per the accuracy-over-granularity policy in
 `CLAUDE.md`, ROIs may overlap with neighbouring tile cells; at extreme
 M a sweep may degenerate to a single centre-only ROI.
 
-Scribe detection uses OpenCV LSD (`opencv-contrib-python`) — the
-longest dark line that's at least `min_length_px=200` pixels and
-sits `darkness_margin=15` units below the ROI mean. Initial
-validation on `out_55mm` shows ~43 % per-tile detection rate; tiles
-without a detected scribe fall back to maze-FFT for argmax (which
-works at M ≥ 0.7×) but get `NaN` `mtf50_subject_lp_per_mm`.
-Tightening the detector (Hough fallback that links fragmented edges
-into a long composite line, or Radon projection through a smoothed
-image) is the next iteration before validation tasks 2-6.
+Scribe detection is a two-stage pipeline:
+
+1. **OpenCV LSD** (`opencv-contrib-python`) finds the longest dark
+   line that's at least `min_length_px=200` pixels and sits
+   `darkness_margin=15` units below the ROI mean.
+2. **Probabilistic Hough fallback** (when LSD returns nothing):
+   `skimage.transform.probabilistic_hough_line` over Canny edges,
+   then group by angle, cluster by perpendicular offset, span the
+   dominant cluster's endpoints to recover a single long composite
+   line. The wafer scribes show up in LSD output as 400–700 px
+   fragmented segments inside a ~3456 px ROI; Hough's linking step
+   joins those fragments into a span that averages ~3240 px (4.7×
+   longer cross-section anchor, more samples for the LSF profile).
+
+On `out_55mm` AIS sweeps the two-stage detector achieves 90 %
+per-tile scribe detection (LSD-only: 43 %). Cost: Hough adds ~3 s
+per ROI but Phase 1 caches scribe detection at the filesize-argmax
+shot, so it's sweep-level overhead, not per-shot.
 
 ### Validation (out_55mm, task 1 from IMPLEMENTATION_PLAN)
 
