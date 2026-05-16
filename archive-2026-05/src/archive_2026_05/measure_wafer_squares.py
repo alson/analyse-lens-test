@@ -163,6 +163,19 @@ def detect_tilt_via_gradient(
     A vertical line in image (top-to-bottom column) has gradient
     purely horizontal → angle = 0°. Tilt θ shifts the histogram
     peak by θ.
+
+    The two bins immediately adjacent to 0° are zeroed before argmax
+    to suppress a narrow spike caused by Lanczos-downsample aliasing
+    of tilted scribe edges: the 8.06× resize in ``load_gray`` sometimes
+    presents a tilted edge as a locally horizontal gradient, depositing
+    a single-bin-wide pile-up at exactly 0°. On well-focused frames the
+    real tilted-scribe signal wins anyway; on weak-signal frames
+    (out-of-focus stack ends, sub-1:1 framing) the aliasing spike used
+    to dominate and the downstream long-line extraction then operated
+    on incorrectly rotated input. Wafers in this dataset are
+    consistently placed at +2-5° tilt, so excluding the central two
+    bins is safe; a truly 0°-aligned wafer would need this prior
+    relaxed.
     """
     sx = sobel(img, axis=1)
     sy = sobel(img, axis=0)
@@ -176,6 +189,8 @@ def detect_tilt_via_gradient(
     if len(bins) < 3:
         return 0.0
     hist, _ = np.histogram(angle, bins=bins)
+    bin_centers = bins[:-1] + bin_width_deg / 2
+    hist[np.abs(bin_centers) < bin_width_deg] = 0
     return float(bins[hist.argmax()] + bin_width_deg / 2)
 
 

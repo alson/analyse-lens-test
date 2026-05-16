@@ -24,6 +24,8 @@ from archive_2026_05.measure_wafer_squares import (
     sharpest_f11_centre_crop,
 )
 
+import numpy as np
+
 
 # ---- Pure helpers ---------------------------------------------------------
 
@@ -107,3 +109,48 @@ def test_measured_magnification(
         f"{slug}/{mag_dir}: measured {measured_mag:.3f}× vs expected "
         f"{expected_mag:.3f}× (error {error_pct:.1f}%, tol {tol_pct:.1f}%)"
     )
+
+
+# ---- Regression: tilt-detector aliasing-spike suppression ------------------
+
+# A 55mm AIS 537016 / 1_1 / F5.6 frame whose tilt result was +0.12° before the
+# fix (the algo's central-bin spike from Lanczos-downsample aliasing of tilted
+# scribes), while the true tilt is ~+4° (every well-focused frame in the same
+# dir + GIMP-measured scribe angle of 4.27°). After zeroing the 0°-adjacent
+# bins the detector recovers the real peak.
+TILT_ZERO_BIN_FRAME = (
+    VALIDATION_ROOT
+    / "Nikon Micro-Nikkor 55mm f_2.8 AIS 537016"
+    / "1_1" / "F5.6"
+    / "16461|Nikon Micro-Nikkor 55mm f_2.8 AIS 537016|1_1|55.0 mm|F5.6|alm-20260205-115105-243.jpg"
+)
+
+
+def test_detect_tilt_via_gradient_recovers_real_peak_past_aliasing_spike() -> None:
+    """Without the 0°-bin suppression this frame returns +0.12° — a
+    single-bin pile-up from downsample aliasing dominating a weak real
+    signal at +4°. With suppression the detector returns a value in
+    the +3-5° band, matching every well-focused sibling frame."""
+    if not TILT_ZERO_BIN_FRAME.exists():
+        pytest.skip(f"{TILT_ZERO_BIN_FRAME} not on disk")
+    img = load_gray(TILT_ZERO_BIN_FRAME)
+    masked = img[detect_wafer_mask(img)]
+    tilt = detect_tilt_via_gradient(masked)
+    assert 3.0 < tilt < 5.0, (
+        f"expected tilt in (+3°, +5°), got {tilt:+.2f}° — "
+        f"without the fix this frame returns +0.12°"
+    )
+
+
+def test_detect_tilt_via_gradient_handles_no_signal() -> None:
+    """Edge case: an image with no detectable edges anywhere in the
+    detector's window must not raise. Returning either of the
+    zeroed-out central bins after suppression would mean the function
+    crashes on argmax of an all-zero array; instead argmax falls back
+    to a non-zeroed bin (here the first one)."""
+    flat = np.zeros((64, 64), dtype=np.float32)
+    tilt = detect_tilt_via_gradient(flat)
+    # On a flat input, all-zero histogram → np.histogram + suppression
+    # leaves everything zero; argmax returns 0 → the most negative bin
+    # centre. Just check it didn't raise and returned something sane.
+    assert -7.0 < tilt < 7.0
