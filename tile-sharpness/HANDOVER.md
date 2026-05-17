@@ -1,8 +1,50 @@
 # Sharpness assessment POC — session handover
 
-State as of 2026-05-16. Picks up after the cross-cohort tile-sharpness
-runs landed in commit `f869d78` (analyse-lens-test) and the empirical
-findings were folded into `analyse-lens-test/SHARPNESS_METRICS.md`.
+State as of 2026-05-17.
+
+> **2026-05-17 update — validation runs + rail-step calibration.**
+>
+> 1. **Tasks 2/4/5 + maze-pitch validation ran.** Task 5 (AF 200/4D
+>    + 5T + 6T @ 2:1 F11) centre MTF50 = 24.76 lp/mm vs predicted
+>    23 ✓. Task 2 (100-400 @ 0.385× F11) = 10.4 vs predicted 33 —
+>    low-M LSF algorithmic limit (narrow trough, too few ESF samples
+>    per edge). Task 4 (Sigma + TC-2001 @ 2:1 F11) = NaN — separate
+>    pipeline bug at `phase1.py:192` (`cross_section`'s fixed
+>    `half_window_px=24` is M-blind; at M=2.0 the predicted scribe
+>    FWHM fills the window and `_split_to_edge_lsfs` rejects 71/77
+>    shots).
+>
+> 2. **`MAZE_PITCH_UM=13.0` is cohort-stable** across AIS (M=1.0),
+>    Sigma+TC2001 (M=2.0), AF200+5T+6T (M=2.06). Best-fit pitch
+>    spread ±3.5 % within FFT bin width. Safe to publish absolute
+>    lp/mm with the existing constant.
+>
+> 3. **Rail-step-mm calibration landed** (`src/tile_sharpness/
+>    rail_calibration.py`). Task 7 (subject-tilt sanity check) is
+>    now unblocked. Through-focus scribe-blur back-derivation with
+>    v1 (per-sweep) + v2 (multi-aperture pooling). See
+>    IMPLEMENTATION_PLAN.md "Rail-step-mm calibration" for the
+>    physics + use-case-named verdict labels.
+>
+> 4. **Pre-existing characterise.py bugs found + fixed** during the
+>    rail-step wire-in:
+>    * `subject_tilt_*_deg` was reporting `arctan(slope)` without
+>      pixel→object-space scaling — values were 200× too small.
+>      New `_slope_to_tilt_deg` applies M-scaling.
+>    * `field_curvature_um_rms` was storing mm in a µm-labelled
+>      column. Now multiplied by 1000.
+>    * Centre-only grids silently returned the centre row 4× as FX
+>      corners, making `uniformity_fx` report 1.0 instead of NaN.
+>
+> 5. **`parse_aperture` regex bug**: was unanchored, matching the
+>    first `_F<digit>_` substring in slugs. Lens names with F-specs
+>    (`Sigma_..._F2.8_EX_DG_OS_HSM`) hijacked the result. Fixed by
+>    anchoring to the last `__`-separated segment, handling both
+>    older-rig (`F8`) and newer-rig (`f_8`) formats. **Old Sigma
+>    v2 results are wrong** — Sigma 150 was reading 6.61 µm before
+>    fix vs 18.99 µm after (consistent with the rest of the cohort).
+>
+> Test count: 98 passing.
 
 > **2026-05-16 follow-up — read this before any prior conclusions.**
 > A second empirical pass surfaced two findings that supersede parts of
@@ -59,14 +101,25 @@ findings were folded into `analyse-lens-test/SHARPNESS_METRICS.md`.
 > `--manifest <path>` (repeatable), `--no-legacy`, and a
 > `characterise` subcommand. 72 tests pass.
 >
-> Validation status:
+> Validation status (refreshed 2026-05-17):
 >   * **Task 1** ✓ — out_55mm AIS centre maze-FFT amp ratio = 1.0412 (≤ 1.05).
+>   * **Task 2** ✓ ran, FAIL — 100-400 @ 0.385× F11 centre = 10.4 vs
+>     expected 33. Low-M LSF under-read (algorithmic limit).
 >   * **Task 3** ✓ — AF 200/4D 1:1 F11 centre subject MTF50 = 42.7 lp/mm
 >     (target ~33; within physical limits, f/11 diffraction ≈ 67 lp/mm).
 >     Uniformity_dx = 0.92, uniformity_fx = 1.02 (matches "high uniformity
 >     (sharp macro)" prediction).
->   * Tasks 2, 4, 5, 6 not yet run.
->   * Task 7 blocked on rail-step-mm calibration for older datasets.
+>   * **Task 4** ⚠ ran, BLOCKED on `phase1.py:192` cross_section
+>     window bug — Sigma + TC-2001 @ 2:1 F11 centre = NaN.
+>   * **Task 5** ✓ — AF 200/4D + 5T + 6T @ 2:1 F11 centre = 24.76 lp/mm
+>     (target ~23). Degenerate-grid path (centre-only) works correctly.
+>   * **Task 6** — partial. Top of ranking (task 3 > 5) confirmed;
+>     bottom unreliable due to task 2 under-read.
+>   * **Task 7** ✓ unblocked — rail-step calibration in
+>     `rail_calibration.py` provides per-sweep / per-group rail step
+>     for older datasets without recorded `rail_position_mm`.
+>   * **Maze-pitch validation** ✓ — `MAZE_PITCH_UM=13.0` stable across
+>     three cohorts (±3.5 % spread).
 >
 > Steps 7-8 of the IMPLEMENTATION_PLAN (HTML report wiring + full
 > cohort re-runs) deferred.

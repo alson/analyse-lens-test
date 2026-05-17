@@ -101,6 +101,10 @@ def test_characterise_centre_only():
     assert result["mtf50_centre_lpmm"] == 35.0
     assert math.isnan(result["mtf50_dx_corner_mean_lpmm"])
     assert math.isnan(result["uniformity_dx"])
+    # FX must also be NaN when grid is centre-only — pre-fix bug returned
+    # centre values for fx corners, silently reporting uniformity_fx = 1.0.
+    assert math.isnan(result["mtf50_fx_corner_mean_lpmm"])
+    assert math.isnan(result["uniformity_fx"])
     assert "centre_only" in result["note"]
 
 
@@ -125,22 +129,24 @@ def test_characterise_decentering_value_asymmetry():
 
 
 def test_characterise_subject_tilt_from_rail_mm():
-    """Tilt along x: rail_mm increases linearly with tile_x_px → positive tilt_x_deg."""
+    """Tilt along x: rail_mm rises with tile_x_px → physical subject tilt in degrees."""
     rows = []
     base = 4128
     for ix in [-3, -1, 0, 1, 3]:
         for iy in [-2, 0, 2]:
             x = base + 1024 * ix
             y = 2752 + 1024 * iy
-            rail = 10.0 + 0.001 * x  # 1 µm/px linear slope
+            rail = 10.0 + 0.001 * x  # 0.001 mm rail shift per sensor px
             rows.append(_peaks_row(ix=ix, iy=iy, x=x, y=y, rail_mm=rail))
     result = characterise_sweep(pd.DataFrame(rows))
-    # arctan(0.001) ≈ 0.0573°
-    assert result["subject_tilt_x_deg"] == pytest.approx(0.0573, abs=0.01)
+    # At M=1, 0.001 mm/px rail-slope = object-slope tan = 0.001 / (4.35e-6 m / 1)
+    # = 0.001 × 1 × 1000 / 4.35 = 0.2299 → 12.95°.
+    assert result["subject_tilt_x_deg"] == pytest.approx(12.95, abs=0.1)
     assert abs(result["subject_tilt_y_deg"]) < 0.01
-    # Plane fit residuals are zero on a true plane
-    assert result["field_curvature_um_rms"] < 1e-6
+    # Plane fit residuals are zero on a true plane (× 1000 mm→µm still ≈ 0).
+    assert result["field_curvature_um_rms"] < 1e-3
     assert "rail_mm_unavailable" not in result["note"]
+    assert result["rail_z_source"] == "recorded"
 
 
 def test_characterise_no_rail_mm_falls_back_to_argmax_idx():
@@ -155,5 +161,46 @@ def test_characterise_no_rail_mm_falls_back_to_argmax_idx():
     result = characterise_sweep(pd.DataFrame(rows))
     assert "rail_mm_unavailable" in result["note"]
     assert math.isnan(result["field_curvature_um_rms"])
+    assert result["rail_z_source"] == "shot_index"
     # Tilt should be along y, since argmax_idx = 30 + iy
     assert abs(result["subject_tilt_y_deg"]) > 0.05
+
+
+def test_characterise_uses_rail_step_calibration_when_rail_mm_missing():
+    """With rail_step_mm provided, the synthesized rail-mm path gives real degrees."""
+    rows = []
+    rail_step = 0.05  # mm per shot
+    for ix in [-3, -1, 0, 1, 3]:
+        for iy in [-2, 0, 2]:
+            x = 4128 + 1024 * ix
+            y = 2752 + 1024 * iy
+            # rail_position = 30 + iy shots = (30+iy) * 0.05 mm — pure y tilt
+            rows.append(_peaks_row(
+                ix=ix, iy=iy, x=x, y=y, rail_mm=None, argmax_idx=30 + iy,
+            ))
+    result = characterise_sweep(pd.DataFrame(rows), rail_step_mm=rail_step)
+    assert result["rail_z_source"] == "calibrated"
+    assert "rail_mm_calibrated" in result["note"]
+    # Slope_b = (0.05 mm/shot × 1 shot per iy) / (1024 px per iy) = 4.88e-5 mm/px
+    # tilt_y_deg = atan(4.88e-5 × 1 × 1000 / 4.35) × 180/π = atan(0.01122) ≈ 0.643°
+    assert result["subject_tilt_y_deg"] == pytest.approx(0.643, abs=0.05)
+    # And field_curvature is now in µm (was NaN without calibration).
+    assert math.isfinite(result["field_curvature_um_rms"])
+
+
+def test_characterise_calibration_preferred_over_shot_index_fallback():
+    """Even when rail_step_mm is supplied, recorded rail_mm wins per-row."""
+    rows = []
+    for ix in [-1, 0, 1]:
+        for iy in [-1, 0, 1]:
+            x = 4128 + 1024 * ix
+            y = 2752 + 1024 * iy
+            # Each row HAS recorded rail_mm.
+            rows.append(_peaks_row(
+                ix=ix, iy=iy, x=x, y=y, rail_mm=10.0 + 0.0005 * y,
+                argmax_idx=30,
+            ))
+    result = characterise_sweep(pd.DataFrame(rows), rail_step_mm=0.05)
+    # Source is "recorded" because every row carried a real rail_mm; the
+    # supplied rail_step_mm is unused (and harmless).
+    assert result["rail_z_source"] == "recorded"

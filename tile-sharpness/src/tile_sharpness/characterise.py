@@ -29,6 +29,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .methods.maze_fft import SENSOR_PITCH_UM_Z7
+
 
 def _grid_extent(rows: pd.DataFrame) -> tuple[int, int, int, int]:
     """Return ``(ix_min, ix_max, iy_min, iy_max)`` for the sweep's grid."""
@@ -57,10 +59,16 @@ def _select_rings(
     centre = _row_at(rows, 0, 0)
     ix_min, ix_max, iy_min, iy_max = _grid_extent(rows)
 
-    fx_targets = [
-        (ix_min, iy_min), (ix_max, iy_min), (ix_min, iy_max), (ix_max, iy_max),
-    ]
-    fx_corners = [_row_at(rows, ix, iy) for ix, iy in fx_targets]
+    # FX corners need both axes to have distinct extreme cells; otherwise
+    # all four fx_targets collapse onto a single row (the centre) and
+    # uniformity_fx silently reports 1.0 instead of NaN.
+    if ix_max > ix_min and iy_max > iy_min:
+        fx_targets = [
+            (ix_min, iy_min), (ix_max, iy_min), (ix_min, iy_max), (ix_max, iy_max),
+        ]
+        fx_corners = [_row_at(rows, ix, iy) for ix, iy in fx_targets]
+    else:
+        fx_corners = [None] * 4
 
     # DX ring is one step inward from each FX corner along the diagonal.
     # Requires grid extent ≥ 2 in both directions; otherwise DX ring is empty.
@@ -107,8 +115,59 @@ def _safe_mean(values: list[float | None]) -> float:
     return float(np.mean(arr)) if arr else float("nan")
 
 
-def characterise_sweep(sweep_rows: pd.DataFrame) -> dict:
-    """Compute per-slug characteristics from a single sweep's peaks_v2 rows."""
+def _slope_to_tilt_deg(
+    slope_mm_per_sensor_px: float, m: float,
+    sensor_pitch_um: float = SENSOR_PITCH_UM_Z7,
+) -> float:
+    """Convert plane-fit slope (rail mm per sensor px) to subject-plane tilt in degrees.
+
+    The plane fit has ``z`` in rail mm and ``x`` in sensor pixels. One sensor
+    pixel corresponds to ``pitch_um / 1000 / M`` mm in object space, so the
+    dimensionless object-space slope is ``slope × M × 1000 / pitch_um``;
+    arctan of that is the angle between the subject plane and the sensor plane.
+    """
+    if not math.isfinite(slope_mm_per_sensor_px) or not math.isfinite(m) or m <= 0:
+        return float("nan")
+    object_slope = slope_mm_per_sensor_px * m * 1000.0 / sensor_pitch_um
+    return float(np.arctan(object_slope) * 180 / np.pi)
+
+
+def _rail_mm_z_for_row(
+    row: pd.Series, rail_step_mm: float | None,
+) -> tuple[float, str]:
+    """Return ``(z_value, source)`` for one plane-fit point.
+
+    Source is ``"recorded"`` when ``rail_position_mm_at_argmax`` is a real
+    number, ``"calibrated"`` when synthesized from ``rail_step_mm × shot_idx``,
+    and ``"shot_index"`` for the unit-less fallback.
+    """
+    rail_mm = row.get("rail_position_mm_at_argmax")
+    has_recorded = (
+        rail_mm is not None
+        and isinstance(rail_mm, (int, float))
+        and not (isinstance(rail_mm, float) and math.isnan(rail_mm))
+    )
+    if has_recorded:
+        return float(rail_mm), "recorded"
+    if rail_step_mm is not None and math.isfinite(rail_step_mm):
+        return float(row["argmax_shot_idx"]) * float(rail_step_mm), "calibrated"
+    return float(row["argmax_shot_idx"]), "shot_index"
+
+
+def characterise_sweep(
+    sweep_rows: pd.DataFrame, *, rail_step_mm: float | None = None,
+) -> dict:
+    """Compute per-slug characteristics from a single sweep's peaks_v2 rows.
+
+    ``rail_step_mm`` is an optional through-focus rail-step calibration
+    (from ``rail_calibration``). When the sweep lacks recorded
+    ``rail_position_mm_at_argmax`` (older datasets) but a calibration is
+    supplied, the plane-fit ``z`` is synthesized as
+    ``rail_step_mm × argmax_shot_idx`` so subject_tilt comes out in
+    degrees and field_curvature in µm. Without either, the plane-fit
+    fallback uses raw ``argmax_shot_idx`` and the tilt/curvature columns
+    carry shot-index units (flagged in ``note``).
+    """
     sweep_rows = sweep_rows.reset_index(drop=True)
 
     centre_row, dx_rows, fx_rows = _select_rings(sweep_rows)
@@ -182,43 +241,63 @@ def characterise_sweep(sweep_rows: pd.DataFrame) -> dict:
     dec_dx_lr, dec_dx_tb = _ring_asymmetries(dx_rows)
     dec_fx_lr, dec_fx_tb = _ring_asymmetries(fx_rows)
 
-    # Subject-tilt + field-curvature via plane fit on (x_px, y_px, rail_mm).
-    # When rail_position_mm is None across the board (older datasets without
-    # shots.csv), fall back to argmax_shot_idx — subject-tilt is unitless
-    # but uniformity/decentering still hold.
+    # Subject-tilt + field-curvature via plane fit on (x_px, y_px, z).
+    # z is rail_mm when recorded or synthesizable from rail_step_mm;
+    # raw shot_idx (unit-less) otherwise.
     xs, ys, zs = [], [], []
-    used_rail_mm = False
+    sources: set[str] = set()
     for r in distinct:
-        rail_mm = r.get("rail_position_mm_at_argmax")
-        if rail_mm is not None and isinstance(rail_mm, (int, float)) and not (
-            isinstance(rail_mm, float) and math.isnan(rail_mm)
-        ):
-            xs.append(float(r["tile_x_px"]))
-            ys.append(float(r["tile_y_px"]))
-            zs.append(float(rail_mm))
-            used_rail_mm = True
-    if not used_rail_mm:
-        for r in distinct:
-            xs.append(float(r["tile_x_px"]))
-            ys.append(float(r["tile_y_px"]))
-            zs.append(float(r["argmax_shot_idx"]))
+        z, src = _rail_mm_z_for_row(r, rail_step_mm)
+        xs.append(float(r["tile_x_px"]))
+        ys.append(float(r["tile_y_px"]))
+        zs.append(z)
+        sources.add(src)
+
+    if sources == {"recorded"}:
+        rail_z_source = "recorded"
+    elif sources == {"calibrated"}:
+        rail_z_source = "calibrated"
+    elif sources == {"shot_index"}:
+        rail_z_source = "shot_index"
+    elif sources <= {"recorded", "calibrated"}:
+        # Mixed real-mm sources still produce real-mm units — keep going.
+        rail_z_source = "mixed_mm"
+    else:
+        rail_z_source = "mixed"
+
+    z_is_real_mm = rail_z_source in {"recorded", "calibrated", "mixed_mm"}
 
     a, b, _c, rms = _plane_fit(xs, ys, zs)
-    # Slope is mm/px (or shot/px in the fallback). Convert to angle via
-    # arctan; for the fallback case we don't multiply by a rail step (we
-    # don't know it), so subject_tilt_deg is in shot-index units —
-    # comparable across slugs only when fallback is in play for all.
-    tilt_x_deg = float(np.arctan(a) * 180 / np.pi) if math.isfinite(a) else float("nan")
-    tilt_y_deg = float(np.arctan(b) * 180 / np.pi) if math.isfinite(b) else float("nan")
-    curvature_units = rms if used_rail_mm else float("nan")  # mm-RMS only with real rail mm
+
+    # Magnification for the pixel→object-space scaling. Defaults to the
+    # sweep's m column (which is uniform within a sweep).
+    m_value = (
+        float(sweep_rows["m"].iloc[0])
+        if "m" in sweep_rows.columns and not pd.isna(sweep_rows["m"].iloc[0])
+        else float("nan")
+    )
+
+    if z_is_real_mm and math.isfinite(m_value) and m_value > 0:
+        tilt_x_deg = _slope_to_tilt_deg(a, m_value)
+        tilt_y_deg = _slope_to_tilt_deg(b, m_value)
+        field_curvature_um_rms = rms * 1000.0  # mm-RMS → µm-RMS
+    else:
+        # Fallback: dimensionless atan; "degrees" units only nominally.
+        tilt_x_deg = float(np.arctan(a) * 180 / np.pi) if math.isfinite(a) else float("nan")
+        tilt_y_deg = float(np.arctan(b) * 180 / np.pi) if math.isfinite(b) else float("nan")
+        field_curvature_um_rms = float("nan")
 
     note_parts: list[str] = []
     if n_distinct < 9:
-        note_parts.append(f"n_positions<9")
+        note_parts.append("n_positions<9")
     if n_distinct == 1:
         note_parts.append("centre_only")
-    if not used_rail_mm:
+    if rail_z_source == "shot_index":
         note_parts.append("rail_mm_unavailable")
+    elif rail_z_source == "calibrated":
+        note_parts.append("rail_mm_calibrated")
+    elif rail_z_source == "mixed":
+        note_parts.append("rail_mm_mixed_sources")
     note = ";".join(note_parts) if note_parts else ""
 
     return {
@@ -235,12 +314,25 @@ def characterise_sweep(sweep_rows: pd.DataFrame) -> dict:
         "decentering_fx_tb": dec_fx_tb if dec_fx_tb is not None else float("nan"),
         "subject_tilt_x_deg": tilt_x_deg,
         "subject_tilt_y_deg": tilt_y_deg,
-        "field_curvature_um_rms": curvature_units,
+        "field_curvature_um_rms": field_curvature_um_rms,
+        "rail_z_source": rail_z_source,
+        "rail_step_mm": float(rail_step_mm) if rail_step_mm is not None else float("nan"),
     }
 
 
-def characterise_peaks_v2(peaks_v2_csv: Path, out_csv: Path) -> int:
-    """Roll up ``peaks_v2.csv`` to one row per sweep; write ``out_csv``."""
+def characterise_peaks_v2(
+    peaks_v2_csv: Path,
+    out_csv: Path,
+    *,
+    rail_step_lookup: dict[str, float] | None = None,
+) -> int:
+    """Roll up ``peaks_v2.csv`` to one row per sweep; write ``out_csv``.
+
+    ``rail_step_lookup`` optionally maps ``sweep_id`` → calibrated
+    rail-step-mm (from ``rail_calibration.rail_step_lookup_v1`` or
+    ``rail_step_lookup_v2``). Sweeps absent from the lookup fall back to
+    the rail-mm-unavailable path.
+    """
     df = pd.read_csv(peaks_v2_csv)
     if df.empty:
         out_csv.write_text("sweep\n")
@@ -249,7 +341,10 @@ def characterise_peaks_v2(peaks_v2_csv: Path, out_csv: Path) -> int:
     for sweep_id, grp in df.groupby("sweep"):
         m_val = grp["m"].iloc[0] if "m" in grp.columns else float("nan")
         m_source = grp["m_source"].iloc[0] if "m_source" in grp.columns else ""
-        result = characterise_sweep(grp)
+        rail_step = (
+            rail_step_lookup.get(str(sweep_id)) if rail_step_lookup else None
+        )
+        result = characterise_sweep(grp, rail_step_mm=rail_step)
         rows.append({
             "sweep": sweep_id,
             "m": m_val,

@@ -385,36 +385,95 @@ Suggested order, each step shippable on its own:
 
 ### Pending validation runs
 
-- **Task 2** — Bare NIKKOR Z 100-400 at 0.385× F11. Expected: centre
-  subject MTF50 ≈ 33 lp/mm, sensor MTF50 close to Nyquist
-  (pixel-limited), corner MTF50 ~10-15 (zoom corner softness). Tests
-  the low-M LSF path (maze gates off at M < 0.7); the M-aware
-  trough-FWHM threshold is already designed to accept real low-M
-  scribes (predicted FWHM ~7.7 px → threshold ~3.85 px).
-- **Task 4** — Sigma 150 + TC-2001 at 2:1 F11. Expected: centre
-  subject MTF50 ≈ 41 lp/mm. Tests M=2.0 behaviour — at that M the
-  LSF ROI is ~6900 px which exceeds the 5504-px Z7 frame height, so
-  the grid degenerates to centre-only per the
-  accuracy-over-granularity policy.
-- **Task 5** — Nikon AF 200/4D + 5T + 6T at 2:1 F11. Expected:
-  centre subject MTF50 ≈ 23 lp/mm; worse corner falloff than the
-  bare AF 200/4D from task 3.
-- **Task 6** — Cross-config ordering. Sigma + TC-2001 > both bare
-  configs (task 3 + bare 100-400) > 200/4D + 5T + 6T on subject-MTF50.
-  Validates that the cross-config comparison metric orders configs
-  correctly, matching the visual ranking established in the
-  2026-05-16 update.
-- **Task 7** — Subject-tilt sanity check (older datasets should show
-  per-slug `subject_tilt_*_deg` in the 3-6° range). ⚠ **Blocked**:
-  older datasets lack `rail_position_mm` in `shots.csv`; the current
-  `characterise.py` falls back to `argmax_shot_idx` for the plane
-  fit, so the reported tilts are in shot-index units (not degrees).
-  Needs a rail-step-mm calibration constant for older shoots — see
-  HANDOVER.md "Implementation status" for the workaround.
-- **Validate maze-pitch on non-AIS datasets.** The
-  `MAZE_PITCH_UM = 13.0` constant is back-solved from one AIS tile.
-  Confirm the pitch is stable on the 200/4D and Sigma cohorts before
-  publishing absolute lp/mm numbers.
+- **Task 2** — Bare NIKKOR Z 100-400 at 0.385× F11. ✓ ran 2026-05-17.
+  Centre subject MTF50 = **10.4 lp/mm** (expected ~33) — **under-reads
+  at low M**: trough is only ~7-8 px FWHM, too few samples per edge
+  for the ESF→LSF split to resolve high MTF50. Pipeline runs cleanly
+  (full 9-position grid). Algorithmic limit, not a bug.
+- **Task 4** — Sigma 150 + TC-2001 at 2:1 F11. ✓ ran 2026-05-17.
+  Grid correctly degenerated to centre-only (LSF ROI 6896 px >
+  Z7 5504 px). Centre MTF50 = **NaN** — **pipeline bug**: fixed
+  `half_window_px=24` in `phase1._score_shot:192` is M-blind. At
+  M=2.0 the expected scribe FWHM (~40 px) fills most of the 49-px
+  window and `_split_to_edge_lsfs` (`methods/lsf.py:354-363`) rejects
+  71/77 shots. Should be M-driven like the LSF/maze ROIs.
+- **Task 5** — Nikon AF 200/4D + 5T + 6T at 2:1 F11. ✓ ran 2026-05-17.
+  Centre subject MTF50 = **24.76 lp/mm** (expected ~23) — clean
+  match. Corner falloff prediction not verifiable (degenerate grid).
+- **Task 6** — Cross-config ordering. ✓ partially confirmed (task
+  3 > task 5 > task 2 by centre MTF50). Task 4 inconclusive due to
+  scribe-detect bug above. Bottom of ranking unreliable until the
+  low-M LSF under-read is fixed.
+- **Task 7** — Subject-tilt sanity check. ✓ unblocked 2026-05-17 by
+  the rail-step-mm calibration in `rail_calibration.py` (see below).
+  `characterise.py` now accepts `rail_step_mm` and converts the
+  plane-fit slope to true subject tilt in degrees (with M-scaling
+  fix) and field curvature in µm-RMS.
+- **Validate maze-pitch on non-AIS datasets.** ✓ done 2026-05-17.
+  `MAZE_PITCH_UM=13.0` is cohort-stable: AIS centre best-fit
+  13.18 µm, Sigma+TC2001 (M=2.0) 13.44 µm, AF200+5T+6T (M=2.06)
+  12.95 µm. Spread ±3.5 % within FFT bin width. **Safe to publish
+  absolute lp/mm with the existing constant.**
+
+### Rail-step-mm calibration (`rail_calibration.py`, 2026-05-17)
+
+Through-focus scribe-blur back-derivation of per-shot rail step for
+older datasets that lack recorded `rail_position_mm`. Geometric
+model: `blur_object = δ_object × M / N_eff_total` (thin-lens, total-
+effective f-number from the project aperture convention). Wafer
+scribes have intrinsic FWHM `SCRIBE_WIDTH_UM=87` (back-solved from
+AIS centre); at defocus the observed trough FWHM widens via
+quadrature: `fwhm_obs² ≈ intrinsic² + blur²`. Per-tile argmin(fwhm)
+defines the local baseline; per-shot estimates pool over all
+qualifying (tile, defocus-shot) pairs.
+
+Two layers:
+- **v1**: per-sweep estimate. Median of pooled estimates + MAD as
+  uncertainty. Returns `CalibrationResult` with `verdict` ∈
+  {publishable, comparison_ok, sanity_only, unusable, insufficient,
+  failed} mapped to use cases (see module docstring).
+- **v2**: pools v1 estimates per `(lens, mag, focal)` group across
+  apertures. The user's "same start/stop/steps across apertures"
+  workflow means apertures share a physical rail step, so cross-
+  aperture agreement is a built-in consistency check. Inter-aperture
+  spread becomes the v2 uncertainty.
+
+Wired into `characterise.py` via optional `rail_step_lookup` arg on
+`characterise_peaks_v2()`. When provided, missing `rail_position_mm`
+is synthesized as `argmax_shot_idx × rail_step_mm`. Two adjacent
+fixes landed at the same time:
+- Subject-tilt unit fix: previous code did `arctan(slope_mm_per_px)`
+  without pixel→object-space scaling, reporting 200× too small. New
+  `_slope_to_tilt_deg(slope, m)` does `arctan(slope × M × 1000 / pitch_um)`.
+- Field-curvature unit fix: column labeled `_um_rms` was storing mm.
+  Now multiplied by 1000 before write.
+- Degenerate-grid fix in `_select_rings`: centre-only grids no
+  longer silently return centre row 4× as FX corners (was making
+  `uniformity_fx=1.0` instead of NaN).
+
+### Aperture parser bug (2026-05-17)
+
+`parse_aperture` previously did an unanchored regex search on the
+slug, matching the FIRST `_F<digit>_` substring. Lens names
+containing F-specs (`Sigma_..._F2.8_EX_DG_OS_HSM`, AF/Nikkor
+`f_2.8`) were picked up first. All Sigma-prefixed sweeps got
+N_eff=2.8 regardless of actual aperture, biasing rail-step
+estimates by `(2.8/N_actual)`. Fixed by anchoring to the last
+`__`-separated segment, matching either `F<digits>` (older-rig) or
+`f_<digits>` (newer-rig). Pre-fix Sigma 150 = 6.61 µm; post-fix
+18.99 µm (consistent with the rest of the bare-prime cohort).
+
+### Aperture-convention dependency for tube/diopter sweeps
+
+`rail_calibration` uses slug aperture as `N_eff_total`. This is
+correct when the slug already reflects total effective (bare-prime
+CPU sweeps where m_indicated ≈ m_total; pre-bumped MF sweeps from
+2026-01 / 2026-02). For uncorrected extension-tube or diopter
+sweeps, slug = lens-internal effective ≠ total-effective; the
+formula underestimates `N_eff` by `(1 + m_total) / (1 + m_indicated)`
+and the derived rail step is too small. **No code change needed**
+when the aperture-convention rewrite lands — the slug column will
+carry the right value and the formula picks it up.
 
 ### Sequencing steps 7-8 (deferred)
 

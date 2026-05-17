@@ -110,7 +110,12 @@ These apply to ``run-lens-test/``, ``rail-coverage/``,
   - ``rail-coverage/`` — focus-coverage analyser over a pre-cropped JPEG tree.
   - ``resize-bulk/`` — lossless TurboJPEG crop tooling; resampler comparison docs.
   - ``tile-sharpness/`` — POC validating 8 sharpness metrics on a
-    tile grid; documents cross-lens / cross-config behaviour.
+    tile grid; documents cross-lens / cross-config behaviour. As of
+    2026-05-17 also hosts the LSF + maze-FFT pipeline (``phase1.py``,
+    ``characterise.py``) and the through-focus rail-step-mm
+    calibration (``rail_calibration.py``, v1 per-sweep + v2
+    multi-aperture pooling) used to unlock subject-tilt + field-
+    curvature in real units for older datasets.
 
 ## Aperture convention (data joins)
 
