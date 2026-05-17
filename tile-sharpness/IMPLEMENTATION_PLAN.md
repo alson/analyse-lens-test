@@ -390,20 +390,30 @@ Suggested order, each step shippable on its own:
   at low M**: trough is only ~7-8 px FWHM, too few samples per edge
   for the ESF→LSF split to resolve high MTF50. Pipeline runs cleanly
   (full 9-position grid). Algorithmic limit, not a bug.
-- **Task 4** — Sigma 150 + TC-2001 at 2:1 F11. ✓ ran 2026-05-17.
-  Grid correctly degenerated to centre-only (LSF ROI 6896 px >
-  Z7 5504 px). Centre MTF50 = **NaN** — **pipeline bug**: fixed
-  `half_window_px=24` in `phase1._score_shot:192` is M-blind. At
-  M=2.0 the expected scribe FWHM (~40 px) fills most of the 49-px
-  window and `_split_to_edge_lsfs` (`methods/lsf.py:354-363`) rejects
-  71/77 shots. Should be M-driven like the LSF/maze ROIs.
+- **Task 4** — Sigma 150 + TC-2001 at 2:1 F11. ✓ ran 2026-05-17,
+  re-ran 2026-05-17 after the M-driven window fix. Grid correctly
+  degenerated to centre-only (LSF ROI 6896 px > Z7 5504 px).
+  Centre subject MTF50 = **86.4 lp/mm** (sensor 0.188 cy/px,
+  expected ~41). NaN → numeric: the `_split_to_edge_lsfs` rejection
+  at M=2.0 is gone. The reading sits ~2× above plan — consistent
+  with the same over-read trend Task 3 showed (42.7 vs ~33),
+  whereas Task 5 read clean (24.76 vs ~23). Likely the ESF→LSF
+  bias grows with M; orthogonal to the windowing fix, tracked
+  separately. Original bug: fixed `half_window_px=24` in
+  `phase1._score_shot` was M-blind; at M=2.0 the expected scribe
+  FWHM (~40 px) filled the 49-px window so argmin landed inside
+  the `_split_to_edge_lsfs` rejection band on 71/77 shots. Now
+  `_half_window_px_for(M)` scales the window with the predicted
+  trough half-extent plus a fixed background margin.
 - **Task 5** — Nikon AF 200/4D + 5T + 6T at 2:1 F11. ✓ ran 2026-05-17.
   Centre subject MTF50 = **24.76 lp/mm** (expected ~23) — clean
   match. Corner falloff prediction not verifiable (degenerate grid).
-- **Task 6** — Cross-config ordering. ✓ partially confirmed (task
-  3 > task 5 > task 2 by centre MTF50). Task 4 inconclusive due to
-  scribe-detect bug above. Bottom of ranking unreliable until the
-  low-M LSF under-read is fixed.
+- **Task 6** — Cross-config ordering. Post-windowing-fix: task 4
+  (Sigma+TC) > task 3 (AF200 1:1) > task 5 (AF200 + 5T + 6T) > task 2
+  (100-400 0.385×) by centre subject MTF50 (86.4 > 42.7 > 24.76 > 10.4).
+  Top ordering matches the plan (Sigma+TC the sharpest config). Bottom
+  still constrained by the low-M LSF under-read (Task 2); plan-vs-
+  actual gap = 22 lp/mm subject at M=0.385.
 - **Task 7** — Subject-tilt sanity check. ✓ unblocked 2026-05-17 by
   the rail-step-mm calibration in `rail_calibration.py` (see below).
   `characterise.py` now accepts `rail_step_mm` and converts the

@@ -2,17 +2,19 @@
 
 State as of 2026-05-17.
 
-> **2026-05-17 update — validation runs + rail-step calibration.**
+> **2026-05-17 update — validation runs + rail-step calibration + M-driven window fix.**
 >
 > 1. **Tasks 2/4/5 + maze-pitch validation ran.** Task 5 (AF 200/4D
 >    + 5T + 6T @ 2:1 F11) centre MTF50 = 24.76 lp/mm vs predicted
 >    23 ✓. Task 2 (100-400 @ 0.385× F11) = 10.4 vs predicted 33 —
 >    low-M LSF algorithmic limit (narrow trough, too few ESF samples
->    per edge). Task 4 (Sigma + TC-2001 @ 2:1 F11) = NaN — separate
->    pipeline bug at `phase1.py:192` (`cross_section`'s fixed
->    `half_window_px=24` is M-blind; at M=2.0 the predicted scribe
->    FWHM fills the window and `_split_to_edge_lsfs` rejects 71/77
->    shots).
+>    per edge); deferred. Task 4 (Sigma + TC-2001 @ 2:1 F11): was
+>    NaN → fixed today by `_half_window_px_for(M)`. Centre subject
+>    MTF50 now reads 86.4 lp/mm (sensor 0.188 cy/px); sits ~2× above
+>    the ~41 plan target, same direction as task 3's 1.3× over-read,
+>    likely an ESF→LSF-at-high-M bias and tracked as a follow-up.
+>    Task 2 unchanged after the fix (low-M path takes the 24-px
+>    floor) — confirms no regression.
 >
 > 2. **`MAZE_PITCH_UM=13.0` is cohort-stable** across AIS (M=1.0),
 >    Sigma+TC2001 (M=2.0), AF200+5T+6T (M=2.06). Best-fit pitch
@@ -104,17 +106,22 @@ State as of 2026-05-17.
 > Validation status (refreshed 2026-05-17):
 >   * **Task 1** ✓ — out_55mm AIS centre maze-FFT amp ratio = 1.0412 (≤ 1.05).
 >   * **Task 2** ✓ ran, FAIL — 100-400 @ 0.385× F11 centre = 10.4 vs
->     expected 33. Low-M LSF under-read (algorithmic limit).
+>     expected 33. Low-M LSF under-read (algorithmic limit). Unchanged
+>     post-windowing-fix (low-M floor preserves the pre-fix readout).
 >   * **Task 3** ✓ — AF 200/4D 1:1 F11 centre subject MTF50 = 42.7 lp/mm
 >     (target ~33; within physical limits, f/11 diffraction ≈ 67 lp/mm).
 >     Uniformity_dx = 0.92, uniformity_fx = 1.02 (matches "high uniformity
 >     (sharp macro)" prediction).
->   * **Task 4** ⚠ ran, BLOCKED on `phase1.py:192` cross_section
->     window bug — Sigma + TC-2001 @ 2:1 F11 centre = NaN.
+>   * **Task 4** ✓ unblocked 2026-05-17 by M-driven `half_window_px`.
+>     Sigma + TC-2001 @ 2:1 F11 centre subject MTF50 = 86.4 lp/mm
+>     (sensor 0.188 cy/px); ~2× over-read vs ~41 target tracked
+>     as follow-up.
 >   * **Task 5** ✓ — AF 200/4D + 5T + 6T @ 2:1 F11 centre = 24.76 lp/mm
 >     (target ~23). Degenerate-grid path (centre-only) works correctly.
->   * **Task 6** — partial. Top of ranking (task 3 > 5) confirmed;
->     bottom unreliable due to task 2 under-read.
+>   * **Task 6** — partial. Post-windowing-fix ordering by centre
+>     subject MTF50: task 4 (86.4) > task 3 (42.7) > task 5 (24.76) >
+>     task 2 (10.4). Top matches plan (Sigma+TC the sharpest);
+>     bottom still constrained by task 2's low-M under-read.
 >   * **Task 7** ✓ unblocked — rail-step calibration in
 >     `rail_calibration.py` provides per-sweep / per-group rail step
 >     for older datasets without recorded `rail_position_mm`.

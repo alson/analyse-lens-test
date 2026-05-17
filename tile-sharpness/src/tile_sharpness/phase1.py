@@ -30,6 +30,13 @@ from typing import Any
 
 import numpy as np
 from PIL import Image
+# Eagerly register Pillow's JPEG and MPO plugins. MPO (multi-picture
+# JPEG, output by Nikon Z bodies for some multi-shot modes) is
+# registered lazily and may not propagate to ProcessPoolExecutor
+# workers when the parent hasn't yet opened an MPO file. Explicit
+# imports force registration at module-import time, before any fork.
+import PIL.JpegImagePlugin  # noqa: F401
+import PIL.MpoImagePlugin  # noqa: F401
 from lens_test_detect_core import MCU_SIZE
 
 from .crop import DEFAULT_CACHE_ROOT, extract_tiles, image_dimensions
@@ -63,6 +70,18 @@ SCRIBE_WIDTH_UM = 87.0
 # expected FWHM ~7.7, threshold ~3.85, so a real FWHM ≥ 4 is accepted).
 TROUGH_FWHM_REJECTION_FRACTION = 0.5
 
+# Floor for the cross-section perpendicular half-window. The hand-tuned
+# 24 px (= 49-px window) was right for M ≤ 1.0 wafer scribes where the
+# trough is ≤ 20 px FWHM; the M-driven path keeps it as a floor so low-M
+# behaviour is unchanged.
+HALF_WINDOW_PX_FLOOR = 24
+
+# Background margin (each side) we want beyond the trough's half-extent.
+# _MIN_EDGE_SAMPLES in methods/lsf.py is 6; 12 px gives that with 6 px
+# of slack so the argmin (which wanders inside a flat-bottomed trough)
+# rarely lands within the edge-rejection band.
+HALF_WINDOW_PX_MARGIN = 12
+
 # Cross-config conversion: cycles/pixel on sensor → line-pairs/mm on subject.
 # On Z7 (4.35 µm pitch) one cycle/px equals 1000/4.35 = 229.9 lp/mm on sensor,
 # divided back by M to subject space.
@@ -80,6 +99,22 @@ def _expected_scribe_fwhm_px(M: float) -> float:
     return SCRIBE_WIDTH_UM * M / SENSOR_PITCH_UM_Z7
 
 
+def _half_window_px_for(M: float) -> int:
+    """Cross-section perpendicular half-window sized for the trough at ``M``.
+
+    The 24-px default fit ≤ 20-px-FWHM troughs (M ≤ 1.0) with comfortable
+    edge-margin for the ESF→LSF split. At M=2.0 the expected FWHM is
+    40 px and the trough fills the 49-px default window, so the argmin
+    lands inside the ``_split_to_edge_lsfs`` rejection band on most shots
+    (71/77 on the 2026-05-17 Sigma + TC-2001 sweep). Scale half-window
+    with ``0.5 × FWHM`` (the trough's half-extent) plus a fixed
+    background margin; keep 24 as a floor so M ≤ 1.0 readings are
+    unchanged.
+    """
+    needed = 0.5 * _expected_scribe_fwhm_px(M) + HALF_WINDOW_PX_MARGIN
+    return max(HALF_WINDOW_PX_FLOOR, int(math.ceil(needed)))
+
+
 def _align_up(n: int, step: int = MCU_SIZE) -> int:
     rem = n % step
     return n if rem == 0 else n + (step - rem)
@@ -95,9 +130,17 @@ def _roi_sizes(M: float) -> tuple[int, int]:
 
 
 def _decode_gray(path: Path) -> np.ndarray:
-    """Decode a JPEG to a 2-D float32 grayscale array."""
-    with Image.open(path) as im:
-        return np.asarray(im.convert("L"), dtype=np.float32)
+    """Decode a JPEG to a 2-D float32 grayscale array.
+
+    Raises a wrapped ``ValueError`` instead of ``PIL.UnidentifiedImageError``
+    so callers can choose to skip-and-log rather than crash the whole
+    batch on a single bad file (rare — e.g. truncated JPEG, mid-write).
+    """
+    try:
+        with Image.open(path) as im:
+            return np.asarray(im.convert("L"), dtype=np.float32)
+    except Exception as e:
+        raise ValueError(f"decode failed for {path}: {e}") from e
 
 
 def _crop_box(arr: np.ndarray, box: tuple[int, int, int, int]) -> np.ndarray:
@@ -171,6 +214,7 @@ def _score_shot(
     m_source: str,
     fs_by_ixiy: dict[tuple[int, int], list[int]],
     ot_by_ixiy: dict[tuple[int, int], bool],
+    half_window_px: int,
 ) -> list[dict[str, Any]]:
     """Process one source JPEG: decode once, score every ROI tile.
 
@@ -189,7 +233,7 @@ def _score_shot(
         trough_fwhm: int | None = None
         if seg_t is not None:
             seg = Segment(x0=seg_t[0], y0=seg_t[1], x1=seg_t[2], y1=seg_t[3])
-            profile = cross_section(lsf_roi, seg)
+            profile = cross_section(lsf_roi, seg, half_window_px=half_window_px)
             trough_fwhm = _trough_fwhm_samples(profile)
             lsf_amp = lsf_peak_amp(profile)
             lsf_mtf = lsf_mtf50(profile)
@@ -266,6 +310,7 @@ def analyse_sweep_phase1(
 
     fs_by_ixiy, ot_by_ixiy = _legacy_filesize_and_labels(sweep, cache_root)
     scribes = _detect_scribes(sweep, roi_tiles, fs_by_ixiy)
+    half_window_px = _half_window_px_for(M)
 
     # Repackage data for pickle into the worker pool.
     roi_tuples = [
@@ -292,6 +337,7 @@ def analyse_sweep_phase1(
                     m_info.source,
                     fs_by_ixiy,
                     ot_by_ixiy,
+                    half_window_px,
                 )
                 for k, shot in enumerate(sweep.shots)
             ]
@@ -302,7 +348,7 @@ def analyse_sweep_phase1(
             all_rows.extend(_score_shot(
                 str(shot.path), k, shot.rail_position_mm, roi_tuples,
                 scribes_data, M, sweep.id, m_info.source,
-                fs_by_ixiy, ot_by_ixiy,
+                fs_by_ixiy, ot_by_ixiy, half_window_px,
             ))
 
     peaks_v2 = _rollup_peaks_v2(all_rows, sweep, M)

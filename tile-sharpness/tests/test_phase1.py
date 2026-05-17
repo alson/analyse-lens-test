@@ -5,10 +5,12 @@ import numpy as np
 import pytest
 
 from tile_sharpness.phase1 import (
+    HALF_WINDOW_PX_FLOOR,
     SCRIBE_WIDTH_UM,
     TROUGH_FWHM_REJECTION_FRACTION,
     _align_up,
     _expected_scribe_fwhm_px,
+    _half_window_px_for,
     _roi_sizes,
     _rollup_peaks_v2,
     _trough_fwhm_samples,
@@ -166,6 +168,35 @@ def test_trough_fwhm_threshold_accepts_low_M_scribe():
     expected = _expected_scribe_fwhm_px(0.385)  # ~7.7 at M=0.385
     threshold = TROUGH_FWHM_REJECTION_FRACTION * expected
     assert 4 >= threshold  # real-scribe FWHM at low M still passes
+
+
+def test_half_window_px_floor_at_low_and_unity_M():
+    """At M ≤ 1.0 the floor (24) wins → window matches the pre-fix 49 px."""
+    assert _half_window_px_for(0.2) == HALF_WINDOW_PX_FLOOR
+    assert _half_window_px_for(0.385) == HALF_WINDOW_PX_FLOOR
+    assert _half_window_px_for(1.0) == HALF_WINDOW_PX_FLOOR
+
+
+def test_half_window_px_grows_at_high_M():
+    """At M=2.0 the 40-px-FWHM trough needs a wider window.
+
+    The 2026-05-17 Sigma + TC-2001 sweep rejected 71/77 shots because
+    argmin landed in the rejection band of a 49-px window. The new
+    window must give the trough's half-extent (~20 px) plus the
+    ``_MIN_EDGE_SAMPLES`` (6) edge margin plus slack.
+    """
+    half = _half_window_px_for(2.0)
+    # Need to fit a ~20-px trough half-extent + 6-px _MIN_EDGE_SAMPLES.
+    assert half >= 26
+    # Window strictly larger than the pre-fix 49 px.
+    assert 2 * half + 1 > 49
+
+
+def test_half_window_px_monotonic_in_M():
+    """Window size only grows with M, never shrinks."""
+    Ms = [0.2, 0.385, 1.0, 1.2, 1.5, 2.0, 3.0]
+    halves = [_half_window_px_for(m) for m in Ms]
+    assert halves == sorted(halves)
 
 
 def test_rollup_multiple_tiles():
