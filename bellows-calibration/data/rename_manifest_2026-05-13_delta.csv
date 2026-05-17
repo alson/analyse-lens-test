@@ -1,0 +1,27 @@
+lens,focal_mm,tube_mm,original_path,new_path,bellows_multiplier,status,n_files,executed,note
+100-400,400.0,35,NIKKOR Z 100-400mm f_4.5-5.6 VR S + 35mm extension/f_10,NIKKOR Z 100-400mm f_4.5-5.6 VR S + 35mm extension/f_11,1.3356,RENAMED,0,yes,delta from previously-applied f_10
+100-400,400.0,35,NIKKOR Z 100-400mm f_4.5-5.6 VR S + 35mm extension/f_20,NIKKOR Z 100-400mm f_4.5-5.6 VR S + 35mm extension/f_22,1.3356,RENAMED,0,yes,delta from previously-applied f_20
+100-400,400.0,61,NIKKOR Z 100-400mm f_4.5-5.6 VR S + 61mm extension/f_16,NIKKOR Z 100-400mm f_4.5-5.6 VR S + 61mm extension/f_18,1.5936,RENAMED,0,yes,delta from previously-applied f_16
+100-400,400.0,35,NIKKOR Z 100-400mm f_4.5-5.6 VR S + Canon 500D + 35mm extension/f_10,NIKKOR Z 100-400mm f_4.5-5.6 VR S + Canon 500D + 35mm extension/f_11,1.3356,RENAMED,0,yes,delta from previously-applied f_10
+100-400,400.0,35,NIKKOR Z 100-400mm f_4.5-5.6 VR S + Canon 500D + 35mm extension/f_20,NIKKOR Z 100-400mm f_4.5-5.6 VR S + Canon 500D + 35mm extension/f_22,1.3356,RENAMED,0,yes,delta from previously-applied f_20
+100-400,400.0,61,NIKKOR Z 100-400mm f_4.5-5.6 VR S + Canon 500D + 61mm extension/f_16,NIKKOR Z 100-400mm f_4.5-5.6 VR S + Canon 500D + 61mm extension/f_18,1.5936,RENAMED,0,yes,delta from previously-applied f_16
+Viltrox 85,85.0,26,Viltrox 85mm f_2 EVO + 26mm extension/f_11,Viltrox 85mm f_2 EVO + 26mm extension/f_13,1.5013,RENAMED,0,yes,delta from previously-applied f_11
+Viltrox 85,85.0,26,Viltrox 85mm f_2 EVO + 26mm extension/f_2.8,Viltrox 85mm f_2 EVO + 26mm extension/f_3.2,1.5013,RENAMED,0,yes,delta from previously-applied f_2.8
+Viltrox 85,85.0,26,Viltrox 85mm f_2 EVO + 26mm extension/f_22,Viltrox 85mm f_2 EVO + 26mm extension/f_25,1.5013,RENAMED,0,yes,delta from previously-applied f_22
+Viltrox 85,85.0,26,Viltrox 85mm f_2 EVO + 26mm extension/f_5.6,Viltrox 85mm f_2 EVO + 26mm extension/f_6.3,1.5013,RENAMED,0,yes,delta from previously-applied f_5.6
+Viltrox 85,85.0,26,Viltrox 85mm f_2 EVO + 26mm extension/probe/f_2.8,Viltrox 85mm f_2 EVO + 26mm extension/probe/f_3.2,1.5013,RENAMED,0,yes,delta from previously-applied f_2.8
+Viltrox 85,85.0,45,Viltrox 85mm f_2 EVO + 45mm extension/f_10,Viltrox 85mm f_2 EVO + 45mm extension/f_11,1.9727,RENAMED,0,yes,delta from previously-applied f_10
+Viltrox 85,85.0,45,Viltrox 85mm f_2 EVO + 45mm extension/f_14,Viltrox 85mm f_2 EVO + 45mm extension/f_16,1.9727,RENAMED,0,yes,delta from previously-applied f_14
+Viltrox 85,85.0,45,Viltrox 85mm f_2 EVO + 45mm extension/f_20,Viltrox 85mm f_2 EVO + 45mm extension/f_22,1.9727,RENAMED,0,yes,delta from previously-applied f_20
+Viltrox 85,85.0,45,Viltrox 85mm f_2 EVO + 45mm extension/f_29,Viltrox 85mm f_2 EVO + 45mm extension/f_32,1.9727,RENAMED,0,yes,delta from previously-applied f_29
+Viltrox 85,85.0,45,Viltrox 85mm f_2 EVO + 45mm extension/f_3.5,Viltrox 85mm f_2 EVO + 45mm extension/f_4,1.9727,RENAMED,0,yes,delta from previously-applied f_3.5
+Viltrox 85,85.0,45,Viltrox 85mm f_2 EVO + 45mm extension/f_5,Viltrox 85mm f_2 EVO + 45mm extension/f_5.6,1.9727,RENAMED,0,yes,delta from previously-applied f_5
+Viltrox 85,85.0,45,Viltrox 85mm f_2 EVO + 45mm extension/f_7.1,Viltrox 85mm f_2 EVO + 45mm extension/f_8,1.9727,RENAMED,0,yes,delta from previously-applied f_7.1
+Viltrox 85,85.0,45,Viltrox 85mm f_2 EVO + 45mm extension/probe/f_3.5,Viltrox 85mm f_2 EVO + 45mm extension/probe/f_4,1.9727,RENAMED,0,yes,delta from previously-applied f_3.5
+Viltrox 85,85.0,61,Viltrox 85mm f_2 EVO + 61mm extension/f_11,Viltrox 85mm f_2 EVO + 61mm extension/f_13,2.1588,RENAMED,0,yes,delta from previously-applied f_11
+Viltrox 85,85.0,61,Viltrox 85mm f_2 EVO + 61mm extension/f_16,Viltrox 85mm f_2 EVO + 61mm extension/f_18,2.1588,RENAMED,0,yes,delta from previously-applied f_16
+Viltrox 85,85.0,61,Viltrox 85mm f_2 EVO + 61mm extension/f_22,Viltrox 85mm f_2 EVO + 61mm extension/f_25,2.1588,RENAMED,0,yes,delta from previously-applied f_22
+Viltrox 85,85.0,61,Viltrox 85mm f_2 EVO + 61mm extension/f_32,Viltrox 85mm f_2 EVO + 61mm extension/f_36,2.1588,RENAMED,0,yes,delta from previously-applied f_32
+Viltrox 85,85.0,61,Viltrox 85mm f_2 EVO + 61mm extension/f_4,Viltrox 85mm f_2 EVO + 61mm extension/f_4.5,2.1588,RENAMED,0,yes,delta from previously-applied f_4
+Viltrox 85,85.0,61,Viltrox 85mm f_2 EVO + 61mm extension/f_5.6,Viltrox 85mm f_2 EVO + 61mm extension/f_6.3,2.1588,RENAMED,0,yes,delta from previously-applied f_5.6
+Viltrox 85,85.0,61,Viltrox 85mm f_2 EVO + 61mm extension/f_8,Viltrox 85mm f_2 EVO + 61mm extension/f_9,2.1588,RENAMED,0,yes,delta from previously-applied f_8

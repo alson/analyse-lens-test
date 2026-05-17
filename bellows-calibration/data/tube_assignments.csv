@@ -1,0 +1,42 @@
+section,first_file,n_frames,lens,focal_mm,tube_mm,note
+# Only use bare-INF refs where the empirical inf-vs-MFD ΔEV is clearly above scene-noise floor (~0.1 EV).
+# For 24-120/MC 105/100-400@200mm the measured inf-vs-MFD ΔEV was -0.03..+0.08 — noise, so we fall back to bare-MFD reference there.
+100400_400_bare_inf,_DSC0578,3,100-400,400,-1,bare-INF reference (real +0.13 EV bare MFD bellows from reshoot)
+vil_bare_inf,_DSC0560,3,Viltrox 85,85,-1,bare-INF reference (real +0.20 EV bare MFD bellows)
+sp_120_max,_DSC0421,4,24-120,120,61,24-120 @ 120mm second pass (max -> bare order)
+sp_120_51,_DSC0425,2,24-120,120,51,16+35 stack
+sp_120_45,_DSC0427,3,24-120,120,45,10+35 stack
+sp_120_35,_DSC0430,3,24-120,120,35,single tube
+sp_120_26,_DSC0433,4,24-120,120,26,10+16 stack
+sp_120_16,_DSC0437,3,24-120,120,16,single tube
+sp_120_10,_DSC0440,3,24-120,120,10,single tube
+sp_120_bare,_DSC0443,3,24-120,120,0,bare-MFD reference
+70_bare,_DSC0454,3,24-120,70,0,24-120 @ 70mm bare (bare -> max order)
+70_16,_DSC0457,9,24-120,70,16,9 frames; user adjusted zoom during burst
+70_26,_DSC0466,3,24-120,70,26,10+16 stack
+70_35,_DSC0469,3,24-120,70,35,single tube
+50_35,_DSC0472,4,24-120,50,35,24-120 @ 50mm max (max -> bare order)
+50_26,_DSC0476,3,24-120,50,26,10+16 stack
+50_16,_DSC0479,4,24-120,50,16,merged single-frame replicate at DSC0482
+50_10,_DSC0483,3,24-120,50,10,single tube
+50_bare,_DSC0486,3,24-120,50,0,bare-MFD reference
+mc_bare,_DSC0506,3,MC 105,105,0,MC 105 bare-MFD at f/5.6 fec=-2 (bare -> max order)
+mc_10,_DSC0509,3,MC 105,105,10,single tube
+mc_16,_DSC0512,3,MC 105,105,16,single tube
+mc_26,_DSC0515,3,MC 105,105,26,10+16 stack
+mc_35a,_DSC0518,3,MC 105,105,35,single tube; replicated at mc_35b
+mc_35b,_DSC0521,3,MC 105,105,35,replicate of mc_35a (Y differs by 0.01 EV)
+mc_45,_DSC0524,3,MC 105,105,45,10+35 stack
+mc_51,_DSC0527,3,MC 105,105,51,16+35 stack
+mc_61,_DSC0530,3,MC 105,105,61,10+16+35 stack (max)
+100400_200_61,_DSC0536,3,100-400,200,61,100-400 switching focals at each tube; max -> bare order
+100400_400_61,_DSC0539,3,100-400,400,61,10+16+35 stack
+100400_400_35,_DSC0542,3,100-400,400,35,single tube
+100400_200_35,_DSC0545,3,100-400,200,35,single tube
+100400_200_bare,_DSC0548,3,100-400,200,0,bare-MFD reference
+100400_400_bare,_DSC0581,3,100-400,400,0,bare-MFD reference (reshoot DSC0581-3)
+vil_bare,_DSC0563,3,Viltrox 85,85,0,Viltrox 85 bare-MFD (bare -> max order)
+vil_26,_DSC0566,3,Viltrox 85,85,26,10+16 stack
+vil_35,_DSC0569,3,Viltrox 85,85,35,single tube
+vil_45,_DSC0572,3,Viltrox 85,85,45,10+35 stack
+vil_61,_DSC0575,3,Viltrox 85,85,61,10+16+35 stack (max)
