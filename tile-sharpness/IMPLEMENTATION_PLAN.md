@@ -475,15 +475,42 @@ estimates by `(2.8/N_actual)`. Fixed by anchoring to the last
 
 ### Aperture-convention dependency for tube/diopter sweeps
 
-`rail_calibration` uses slug aperture as `N_eff_total`. This is
-correct when the slug already reflects total effective (bare-prime
-CPU sweeps where m_indicated ≈ m_total; pre-bumped MF sweeps from
-2026-01 / 2026-02). For uncorrected extension-tube or diopter
-sweeps, slug = lens-internal effective ≠ total-effective; the
-formula underestimates `N_eff` by `(1 + m_total) / (1 + m_indicated)`
-and the derived rail step is too small. **No code change needed**
-when the aperture-convention rewrite lands — the slug column will
-carry the right value and the formula picks it up.
+`rail_calibration` uses slug aperture as `N_eff_total` when no
+override is provided. This is correct for bare-prime CPU sweeps
+(m_indicated ≈ m_total) and pre-bumped MF sweeps from 2026-01 /
+2026-02. For tube/diopter chains, slug = lens-internal effective ≠
+total-effective. Two override mechanisms layer on top:
+
+- **`EffectiveApertureLookup` (CSV-driven, empirical)** — reads
+  `effective_apertures.csv` produced by `bellows-calibration/`
+  (cloud / ceiling validation shoots). Covers extension-tube chains
+  exhaustively. On the 2026-05 newer-rig validation, tube sweeps
+  with this override converge to median rail-step ratio 0.92 (vs
+  1.63 slug-only).
+- **`analytical_diopter_effective_f` (thin-lens, analytical)** —
+  computes effective N for diopter chains from the diopter's
+  nominal power, the lens's focal length, and the recorded
+  magnification. Used when the CSV lookup misses *and* a recognized
+  diopter (`5T`, `6T`, `Canon 500D`, `Olympus MCON-35`, `Raynox
+  M-150/M-250`) is in the slug. Drops diopter-chain median ratio
+  from 1.38 → 1.19 on the validation.
+
+`resolve_effective_aperture()` composes these as
+**CSV → analytical-diopter → slug** and is wired into both
+`rail_step_lookup_v1` and `rail_step_lookup_v2`. The composition
+helper is the recommended entry point for any new caller that
+needs to map a sweep → effective N.
+
+**Open follow-up — empirical diopter calibration shoots.** The
+analytical fallback's residual ~20% bias vs tube-CSV accuracy
+comes from thin-lens approximation breakdown (filter-to-front
+gap ≠ 0, pupil-magnification effects). The same
+`bellows-calibration/` infrastructure that produced the tube
+calibration would handle diopters with no new code — it just needs
+cloud or ceiling validation shoots with each diopter attached
+(Canon 500D, Nikon 5T, Nikon 6T, 5T+6T, 6T+5T stacks). One session
+per lens × diopter; bare-lens reference is shared across all
+diopters of the same lens.
 
 ### Sequencing steps 7-8 (deferred)
 

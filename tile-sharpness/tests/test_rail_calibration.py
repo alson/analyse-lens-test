@@ -11,7 +11,9 @@ from tile_sharpness.methods.maze_fft import SENSOR_PITCH_UM_Z7
 from tile_sharpness.phase1 import SCRIBE_WIDTH_UM
 from tile_sharpness.rail_calibration import (
     CalibrationResult,
+    EffectiveApertureLookup,
     PooledCalibrationResult,
+    analytical_diopter_effective_f,
     blur_um_from_widening,
     calibrate_group,
     calibrate_sweep,
@@ -19,6 +21,7 @@ from tile_sharpness.rail_calibration import (
     fwhm_object_um,
     group_key,
     parse_aperture,
+    resolve_effective_aperture,
 )
 
 
@@ -36,6 +39,18 @@ def test_parse_aperture_newer_rig_lowercase_format():
     assert parse_aperture("newer-rig/foo__f_11") == 11.0
 
 
+def test_parse_aperture_post_rename_underscore_decimal():
+    """The aperture-convention rewrite renamed dirs to underscore-as-decimal
+    for filesystem safety: ``f_5_6`` is f/5.6, ``f_2_8`` is f/2.8 etc."""
+    assert parse_aperture("archive-2026-05/foo__f_5_6") == 5.6
+    assert parse_aperture("archive-2026-05/foo__f_2_8") == 2.8
+    assert parse_aperture("archive-2026-05/foo__f_5_3") == 5.3
+    # Mixed: lens-name has dots/underscores too — still match suffix only.
+    assert parse_aperture(
+        "archive-2026-05/2026-05-13__NIKKOR Z MC 105mm f_2.8 VR S + 5T + 6T__f_5_6"
+    ) == 5.6
+
+
 def test_parse_aperture_ignores_lens_name_fspec():
     """A lens name like 'Sigma_F2.8_HSM' must NOT be mistaken for the aperture."""
     assert parse_aperture(
@@ -49,6 +64,123 @@ def test_parse_aperture_ignores_lens_name_fspec():
 def test_parse_aperture_missing():
     assert parse_aperture("nope") is None
     assert parse_aperture("foo__bar") is None
+
+
+def test_analytical_diopter_100_400_canon_500d_at_m_1():
+    """100-400 + Canon 500D at M=1.0, slug f/5.6 — value computed in the
+    2026-05-17 validation pass: ~4.51."""
+    n_eff = analytical_diopter_effective_f(
+        "NIKKOR Z 100-400mm f_4.5-5.6 VR S + Canon 500D",
+        m_total=1.0, slug_f=5.6,
+    )
+    assert n_eff is not None
+    assert math.isclose(n_eff, 4.51, rel_tol=0.01)
+
+
+def test_analytical_diopter_sigma_150_5t_at_m_1_3():
+    """Sigma 150 + 5T (1.5D) at M=1.3, slug f/11. n_ring = 11/2 = 5.5 (lens
+    at native MFD m=1.0). f_d = 1000/1.5 = 666.7 mm. f_c = 150*666.7 /
+    816.7 = 122.4. D = 150/5.5 = 27.27. n_inf_c = 122.4/27.27 = 4.49.
+    n_eff = 4.49 × 2.3 = 10.33."""
+    n_eff = analytical_diopter_effective_f(
+        "Sigma APO Macro 150mm F2.8 EX DG OS HSM + 5T",
+        m_total=1.3, slug_f=11.0,
+    )
+    assert n_eff is not None
+    assert math.isclose(n_eff, 10.33, rel_tol=0.02)
+
+
+def test_analytical_diopter_stacked_5t_6t_sums_powers():
+    """Stacked diopter powers add: + 5T + 6T = 1.5 + 2.9 = 4.4 D, not 1.5 alone."""
+    single = analytical_diopter_effective_f(
+        "Sigma APO Macro 150mm F2.8 EX DG OS HSM + 5T",
+        m_total=1.5, slug_f=11.0,
+    )
+    stacked = analytical_diopter_effective_f(
+        "Sigma APO Macro 150mm F2.8 EX DG OS HSM + 5T + 6T",
+        m_total=1.5, slug_f=11.0,
+    )
+    # Stacked diopters have shorter combined focal length → lower n_inf,
+    # but the (1 + M_total) factor multiplies. At fixed M, shorter f_c
+    # gives lower n_eff. So stacked should be LOWER than single.
+    assert stacked is not None and single is not None
+    assert stacked < single
+
+
+def test_analytical_diopter_returns_none_for_bare_lens():
+    assert analytical_diopter_effective_f(
+        "Sigma APO Macro 150mm F2.8 EX DG OS HSM",
+        m_total=1.0, slug_f=11.0,
+    ) is None
+
+
+def test_analytical_diopter_returns_none_for_unknown_lens():
+    assert analytical_diopter_effective_f(
+        "Unknown Lens + 5T", m_total=1.0, slug_f=5.6,
+    ) is None
+
+
+def test_resolve_effective_aperture_priority():
+    """CSV beats analytical beats slug."""
+    csv_table = {
+        ("Sigma APO Macro 150mm F2.8 EX DG OS HSM + 5T", "f_11"): 99.0,
+    }
+    csv_lookup = EffectiveApertureLookup(table=csv_table)
+
+    # CSV hit → uses CSV value, source="csv"
+    eff, src = resolve_effective_aperture(
+        "Sigma APO Macro 150mm F2.8 EX DG OS HSM + 5T", "f_11",
+        m_total=1.3, slug_f=11.0, csv_lookup=csv_lookup,
+    )
+    assert eff == 99.0 and src == "csv"
+
+    # CSV miss, has diopter → analytical
+    eff, src = resolve_effective_aperture(
+        "Sigma APO Macro 150mm F2.8 EX DG OS HSM + 6T", "f_11",
+        m_total=1.3, slug_f=11.0, csv_lookup=csv_lookup,
+    )
+    assert src == "analytical_diopter"
+    assert eff is not None and 8.0 < eff < 13.0
+
+    # CSV miss, no diopter → slug
+    eff, src = resolve_effective_aperture(
+        "Sigma APO Macro 150mm F2.8 EX DG OS HSM", "f_11",
+        m_total=1.0, slug_f=11.0, csv_lookup=csv_lookup,
+    )
+    assert eff == 11.0 and src == "slug"
+
+    # No slug_f and no CSV → missing
+    eff, src = resolve_effective_aperture(
+        "Anything", "f_11", m_total=1.0, slug_f=None,
+        csv_lookup=csv_lookup,
+    )
+    assert eff is None and src == "missing"
+
+
+def test_resolve_effective_aperture_analytical_can_be_disabled():
+    eff, src = resolve_effective_aperture(
+        "Sigma APO Macro 150mm F2.8 EX DG OS HSM + 6T", "f_11",
+        m_total=1.3, slug_f=11.0,
+        use_analytical_diopter=False,
+    )
+    assert eff == 11.0 and src == "slug"
+
+
+def test_effective_aperture_override_supersedes_slug():
+    """When ``effective_aperture`` is passed, the slug-parsed value is ignored."""
+    df = _synth_sweep(
+        sweep_label="t__1_1__F8",  # slug says F8
+        rail_step_mm=0.10, n_shots=25, peak_shot_idx=12,
+        m=1.0, aperture_n_eff=11.0,  # but synth data was built with N_eff=11
+    )
+    no_override = calibrate_sweep(df)
+    with_override = calibrate_sweep(df, effective_aperture=11.0)
+    assert with_override.aperture_f == 11.0
+    assert math.isclose(with_override.rail_step_mm, 0.10, rel_tol=0.05)
+    # Without override, the formula uses N=8 → result is 8/11 of true.
+    assert math.isclose(
+        no_override.rail_step_mm / with_override.rail_step_mm, 8 / 11, rel_tol=0.05,
+    )
 
 
 def test_blur_um_quadrature_subtraction():

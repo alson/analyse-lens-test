@@ -1,6 +1,47 @@
 # Sharpness assessment POC — session handover
 
-State as of 2026-05-17.
+State as of 2026-05-18.
+
+> **2026-05-18 update — newer-rig validation + diopter analytical fallback.**
+>
+> 1. **Validation against 2026-05 newer-rig data done.** 120 archived
+>    sweeps from `~/shared/files/pics/digikam/test-raw-data/2026-05-{13,14,15}/`,
+>    scored on nufan (16 cores) in ~4 h. Outputs at
+>    `out_newer_validation_2026_05/`.
+>
+> 2. **Honest accuracy picture**: median ratio (derived / actual) = 1.30,
+>    IQR 0.85-1.83 across 70 valid sweeps. **Verdict labels reflect
+>    per-estimate noise, not bias direction** — "publishable" verdicts
+>    actually under-estimate (median 0.67), "sanity_only" overestimates
+>    (median 1.41). Use rail-step calibration for sanity checks only.
+>
+> 3. **CSV-effective-aperture mechanism works.** Extension-tube chains
+>    in `effective_apertures.csv` converge to median 0.92 vs 1.63 for
+>    slug-only.
+>
+> 4. **Analytical diopter-N fallback added.**
+>    `analytical_diopter_effective_f` in `rail_calibration.py` —
+>    thin-lens model for close-up filters (Canon 500D, Nikon 5T/6T
+>    etc.). Cuts diopter-chain median ratio from 1.38 → 1.19. Wired
+>    into `rail_step_lookup_v1`/`_v2` via `resolve_effective_aperture`
+>    (priority: CSV → analytical-diopter → slug).
+>
+> 5. **Follow-up: empirical diopter calibration shoots.**
+>    `bellows-calibration/data/per_shot.csv` only covers bare-lens +
+>    tube chains. A cloud/ceiling session with each diopter attached
+>    would let `build_calibration.py` produce empirical multipliers
+>    for those configs and close the residual ~20% diopter bias.
+>
+> 6. **Bugs fixed during validation:**
+>    * `parse_aperture` didn't handle post-rename underscore-decimal
+>      `f_5_6` format. Now handles all three formats.
+>    * `phase1._decode_gray` crashed on MPO-format JPEGs (Nikon
+>      multi-shot). Added eager `import PIL.MpoImagePlugin`.
+>
+> 7. **Operational note**: shared `.venv/` on NFS doesn't work across
+>    hosts with different OS distros. Per-host venvs via direnv +
+>    `.envrc` containing
+>    `export UV_PROJECT_ENVIRONMENT="$HOME/.cache/uv-venvs/$(basename "$PWD")"`.
 
 > **2026-05-17 update — validation runs + rail-step calibration + M-driven window fix.**
 >
@@ -277,7 +318,87 @@ scenarios where filesize and wavelet_ratio rank a lens / scenario
 more than ~2 ranks apart. The eyeball review (TODO 1) gates this —
 don't integrate until visual confirmation lands.
 
-### 4. mtf_mapper available only on nufan
+### 4. Cross-M comparison guardrails (Nyquist-fraction column)
+
+Even after the low-M LSF fix lands, lp/mm-subject readings at low M
+are bounded by **sensor-Nyquist**, not by lens quality. On Z7 the
+sensor Nyquist in subject space is `0.5 cy/px × 1000 / 4.35 × M =
+115 × M lp/mm`. So at M=0.4 the ceiling is **46 lp/mm subject** no
+matter how good the lens — a config reading near that cap is
+sensor-bounded (pixel-limited regime), not optics-bounded, and
+"lens A is sharper than lens B" comparisons between two
+near-Nyquist configs are degenerate.
+
+Action: add `nyquist_fraction = mtf50_sensor_cy_per_px / 0.5` as a
+column in `peaks_v2.csv` and `lens_characteristics.csv`. Then a
+config reading `0.4×: 25 lp/mm (54 % of Nyquist)` is clearly
+optics-limited and ready to compare against a `1.0×: 35 lp/mm
+(30 % of Nyquist)`; a `0.4×: 44 lp/mm (96 %)` flags
+"sensor-bounded — comparison degenerate at this end".
+
+Cross-M range the rule of thumb covers:
+- **M=0.4 to M=1.0**: clean comparison in lp/mm-subject as long as
+  both sides stay under ~80 % of Nyquist. The Nyquist-fraction
+  column makes the regime visible.
+- **M=0.1 to M=2.0**: the original plan's `A_n/A_1` harmonic-ratio
+  MTF readout (from the maze 2D-FFT at high M and from a pad-grid
+  2D-FFT at low M — see TODO 5 below) is what would close this
+  span. Not yet implemented.
+
+### 5. Low-M LSF under-read — POC track (Fix #2)
+
+Task 2 (100-400 at 0.385× F11) reads 10.4 lp/mm subject vs plan
+target ~33 — algorithmic limit: the scribe is 7.7 px FWHM at M=0.385
+and the ESF→LSF split puts ~4 samples per edge. Two parallel POCs
+launched 2026-05-17, both uncommitted under
+`tile-sharpness/scripts/poc_*.py`:
+
+- **A — slanted-edge sub-pixel binning of grid pixels.** Classic
+  ISO 12233: bin grid pixels by sub-pixel perpendicular distance
+  to the detected scribe; super-resolved ESF; real bandwidth gain.
+  Direct fix for the LSF tail; preserves the cross-M lp/mm-subject
+  axis at low M.
+- **B — pad-grid 2D-FFT at an intermediate wafer pitch.** Mirrors
+  the maze-FFT method one scale up (pad pitch ~100-200 µm,
+  resolves at M ≥ 0.3 on Z7). Same harmonic-amplitude approach the
+  maze method uses; extends the "primary high-resolution
+  discriminator" framing down into the low-M regime.
+
+**Concerns about B to verify in the POC writeup**:
+1. Not every wafer tile contains pads — pad coverage is region-
+   dependent (test-pattern blocks vs in-die structures). Need to
+   characterise coverage on the actual Z7 frames before relying
+   on this as a primary metric.
+2. Bond pads are *metalised* — specular highlights at certain
+   light angles. Lighting variation across the test rig (and
+   across the wafer's micro-tilt) could change pad amplitude
+   independently of lens sharpness. The agent should sanity-check
+   pad-FFT amplitude stability across nominally-identical shots
+   if possible.
+
+If A works it's the simpler land. B is the bigger architectural
+move — it would also feed the eventual `A_n/A_1` MTF readout that
+extends the cross-M comparison up to M=2.0.
+
+### 6. Retry scribe-line / scale detection with corrected super-cell grid
+
+Earlier attempts at fitting a uniform die grid for scribe / scale
+detection (in `archive-2026-05/measure_wafer_squares` or precursors)
+were rejected because they didn't work well. The wafer-atlas work on
+2026-05-18 found out **why**: the wafer's die grid is a 4×4 super-cell
+with one wide column type (~542 px) and one tall row type (~546 px) on
+the f/8 overview photo, while the other types are ~452 px. A uniform-
+pitch fit will be off by up to ~20 % on any individual die boundary,
+so the residuals would have looked like a failed fit.
+
+**Action when revisiting:** use the super-cell parameters from
+`wafer-atlas/scripts/grid_supercell.py` — per-(col mod 4) widths and
+per-(row mod 4) heights — and refit with that model. Also: any
+"distance across N dies" magnification measurement must span an
+integer number of super-cells (N = 4, 8, 12…) OR record exactly which
+(col mod 4) positions are included.
+
+### 7. mtf_mapper available only on nufan
 
 The local Arch host had its `mtf_mapper` binary deleted during a
 failed rebuild attempt earlier in this session, and `cmake` isn't

@@ -147,23 +147,228 @@ class CalibrationResult:
         return self.verdict
 
 
-_APERTURE_SUFFIX_TAIL_RE = re.compile(r"(?:F|f_)([0-9]+(?:\.[0-9]+)?)")
+# Three aperture suffix shapes encountered in slugs:
+#   * older-rig:        F8, F11, F5.6
+#   * newer-rig (pre-rename): f_8, f_11, f_5.6 (dot decimal)
+#   * post-rename:      f_5_6, f_2_8 (underscore decimal — used by the
+#                       aperture-convention rewrite that converted the
+#                       on-disk dir names to safer filesystem chars)
+_APERTURE_SUFFIX_TAIL_RE = re.compile(
+    r"(?:F|f_)("
+    r"[0-9]+_[0-9]+"          # underscore decimal: 5_6
+    r"|[0-9]+\.[0-9]+"        # dot decimal: 5.6
+    r"|[0-9]+"                # integer: 8
+    r")"
+)
 
 
 def parse_aperture(sweep_label: str) -> float | None:
     """Extract the slug aperture as a float. Returns ``None`` if no match.
 
-    Aperture is the LAST ``__``-separated segment of the slug:
-    ``F<digits>(.<digits>)?`` (older-rig) or ``f_<digits>(.<digits>)?``
-    (newer-rig). Anchoring to the suffix is critical because lens names
-    can contain F-spec substrings (e.g. ``Sigma_..._F2.8_EX_DG_OS_HSM``)
-    that an unanchored search would match first.
+    Aperture is the LAST ``__``-separated segment of the slug. Three
+    formats are supported:
+
+    * ``F<digits>(.<digits>)?`` (older-rig: ``F8``, ``F5.6``)
+    * ``f_<digits>(.<digits>)?`` (newer-rig pre-rename: ``f_5.6``)
+    * ``f_<digits>_<digits>`` (post-rename, underscore decimal:
+      ``f_5_6`` = f/5.6)
+
+    Anchoring to the suffix is critical because lens names can contain
+    F-spec substrings (e.g. ``Sigma_..._F2.8_EX_DG_OS_HSM``) that an
+    unanchored search would match first.
+
+    Note: for tube/diopter chains the slug aperture is the rounded
+    *lens-internal* (or post-rename rounded total-effective) value.
+    For best precision pass an explicit ``effective_aperture`` to
+    ``calibrate_sweep`` — see ``EffectiveApertureLookup`` for building
+    one from ``effective_apertures.csv``.
     """
     parts = sweep_label.split("__")
     if not parts:
         return None
     m = _APERTURE_SUFFIX_TAIL_RE.fullmatch(parts[-1])
-    return float(m.group(1)) if m else None
+    if m is None:
+        return None
+    # Normalise the underscore-decimal form to dot before float().
+    return float(m.group(1).replace("_", "."))
+
+
+@dataclass(frozen=True)
+class EffectiveApertureLookup:
+    """``(lens, aperture_dir_name) -> effective_f_exact`` from per-dataset CSVs.
+
+    Each ``effective_apertures.csv`` is the source of truth for
+    extension-tube chains where the slug aperture (= rounded
+    lens-internal effective) differs from the true total-effective N.
+    Bare-prime sweeps are absent from the CSVs; for those, fall back
+    to the parsed slug aperture (which already equals total-effective
+    when the lens reports m_indicated = m_total). Diopter chains are
+    also absent from the CSVs — see ``analytical_diopter_effective_f``
+    for the thin-lens fallback.
+
+    Key: ``(lens_config_string, F_dir_name)`` exactly as recorded in
+    the CSV — e.g. ``("NIKKOR Z 100-400mm f_4.5-5.6 VR S + 35mm extension",
+    "f_11")``. The lens string matches both the older-rig directory
+    name AND the newer-rig ``lens_config_slug`` from ``shots.csv``.
+    """
+
+    table: dict[tuple[str, str], float]
+
+    @classmethod
+    def from_csvs(cls, paths: list[Path]) -> "EffectiveApertureLookup":
+        table: dict[tuple[str, str], float] = {}
+        for path in paths:
+            df = pd.read_csv(path)
+            for _, row in df.iterrows():
+                key = (str(row["slug"]), str(row["F_dir_name"]))
+                try:
+                    table[key] = float(row["effective_f_exact"])
+                except (ValueError, TypeError):
+                    pass
+        return cls(table=table)
+
+    def get(self, lens: str, aperture_dir: str) -> float | None:
+        return self.table.get((lens, aperture_dir))
+
+
+# ----------------------------------------------------------------------
+# Analytical diopter effective-N fallback for diopter chains not covered
+# by empirical bellows-calibration. Strictly better than slug-only on
+# the 2026-05 validation: median ratio for diopter sweeps moved from
+# 1.57 (slug) → 1.33 (analytical). Still well off the tube-CSV target
+# (0.92) — empirical diopter shoots (cloud / ceiling sessions in
+# bellows-calibration/data/) would close the remaining gap. Logged as
+# follow-up in HANDOVER.md and IMPLEMENTATION_PLAN.md.
+# ----------------------------------------------------------------------
+
+# Nominal diopter power per close-up filter (in diopters = 1/m).
+# Manufacturer specs; real values may differ slightly.
+DIOPTER_POWER_D: dict[str, float] = {
+    "Canon 500D": 2.0,        # 500D = +2 diopters (1/0.5 m)
+    "Nikon 5T": 1.5,
+    "Nikon 6T": 2.9,
+    "5T": 1.5,                # bare short form as written in slugs
+    "6T": 2.9,
+    "Olympus MCON-35": 2.86,  # 1/0.35 m
+    "Raynox M-150": 4.8,
+    "Raynox M-250": 8.0,
+}
+
+# Lens focal length (mm) and native max magnification per lens prefix.
+# Used to back-solve the lens ring aperture from the slug aperture:
+# ``n_ring = slug_f / (1 + m_indicated)``. ``m_indicated`` is clamped
+# to the lens's native maximum since the lens has no awareness of the
+# attached diopter — at M_total beyond native max, the lens is at its
+# own MFD and the rest of M comes from the diopter chain.
+_LENS_FOCAL_NATIVE_MAX_M: dict[str, tuple[float, float]] = {
+    "Sigma APO Macro 150mm F2.8 EX DG OS HSM": (150.0, 1.0),
+    "Sigma Macro 105mm F2.8 EX DG OS HSM": (105.0, 1.0),
+    "Nikon AF Micro-Nikkor 200mm f_4D IF-ED": (200.0, 1.0),
+    "Nikon AF Zoom-Micro Nikkor 70-180mm f_4.5-5.6D ED": (180.0, 0.32),
+    "NIKKOR Z MC 105mm f_2.8 VR S": (105.0, 1.0),
+    "NIKKOR Z 100-400mm f_4.5-5.6 VR S": (400.0, 0.38),
+}
+
+
+def _diopter_power_total(slug: str) -> float | None:
+    """Sum the diopter powers of every recognized diopter filter in the slug.
+
+    Iterates from longest filter name to shortest so ``"Nikon 5T"`` is
+    matched before plain ``"5T"`` (avoids double-counting). Returns
+    ``None`` when no diopter token is found.
+    """
+    total = 0.0
+    found = False
+    remaining = slug
+    for name, power in sorted(DIOPTER_POWER_D.items(), key=lambda x: -len(x[0])):
+        marker = f"+ {name}"
+        if marker in remaining:
+            remaining = remaining.replace(marker, "+ MATCHED", 1)
+            total += power
+            found = True
+    return total if found else None
+
+
+def analytical_diopter_effective_f(
+    lens_config_slug: str,
+    m_total: float,
+    slug_f: float,
+) -> float | None:
+    """Compute analytical total-effective f-number for a diopter chain.
+
+    Thin-lens model: combined focal length
+    ``f_c = f_lens × f_d / (f_lens + f_d)``, physical aperture diameter
+    ``D = f_lens / n_ring`` with ``n_ring = slug_f / (1 + m_indicated)``,
+    ``n_eff = (f_c / D) × (1 + M_total)``. Returns ``None`` when the slug
+    lacks a recognized diopter marker, the base lens isn't in the focal-
+    length table, or inputs are non-finite/non-positive.
+
+    Limitations: thin-lens approximation (gap to front element = 0),
+    nominal diopter powers, ignores pupil-magnification effects. On the
+    2026-05-17 validation, analytical correction cut diopter-chain
+    median rail-step bias from 1.57× to 1.33×. Empirical diopter
+    calibration (extending ``bellows-calibration/`` to cloud shoots
+    with diopters attached) would close the rest.
+    """
+    if (
+        not isinstance(slug_f, (int, float))
+        or not math.isfinite(slug_f)
+        or slug_f <= 0
+    ):
+        return None
+    d_total = _diopter_power_total(lens_config_slug)
+    if d_total is None or d_total <= 0:
+        return None
+    base = next(
+        (l for l in _LENS_FOCAL_NATIVE_MAX_M if lens_config_slug.startswith(l)),
+        None,
+    )
+    if base is None:
+        return None
+    f_lens, native_max_m = _LENS_FOCAL_NATIVE_MAX_M[base]
+    f_diopter_mm = 1000.0 / d_total
+    f_combined = f_lens * f_diopter_mm / (f_lens + f_diopter_mm)
+    m_lens = (
+        min(m_total, native_max_m) if math.isfinite(m_total) else native_max_m
+    )
+    n_ring = slug_f / (1.0 + m_lens)
+    if n_ring <= 0:
+        return None
+    aperture_diameter = f_lens / n_ring
+    n_at_inf_combined = f_combined / aperture_diameter
+    return n_at_inf_combined * (1.0 + m_total)
+
+
+def resolve_effective_aperture(
+    lens_config_slug: str,
+    F_dir: str,
+    m_total: float,
+    slug_f: float | None,
+    *,
+    csv_lookup: EffectiveApertureLookup | None = None,
+    use_analytical_diopter: bool = True,
+) -> tuple[float | None, str]:
+    """Resolve effective N for a sweep, with priority CSV → analytical → slug.
+
+    Returns ``(effective_f, source)`` where ``source`` is one of:
+      * ``"csv"`` — empirical extension-tube calibration from CSV.
+      * ``"analytical_diopter"`` — thin-lens model for diopter chains.
+      * ``"slug"`` — fallback (bare lens; slug ≈ total-effective).
+      * ``"missing"`` — no resolution available.
+    """
+    if csv_lookup is not None:
+        csv_val = csv_lookup.get(lens_config_slug, F_dir)
+        if csv_val is not None:
+            return csv_val, "csv"
+    if use_analytical_diopter and slug_f is not None:
+        analytical = analytical_diopter_effective_f(
+            lens_config_slug, m_total, slug_f,
+        )
+        if analytical is not None:
+            return analytical, "analytical_diopter"
+    if slug_f is not None:
+        return slug_f, "slug"
+    return None, "missing"
 
 
 def fwhm_object_um(trough_fwhm_px: float, m: float) -> float:
@@ -260,6 +465,7 @@ def calibrate_sweep(
     min_dshot: int = DEFAULT_MIN_DSHOT,
     min_widening: float = DEFAULT_MIN_WIDENING,
     max_blur_factor: float = DEFAULT_MAX_BLUR_FACTOR,
+    effective_aperture: float | None = None,
 ) -> CalibrationResult:
     """Calibrate one sweep's rail-step-mm from its per-shot per-tile data.
 
@@ -267,12 +473,22 @@ def calibrate_sweep(
     sweep. Required columns: ``sweep``, ``tile_ix``, ``tile_iy``,
     ``shot_idx``, ``on_target``, ``m``, ``trough_fwhm_px``,
     ``lsf_peak_amp``.
+
+    ``effective_aperture`` optionally overrides the slug-parsed
+    aperture. Use this for tube/diopter chains where the slug carries
+    the rounded lens-internal (or rounded total-effective) f-number,
+    not the exact total-effective N needed by the blur formula. Build
+    via ``EffectiveApertureLookup.from_csvs`` and pass the result of
+    ``lookup.get(lens, F_dir_name)`` per sweep.
     """
     if sweep_rows.empty:
         return _failed("empty input")
 
     sweep_label = str(sweep_rows["sweep"].iloc[0])
-    aperture = parse_aperture(sweep_label)
+    if effective_aperture is not None and math.isfinite(effective_aperture):
+        aperture = float(effective_aperture)
+    else:
+        aperture = parse_aperture(sweep_label)
     if aperture is None:
         return _failed(f"could not parse aperture from sweep {sweep_label!r}")
     m_vals = sweep_rows["m"].dropna().unique()
@@ -415,12 +631,16 @@ def calibrate_csv(per_shot_csv: Path) -> pd.DataFrame:
 # aperture-convention bump, partial bracket).
 
 
-_APERTURE_SUFFIX_RE = re.compile(r"__(?:F|f_)[\d.]+$")
+# Same three formats as parse_aperture; trailing underscore in
+# ``[\d._]+`` covers ``f_5_6`` (post-rename) alongside ``f_5.6`` / ``F8``.
+_APERTURE_SUFFIX_RE = re.compile(r"__(?:F|f_)[\d._]+$")
 
 
 def group_key(sweep_id: str) -> str:
-    """Strip trailing ``__F<aperture>`` (older) or ``__f_<aperture>`` (newer)
-    to get the (lens, mag, focal) group key for v2 pooling."""
+    """Strip trailing aperture suffix to get the (lens, mag, focal)
+    group key for v2 pooling. Handles ``__F8`` (older-rig), ``__f_5.6``
+    (newer-rig dot decimal), and ``__f_5_6`` (post-rename underscore
+    decimal)."""
     return _APERTURE_SUFFIX_RE.sub("", sweep_id)
 
 
@@ -562,35 +782,164 @@ def calibrate_pooled_csv(per_shot_csv: Path) -> pd.DataFrame:
 # ----------------------------------------------------------------------
 
 
-def rail_step_lookup_v1(per_shot_csv: Path) -> dict[str, float]:
+def _resolve_effective_for_sweep_rows(
+    sweep_rows: pd.DataFrame,
+    csv_lookup: EffectiveApertureLookup | None,
+    use_analytical_diopter: bool,
+) -> float | None:
+    """Helper: resolve effective N for one sweep's rows using the standard
+    CSV → analytical → slug priority.
+
+    The per_shot_per_tile.csv doesn't carry the lens-config string or
+    F_dir explicitly — derive them from the sweep_id, which has the
+    form ``<family>/<root>__<lens>__<aperture>``.
+    """
+    if sweep_rows.empty:
+        return None
+    sweep_id = str(sweep_rows["sweep"].iloc[0])
+    parts = sweep_id.split("__")
+    if len(parts) < 2:
+        return None
+    F_dir = parts[-1]
+    # Lens-config is everything between the family/root prefix and the
+    # aperture suffix. Strip the family prefix ("archive-.../" or
+    # similar) first; the lens-config can itself contain "__".
+    head = "__".join(parts[:-1])
+    if "/" in head:
+        head = head.split("/", 1)[-1]
+    # head now starts with the date/session prefix; drop one segment.
+    lens = "__".join(head.split("__")[1:]) if "__" in head else head
+    slug_f = parse_aperture(sweep_id)
+    m_vals = sweep_rows["m"].dropna().unique() if "m" in sweep_rows.columns else []
+    m_total = float(m_vals[0]) if len(m_vals) == 1 else float("nan")
+    eff, _src = resolve_effective_aperture(
+        lens, F_dir, m_total, slug_f,
+        csv_lookup=csv_lookup,
+        use_analytical_diopter=use_analytical_diopter,
+    )
+    return eff
+
+
+def rail_step_lookup_v1(
+    per_shot_csv: Path,
+    *,
+    effective_aperture_lookup: EffectiveApertureLookup | None = None,
+    use_analytical_diopter: bool = True,
+) -> dict[str, float]:
     """Per-sweep ``sweep_id -> rail_step_mm`` from v1 calibration.
 
     Excludes sweeps whose calibration returned NaN. Callers should
     accept that unmapped sweeps fall back to the existing
     rail-step-unavailable code path in characterise.
+
+    Per-sweep effective N is resolved via
+    ``resolve_effective_aperture`` (CSV → analytical-diopter → slug).
+    Pass ``effective_aperture_lookup`` to enable empirical CSV
+    overrides for extension-tube chains; the analytical diopter
+    fallback can be disabled by setting ``use_analytical_diopter=False``.
     """
     df = pd.read_csv(per_shot_csv)
     lookup: dict[str, float] = {}
     for sweep_id, grp in df.groupby("sweep"):
-        result = calibrate_sweep(grp)
+        eff = _resolve_effective_for_sweep_rows(
+            grp, effective_aperture_lookup, use_analytical_diopter,
+        )
+        result = calibrate_sweep(grp, effective_aperture=eff)
         if math.isfinite(result.rail_step_mm):
             lookup[str(sweep_id)] = result.rail_step_mm
     return lookup
 
 
-def rail_step_lookup_v2(per_shot_csv: Path) -> dict[str, float]:
+def rail_step_lookup_v2(
+    per_shot_csv: Path,
+    *,
+    effective_aperture_lookup: EffectiveApertureLookup | None = None,
+    use_analytical_diopter: bool = True,
+) -> dict[str, float]:
     """Per-sweep ``sweep_id -> rail_step_mm`` from v2 pooled calibration.
 
     Every sweep in a (lens, mag, focal) group is mapped to the group's
     pooled rail step. Excludes groups whose pooled estimate is NaN.
+
+    Per-sweep effective N resolution is delegated to v1's
+    ``calibrate_sweep`` call inside ``calibrate_group``; this wrapper
+    pre-resolves it per sweep before pooling, so different apertures
+    within a group can each use the correct N.
     """
     df = pd.read_csv(per_shot_csv)
     df["_group_key"] = df["sweep"].map(group_key)
     lookup: dict[str, float] = {}
     for gk, grp in df.groupby("_group_key"):
-        result = calibrate_group(grp)
+        # calibrate_group internally re-derives per-sweep effective N
+        # via calibrate_sweep, but we need to feed the override into
+        # each one. Build a pre-resolved per-sweep map and pass it.
+        per_sweep_eff: dict[str, float | None] = {}
+        for sid, sub in grp.groupby("sweep"):
+            per_sweep_eff[str(sid)] = _resolve_effective_for_sweep_rows(
+                sub, effective_aperture_lookup, use_analytical_diopter,
+            )
+        result = _calibrate_group_with_eff(grp, per_sweep_eff)
         if not math.isfinite(result.rail_step_mm):
             continue
         for sweep_id in grp["sweep"].unique():
             lookup[str(sweep_id)] = result.rail_step_mm
     return lookup
+
+
+def _calibrate_group_with_eff(
+    group_rows: pd.DataFrame,
+    per_sweep_eff: dict[str, float | None],
+) -> PooledCalibrationResult:
+    """Variant of ``calibrate_group`` that uses a per-sweep effective-N override.
+
+    Mirrors ``calibrate_group`` but feeds each per-aperture
+    ``calibrate_sweep`` call with its resolved effective N.
+    """
+    if group_rows.empty:
+        return _failed_group("", "empty input")
+    gk = group_key(str(group_rows["sweep"].iloc[0]))
+    per_aperture: list[CalibrationResult] = []
+    for sid, sweep_rows in group_rows.groupby("sweep"):
+        eff = per_sweep_eff.get(str(sid))
+        per_aperture.append(calibrate_sweep(sweep_rows, effective_aperture=eff))
+
+    valid = [r for r in per_aperture if math.isfinite(r.rail_step_mm)]
+    if not valid:
+        return PooledCalibrationResult(
+            group_key=gk, rail_step_mm=float("nan"),
+            inter_aperture_spread=float("nan"),
+            n_apertures=len(per_aperture), n_apertures_valid=0,
+            verdict="insufficient", per_aperture=tuple(per_aperture),
+            note="no aperture sweeps produced a valid estimate",
+        )
+
+    rail_steps = np.array([r.rail_step_mm for r in valid], dtype=float)
+    median = float(np.median(rail_steps))
+    mad = float(np.median(np.abs(rail_steps - median)))
+    rel = mad / median if median > 0 else float("nan")
+
+    if len(valid) < 2:
+        verdict, note = "sanity_only", (
+            f"only {len(valid)} valid aperture estimate; no cross-aperture check"
+        )
+    elif not math.isfinite(rel):
+        verdict, note = "sanity_only", "inter_aperture_spread undefined"
+    elif rel < PUBLISHABLE_REL_UNCERTAINTY:
+        verdict, note = "publishable", ""
+    elif rel < COMPARISON_OK_REL_UNCERTAINTY:
+        verdict, note = "comparison_ok", ""
+    elif rel < SANITY_ONLY_REL_UNCERTAINTY:
+        verdict = "sanity_only"
+        note = f"inter-aperture spread {rel:.2f} — cross-aperture consistency marginal"
+    else:
+        verdict = "unusable"
+        note = (
+            f"inter-aperture spread {rel:.2f}≥{SANITY_ONLY_REL_UNCERTAINTY} "
+            "— cross-aperture consistency check failed"
+        )
+
+    return PooledCalibrationResult(
+        group_key=gk, rail_step_mm=median, inter_aperture_spread=rel,
+        n_apertures=len(per_aperture), n_apertures_valid=len(valid),
+        verdict=verdict, per_aperture=tuple(per_aperture), note=note,
+    )
