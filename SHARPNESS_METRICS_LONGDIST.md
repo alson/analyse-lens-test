@@ -258,3 +258,17 @@ in corner slices.
 - `ANALYSIS_NOTES.md` — empirical findings from the macro test sessions
   (rail-coverage analyser; bell-curve detection).
 - `rail-coverage/` — implementation of the macro analyser.
+
+### Results documents
+
+- [`LONGDIST_TELE_RESULTS_2026-01.md`](LONGDIST_TELE_RESULTS_2026-01.md) —
+  Z 100-400 + Z TCs vs 300 PF + F-mount TCs, three sessions
+  (2026-01-18 / 28 / 30). Cross-date content-independence check,
+  per-lens prose, TC vs cropping analysis, sharpest-of-ISO +
+  replicate-spread (top/median/min) reporting.
+- [`WIDEANGLE_RESULTS_2026-01.md`](WIDEANGLE_RESULTS_2026-01.md) —
+  14–60 mm wide / standard lenses on the sloped-stair scene
+  (2026-01-24 / 26). Four-algorithm comparison (radial-cutoff,
+  slanted-edge MTF50, variance-of-Laplacian, Brenner) with stability,
+  agreement, and lighting-robustness assessment; cross-replicate
+  consensus tile picker for cyclist/pedestrian rejection.
