@@ -279,7 +279,7 @@ def test_recovers_rail_step_at_1to1_f8():
         aperture_n_eff=8.0,
     )
     res = calibrate_sweep(df)
-    assert res.confidence in {"publishable", "comparison_ok"}
+    assert res.confidence in {"tight", "moderate"}
     assert math.isclose(res.rail_step_mm, rail, rel_tol=0.05)
 
 
@@ -297,7 +297,7 @@ def test_recovers_rail_step_at_2to1_f11():
         aperture_n_eff=11.0,
     )
     res = calibrate_sweep(df)
-    assert res.confidence in {"publishable", "comparison_ok"}
+    assert res.confidence in {"tight", "moderate"}
     assert math.isclose(res.rail_step_mm, rail, rel_tol=0.05)
 
 
@@ -330,7 +330,7 @@ def test_multi_tile_pooling():
     res = calibrate_sweep(df)
     assert res.n_tiles_used == len(tiles)
     assert res.n_estimates > 30  # ~6 K-values per side × 2 × 5 tiles ≈ 60
-    assert res.confidence == "publishable"  # clean synthetic should be high
+    assert res.confidence == "tight"  # clean synthetic should be high
 
 
 def test_insufficient_when_no_defocus():
@@ -473,7 +473,7 @@ def test_pooled_recovers_rail_step_with_consistent_apertures():
     assert res.n_apertures_valid == 5
     assert math.isclose(res.rail_step_mm, rail, rel_tol=0.05)
     # Clean synthetic data → tight inter-aperture agreement → high.
-    assert res.confidence in {"publishable", "comparison_ok"}
+    assert res.confidence in {"tight", "moderate"}
 
 
 def test_pooled_flags_inter_aperture_disagreement():
@@ -492,7 +492,7 @@ def test_pooled_flags_inter_aperture_disagreement():
     assert res.n_apertures_valid == 2
     # Inter-aperture spread should be large.
     assert res.inter_aperture_spread > 0.2
-    assert res.confidence in {"sanity_only", "unusable"}
+    assert res.confidence in {"wide", "unusable"}
 
 
 def test_pooled_falls_back_to_single_valid_aperture():
@@ -510,7 +510,7 @@ def test_pooled_falls_back_to_single_valid_aperture():
     df = pd.concat([valid, no_signal], ignore_index=True)
     res = calibrate_group(df)
     assert res.n_apertures_valid == 1
-    assert res.confidence == "sanity_only"
+    assert res.confidence == "wide"
     assert "only 1" in res.note
 
 
@@ -534,7 +534,7 @@ def test_suspicious_peak_downgrades_confidence():
            "trough_fwhm_px"] = 6.9
     res = calibrate_sweep(df)
     assert "suspicious peak" in res.note
-    assert res.confidence in {"comparison_ok", "sanity_only"}
+    assert res.confidence in {"moderate", "wide"}
 
 
 def test_pooled_failed_when_all_apertures_fail():

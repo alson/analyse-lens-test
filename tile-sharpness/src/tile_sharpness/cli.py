@@ -20,7 +20,7 @@ import pandas as pd
 from .analyse import agreement_dataframe, analyse_sweep, peaks_dataframe
 from .characterise import characterise_peaks_v2
 from .compare import run_compare
-from .cross_lens_export import export_cross_lens_crops
+from .cross_lens_export import export_cross_lens_crops, export_peaks_v2_crops
 from .crop import DEFAULT_CACHE_ROOT
 from .disagreement import export_disagreement
 from .m_lookup import load_manifests
@@ -229,6 +229,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_xcrop.set_defaults(func=_cmd_cross_lens_crops)
 
+    p_v2crop = sub.add_parser(
+        "peaks-v2-crops",
+        help=(
+            "export one crop per (lens, tile) at the v2 primary-metric "
+            "argmax shot (maze-FFT amp or scribe-LSF amp). Replaces the "
+            "filesize-picked legacy crops from `cross-lens-crops`."
+        ),
+    )
+    p_v2crop.add_argument("peaks_v2_csv", type=Path)
+    p_v2crop.add_argument("--out", type=Path, required=True)
+    p_v2crop.add_argument(
+        "--tile",
+        action="append",
+        type=str,
+        help="tile position as 'ix,iy' (repeatable, default: 0,0)",
+    )
+    p_v2crop.set_defaults(func=_cmd_peaks_v2_crops)
+
     p_char = sub.add_parser(
         "characterise",
         help="per-slug lens characteristics rollup from a peaks_v2.csv",
@@ -258,6 +276,16 @@ def _cmd_cross_lens_crops(args: argparse.Namespace) -> int:
         positions = [(0, 0)]
     export_cross_lens_crops(args.peaks_csv, args.out, positions)
     print(f"[done] cross-lens crops -> {args.out}", flush=True)
+    return 0
+
+
+def _cmd_peaks_v2_crops(args: argparse.Namespace) -> int:
+    if args.tile:
+        positions = [tuple(int(v) for v in t.split(",")) for t in args.tile]
+    else:
+        positions = [(0, 0)]
+    export_peaks_v2_crops(args.peaks_v2_csv, args.out, positions)
+    print(f"[done] peaks_v2 crops -> {args.out}", flush=True)
     return 0
 
 

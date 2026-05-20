@@ -76,29 +76,33 @@ DEFAULT_MIN_WIDENING = 1.10
 # edge detection drifts).
 DEFAULT_MAX_BLUR_FACTOR = 5.0
 
-# Use-case-named verdict thresholds on relative MAD.
+# Verdict thresholds on relative MAD of pooled estimates.
 #
-# The verdict tells the consumer what the calibration is good for —
-# the labels map to concrete downstream uses, not a generic "quality
-# grade." Map of expected behavior:
+# IMPORTANT — verdict labels describe per-estimate **spread**, not
+# accuracy. The 2026-05-18 validation showed that estimates can be
+# tightly clustered (low spread → ``tight`` verdict) while being
+# systematically biased — "tight cluster" agrees with itself but
+# all members can be off in the same direction. Conversely a "wide"
+# spread isn't always wrong, just less precise. Treat the verdict as
+# a precision indicator, not an accuracy claim. Bias depends on
+# regime (M, N_eff, scribe width) and isn't captured by spread alone.
 #
-#   publishable      rel < 0.15   safe for absolute lp/mm, µm-RMS,
-#                                  field-curvature in real units.
-#   comparison_ok    rel < 0.30   relative comparisons across slugs;
-#                                  tilt in degrees with cited uncertainty.
-#   sanity_only      rel < 0.50   binary checks (is the answer ≈ X or 0?);
-#                                  don't quote absolute numbers without caveat.
-#   unusable         rel ≥ 0.50   too noisy to act on; treat as no calibration.
-#   insufficient                  too few estimates to compute rel at all.
-#   failed                        the calibration didn't run (bad input).
-PUBLISHABLE_REL_UNCERTAINTY = 0.15
-COMPARISON_OK_REL_UNCERTAINTY = 0.30
-SANITY_ONLY_REL_UNCERTAINTY = 0.50
+#   tight        rel < 0.15   estimates closely clustered (but may be biased!)
+#   moderate     rel < 0.30   moderate per-estimate spread
+#   wide         rel < 0.50   wide per-estimate spread
+#   unusable     rel ≥ 0.50   spread too large to act on
+#   insufficient              too few estimates to compute rel at all
+#   failed                    the calibration didn't run (bad input)
+TIGHT_REL_UNCERTAINTY = 0.15
+MODERATE_REL_UNCERTAINTY = 0.30
+WIDE_REL_UNCERTAINTY = 0.50
 
-# Back-compat aliases (existing call sites may use these names; keep
-# them as deprecated synonyms until callers migrate).
-HIGH_CONFIDENCE_REL_UNCERTAINTY = PUBLISHABLE_REL_UNCERTAINTY
-MEDIUM_CONFIDENCE_REL_UNCERTAINTY = COMPARISON_OK_REL_UNCERTAINTY
+# Back-compat aliases for callers that still use the older names.
+PUBLISHABLE_REL_UNCERTAINTY = TIGHT_REL_UNCERTAINTY
+COMPARISON_OK_REL_UNCERTAINTY = MODERATE_REL_UNCERTAINTY
+SANITY_ONLY_REL_UNCERTAINTY = WIDE_REL_UNCERTAINTY
+HIGH_CONFIDENCE_REL_UNCERTAINTY = TIGHT_REL_UNCERTAINTY
+MEDIUM_CONFIDENCE_REL_UNCERTAINTY = MODERATE_REL_UNCERTAINTY
 
 # Minimum pooled estimates before any verdict is issued.
 MIN_ESTIMATES_FOR_VERDICT = 5
@@ -107,18 +111,23 @@ MIN_ESTIMATES_FOR_VERDICT = 5
 def _verdict_from_rel(
     rel: float, n_estimates: int,
 ) -> tuple[str, str]:
-    """Map ``rel_uncertainty`` + sample count to a use-case verdict + note."""
+    """Map ``rel_uncertainty`` + sample count to a spread-level verdict + note.
+
+    Returns one of ``{tight, moderate, wide, unusable, insufficient}``
+    based purely on cluster spread — does **not** correct for or
+    report bias.
+    """
     if n_estimates < MIN_ESTIMATES_FOR_VERDICT:
-        return "sanity_only", f"n_estimates={n_estimates}<{MIN_ESTIMATES_FOR_VERDICT}"
+        return "wide", f"n_estimates={n_estimates}<{MIN_ESTIMATES_FOR_VERDICT}"
     if not math.isfinite(rel):
-        return "sanity_only", "rel_uncertainty undefined"
-    if rel < PUBLISHABLE_REL_UNCERTAINTY:
-        return "publishable", ""
-    if rel < COMPARISON_OK_REL_UNCERTAINTY:
-        return "comparison_ok", ""
-    if rel < SANITY_ONLY_REL_UNCERTAINTY:
-        return "sanity_only", f"rel_uncertainty={rel:.2f}>{COMPARISON_OK_REL_UNCERTAINTY}"
-    return "unusable", f"rel_uncertainty={rel:.2f}≥{SANITY_ONLY_REL_UNCERTAINTY}"
+        return "wide", "rel_uncertainty undefined"
+    if rel < TIGHT_REL_UNCERTAINTY:
+        return "tight", ""
+    if rel < MODERATE_REL_UNCERTAINTY:
+        return "moderate", ""
+    if rel < WIDE_REL_UNCERTAINTY:
+        return "wide", f"rel_uncertainty={rel:.2f}>{MODERATE_REL_UNCERTAINTY}"
+    return "unusable", f"rel_uncertainty={rel:.2f}≥{WIDE_REL_UNCERTAINTY}"
 
 
 @dataclass(frozen=True)
@@ -130,7 +139,7 @@ class CalibrationResult:
     rel_uncertainty: float         # MAD / median (NaN if median is 0/NaN)
     n_estimates: int               # pooled (tile, defocus-shot) pairs used
     n_tiles_used: int              # distinct tiles contributing
-    # ``verdict`` is one of {publishable, comparison_ok, sanity_only,
+    # ``verdict`` is one of {tight, moderate, wide,
     # unusable, failed} — see module docstring above and
     # ``_verdict_from_rel`` for thresholds + meaning.
     verdict: str
@@ -216,15 +225,29 @@ class EffectiveApertureLookup:
 
     @classmethod
     def from_csvs(cls, paths: list[Path]) -> "EffectiveApertureLookup":
+        """Build a lookup that recognises both raw and slugified lens names.
+
+        The CSV stores ``slug`` with spaces (e.g.
+        ``"NIKKOR Z 100-400mm f_4.5-5.6 VR S"``); the older-rig sweep
+        labels use ``_slug()`` to replace spaces with underscores
+        (``"NIKKOR_Z_100-400mm_f_4.5-5.6_VR_S"``). We store both forms
+        as keys so the lookup works for either-rig sweep IDs.
+        """
+        from .sweeps import _slug  # local import to avoid cycle
         table: dict[tuple[str, str], float] = {}
         for path in paths:
             df = pd.read_csv(path)
             for _, row in df.iterrows():
-                key = (str(row["slug"]), str(row["F_dir_name"]))
+                raw_lens = str(row["slug"])
+                F_dir = str(row["F_dir_name"])
                 try:
-                    table[key] = float(row["effective_f_exact"])
+                    eff = float(row["effective_f_exact"])
                 except (ValueError, TypeError):
-                    pass
+                    continue
+                table[(raw_lens, F_dir)] = eff
+                slugged = _slug(raw_lens)
+                if slugged != raw_lens:
+                    table[(slugged, F_dir)] = eff
         return cls(table=table)
 
     def get(self, lens: str, aperture_dir: str) -> float | None:
@@ -565,10 +588,10 @@ def calibrate_sweep(
             f"have min_fwhm < {SUSPICIOUS_PEAK_FRACTION}×median)"
         )
         note = (note + "; " + suspicious_note) if note else suspicious_note
-        if verdict == "publishable":
-            verdict = "comparison_ok"
-        elif verdict == "comparison_ok":
-            verdict = "sanity_only"
+        if verdict == "tight":
+            verdict = "moderate"
+        elif verdict == "moderate":
+            verdict = "wide"
 
     return CalibrationResult(
         rail_step_mm=median,
@@ -653,7 +676,7 @@ class PooledCalibrationResult:
     inter_aperture_spread: float        # MAD / median across per-aperture estimates
     n_apertures: int                    # total apertures in the group
     n_apertures_valid: int              # apertures yielding a non-NaN v1 estimate
-    # ``verdict`` is one of {publishable, comparison_ok, sanity_only,
+    # ``verdict`` is one of {tight, moderate, wide,
     # unusable, insufficient, failed} — same meaning as
     # ``CalibrationResult.verdict``.
     verdict: str
@@ -704,12 +727,12 @@ def calibrate_group(group_rows: pd.DataFrame) -> PooledCalibrationResult:
     rel = mad / median if median > 0 else float("nan")
 
     # Single-aperture pool: no cross-aperture cross-check possible — cap
-    # at sanity_only regardless of the single sweep's internal rel.
+    # at "wide" regardless of the single sweep's internal rel.
     if len(valid) < 2:
-        verdict = "sanity_only"
+        verdict = "wide"
         note = f"only {len(valid)} valid aperture estimate; no cross-aperture check"
     elif not math.isfinite(rel):
-        verdict = "sanity_only"
+        verdict = "wide"
         note = "inter_aperture_spread undefined"
     else:
         # Don't reuse ``_verdict_from_rel`` here: its MIN_ESTIMATES_FOR_VERDICT
@@ -717,11 +740,11 @@ def calibrate_group(group_rows: pd.DataFrame) -> PooledCalibrationResult:
         # spuriously demote 2-4 aperture groups. Two apertures with
         # consistent estimates IS the cross-aperture check.
         if rel < PUBLISHABLE_REL_UNCERTAINTY:
-            verdict, note = "publishable", ""
+            verdict, note = "tight", ""
         elif rel < COMPARISON_OK_REL_UNCERTAINTY:
-            verdict, note = "comparison_ok", ""
+            verdict, note = "moderate", ""
         elif rel < SANITY_ONLY_REL_UNCERTAINTY:
-            verdict = "sanity_only"
+            verdict = "wide"
             note = (
                 f"inter-aperture spread {rel:.2f} — cross-aperture "
                 f"consistency marginal"
@@ -790,25 +813,32 @@ def _resolve_effective_for_sweep_rows(
     """Helper: resolve effective N for one sweep's rows using the standard
     CSV → analytical → slug priority.
 
-    The per_shot_per_tile.csv doesn't carry the lens-config string or
-    F_dir explicitly — derive them from the sweep_id, which has the
-    form ``<family>/<root>__<lens>__<aperture>``.
+    The per_shot_per_tile.csv doesn't carry lens-config / F_dir
+    explicitly — derive from the sweep_id. Two sweep label formats:
+
+    * Newer-rig: ``<family>/<session>__<lens>__<aperture>`` (3 parts
+      after stripping family). ``lens`` is at index 1.
+    * Older-rig bare prime: ``<family>/<date>__<lens>__<mag>__<aperture>``
+      (4 parts). ``lens`` at index 1.
+    * Older-rig zoom: ``<family>/<date>__<lens>__<mag>__<focal>__<aperture>``
+      (5 parts). ``lens`` at index 1.
+
+    The lens is always ``parts[1]`` (after stripping the family
+    prefix). ``EffectiveApertureLookup`` stores both raw-spaces and
+    slugified forms so older-rig's slugified lens names also match.
     """
     if sweep_rows.empty:
         return None
     sweep_id = str(sweep_rows["sweep"].iloc[0])
     parts = sweep_id.split("__")
-    if len(parts) < 2:
+    if len(parts) < 3:
         return None
     F_dir = parts[-1]
-    # Lens-config is everything between the family/root prefix and the
-    # aperture suffix. Strip the family prefix ("archive-.../" or
-    # similar) first; the lens-config can itself contain "__".
-    head = "__".join(parts[:-1])
-    if "/" in head:
-        head = head.split("/", 1)[-1]
-    # head now starts with the date/session prefix; drop one segment.
-    lens = "__".join(head.split("__")[1:]) if "__" in head else head
+    # Strip the family prefix from the first segment.
+    first = parts[0]
+    if "/" in first:
+        first = first.split("/")[-1]
+    lens = parts[1]
     slug_f = parse_aperture(sweep_id)
     m_vals = sweep_rows["m"].dropna().unique() if "m" in sweep_rows.columns else []
     m_total = float(m_vals[0]) if len(m_vals) == 1 else float("nan")
@@ -919,17 +949,17 @@ def _calibrate_group_with_eff(
     rel = mad / median if median > 0 else float("nan")
 
     if len(valid) < 2:
-        verdict, note = "sanity_only", (
+        verdict, note = "wide", (
             f"only {len(valid)} valid aperture estimate; no cross-aperture check"
         )
     elif not math.isfinite(rel):
-        verdict, note = "sanity_only", "inter_aperture_spread undefined"
+        verdict, note = "wide", "inter_aperture_spread undefined"
     elif rel < PUBLISHABLE_REL_UNCERTAINTY:
-        verdict, note = "publishable", ""
+        verdict, note = "tight", ""
     elif rel < COMPARISON_OK_REL_UNCERTAINTY:
-        verdict, note = "comparison_ok", ""
+        verdict, note = "moderate", ""
     elif rel < SANITY_ONLY_REL_UNCERTAINTY:
-        verdict = "sanity_only"
+        verdict = "wide"
         note = f"inter-aperture spread {rel:.2f} — cross-aperture consistency marginal"
     else:
         verdict = "unusable"
