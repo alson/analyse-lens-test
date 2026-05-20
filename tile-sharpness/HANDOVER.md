@@ -2,7 +2,51 @@
 
 State as of 2026-05-18.
 
-> **2026-05-18 update — newer-rig validation + diopter analytical fallback.**
+> **2026-05-18 (late) — verdict relabel, peaks-v2 crops, task 7 result.**
+>
+> 1. **Verdict labels renamed** to spread-only descriptors:
+>    `tight / moderate / wide / unusable / insufficient / failed`
+>    (was `publishable / comparison_ok / sanity_only / ...`). The old
+>    names implied accuracy claims the algorithm doesn't actually
+>    deliver — the validation showed "publishable" verdicts
+>    systematically under-estimate while "sanity_only" over-estimates.
+>    Labels now describe per-estimate cluster **spread**, not
+>    accuracy. Back-compat aliases for the numeric thresholds retained
+>    (`PUBLISHABLE_REL_UNCERTAINTY` etc.).
+>
+> 2. **Task 7 subject-tilt sanity check ran.** Older-rig (2026-01-29
+>    9-group cohort) with v2 pooled rail-step lookup applied:
+>    median |tilt_x|=0.45°, median |tilt_y|=0.12°, max 1.67°.
+>    **NOT the 3-6° this plan predicted**. The 3-6° figure came from
+>    visual "scribes look tilted ~+4.5° in captured frames" — that's
+>    *in-plane* scribe rotation (rig rotation), not the *out-of-plane*
+>    subject-plane tilt that `subject_tilt_*_deg` measures. Different
+>    angles entirely; the prediction was based on a category error.
+>    Older-rig data is in fact close to coplanar (<1°) — the rig was
+>    well-aligned.
+>
+> 3. **peaks-v2 crops export added.** New CLI `peaks-v2-crops` +
+>    `export_peaks_v2_crops()` emits one crop per (lens, tile) at
+>    the v2 primary-metric argmax shot (maze-FFT amp where M≥0.7,
+>    scribe-LSF amp otherwise). Replaces the filesize-picked
+>    `cross_lens_crops/` legacy that HANDOVER previously flagged as
+>    unsafe. Family-aware discovery skips slow newer-rig walks when
+>    only older-rig sweeps are present.
+>
+> 4. **out_55mm crops regenerated** at
+>    `out_55mm/cross_lens_crops_v2/` from maze-FFT argmax. AIS 287318
+>    vs 537016 maze peaks now within 3 % — confirming the previous
+>    "287318 decentered" claim was a filesize mis-pick artifact.
+>
+> 5. **EffectiveApertureLookup now bridges both rig label
+>    conventions.** Newer-rig sweep IDs use the raw lens name with
+>    spaces; older-rig slugifies spaces to underscores. The lookup
+>    stores both forms as keys so calibration overrides apply
+>    uniformly. Verified end-to-end on older-rig 100-400 @ 1:2.60 F11:
+>    CSV applies the 1.0474 bellows multiplier (slug 11 → effective
+>    11.52); rail-step shifts +4.7 % accordingly.
+
+> **2026-05-18 (early) — newer-rig validation + diopter analytical fallback.**
 >
 > 1. **Validation against 2026-05 newer-rig data done.** 120 archived
 >    sweeps from `~/shared/files/pics/digikam/test-raw-data/2026-05-{13,14,15}/`,
@@ -11,9 +55,9 @@ State as of 2026-05-18.
 >
 > 2. **Honest accuracy picture**: median ratio (derived / actual) = 1.30,
 >    IQR 0.85-1.83 across 70 valid sweeps. **Verdict labels reflect
->    per-estimate noise, not bias direction** — "publishable" verdicts
->    actually under-estimate (median 0.67), "sanity_only" overestimates
->    (median 1.41). Use rail-step calibration for sanity checks only.
+>    per-estimate spread, not bias direction** — see "tight/moderate/
+>    wide" relabel above. The per-spread bias asymmetry is the same
+>    finding that drove the relabel.
 >
 > 3. **CSV-effective-aperture mechanism works.** Extension-tube chains
 >    in `effective_apertures.csv` converge to median 0.92 vs 1.63 for

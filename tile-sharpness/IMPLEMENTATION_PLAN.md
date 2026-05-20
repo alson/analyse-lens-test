@@ -240,12 +240,17 @@ To verify before publishing any conclusions on the new pipeline:
 6. **Cross-config ordering**: Sigma + TC-2001 > both bare configs >
    200/4D + 5T + 6T on subject-MTF50, matching the visual ranking
    from task 1.
-7. **Subject-tilt sanity**: 2026-01-29 datasets should show
-   per-slug `subject_tilt_*_deg` in the 3-6° range (visually
-   confirmed in earlier scribe-rotation measurements: scribes
-   always come out tilted ~+4.5° in captured frames). 2026-05+
-   datasets should be lower (the user reports tighter alignment
-   on recent shoots).
+7. **Subject-tilt sanity** *(prediction revised 2026-05-18)*:
+   ~~2026-01-29 datasets should show per-slug `subject_tilt_*_deg`
+   in the 3-6° range~~. The 3-6° figure came from "scribes look
+   tilted ~+4.5° in captured frames" — that's **in-plane scribe
+   rotation** (rig rotation around the optical axis), NOT the
+   **out-of-plane subject-plane tilt** that `subject_tilt_*_deg`
+   measures. Different angles entirely.
+   Actual values after the 2026-05-18 task 7 run on the 9-group
+   older-rig cohort (with v2 pooled rail-step lookup applied):
+   median |tilt_x| = 0.45°, median |tilt_y| = 0.12°, max 1.67°.
+   The rig was well-aligned — old data is close to coplanar.
 
 ## Implementation sequencing
 
