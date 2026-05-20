@@ -261,14 +261,14 @@ in corner slices.
 
 ### Results documents
 
-- [`LONGDIST_TELE_RESULTS_2026-01.md`](LONGDIST_TELE_RESULTS_2026-01.md) —
-  Z 100-400 + Z TCs vs 300 PF + F-mount TCs, three sessions
-  (2026-01-18 / 28 / 30). Cross-date content-independence check,
-  per-lens prose, TC vs cropping analysis, sharpest-of-ISO +
-  replicate-spread (top/median/min) reporting.
-- [`WIDEANGLE_RESULTS_2026-01.md`](WIDEANGLE_RESULTS_2026-01.md) —
-  14–60 mm wide / standard lenses on the sloped-stair scene
-  (2026-01-24 / 26). Four-algorithm comparison (radial-cutoff,
+- [`LONGDIST_TELE_RESULTS.md`](LONGDIST_TELE_RESULTS.md) — Z7 telephoto
+  cross-date (2026-01-18 / 28 / 30 + 2026-02-07) and D7200 telephoto
+  (2025-07-09, 2025-09-06). TC vs cropping analysis, sharpest-of-ISO +
+  replicate-spread (top/median/min) reporting, separate D7200 section.
+- [`WIDEANGLE_RESULTS.md`](WIDEANGLE_RESULTS.md) — Z7 wide / standard
+  (2026-01-24 / 26 / 2026-02-07-20mm) and D7200 wide / midrange
+  (2025-09-10, 2025-09-11). Four-algorithm comparison (radial-cutoff,
   slanted-edge MTF50, variance-of-Laplacian, Brenner) with stability,
   agreement, and lighting-robustness assessment; cross-replicate
-  consensus tile picker for cyclist/pedestrian rejection.
+  consensus tile picker for cyclist / pedestrian rejection. Separate
+  D7200 section with camera-pixel-pitch caveat.

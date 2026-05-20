@@ -1,31 +1,68 @@
-# Wide-angle sloped-stair sharpness — 2026-01 (24mm and 26mm sessions)
+# Wide-angle / standard sharpness — multi-date, multi-camera
 
-Empirical results from the 2026-01-24 and 2026-01-26 wide-angle test
-sessions. Companion to [`SHARPNESS_METRICS_LONGDIST.md`](SHARPNESS_METRICS_LONGDIST.md)
-(methodology) and [`LONGDIST_TELE_RESULTS_2026-01.md`](LONGDIST_TELE_RESULTS_2026-01.md)
-(the matching telephoto analysis).
+Empirical results across Z7 and D7200 wide / standard test sessions.
+Companion to [`SHARPNESS_METRICS_LONGDIST.md`](SHARPNESS_METRICS_LONGDIST.md)
+(methodology) and [`LONGDIST_TELE_RESULTS.md`](LONGDIST_TELE_RESULTS.md)
+(matching telephoto analysis).
 
-Scope: 13 wide / standard / short-tele lenses at 14–60 mm shot against
-the sloped-stair + grass-embankment + sky scene from the doc. Four
-sharpness algorithms compared on identical tile selections to assess
-each algorithm's stability, accuracy, and lighting robustness.
+Scope: Z7 wide datasets 2026-01-24, 2026-01-26, 2026-02-07/20 mm. D7200
+wide datasets 2025-09-10 and 2025-09-11 (the latter partially invalid —
+see §6). Four sharpness algorithms compared on identical tile selections
+to assess each algorithm's stability, accuracy, and lighting robustness.
+Cross-camera cy/sensor-px values are not directly comparable (D7200 has
+3.91 µm pixel pitch vs Z7's 4.35 µm); the D7200 data lives in §6 with
+its own ranking.
 
 ## 1. Setup
 
+### Z7 datasets (FX, 4.35 µm pixel pitch)
+
 | Date | Lenses | Notable |
 |---|---|---|
-| 2026-01-24 | Z 14-24/2.8 S, Z 24-120/4 S, AF Micro 60/2.8D, AF 35/2, AF 50/1.8 N, AF-S DX 35/1.8G, AF-S 50/1.8G, Nikkor-N.C 24/2.8, PC-Nikkor 35/2.8, Sigma 24/2.8, Viltrox 14/4 Z, Viltrox 50/2 Z | 107 (lens, FL, ap) configs, ~3 repl each |
+| 2026-01-24 | Z 14-24/2.8 S, Z 24-120/4 S, AF Micro 60/2.8D, AF 35/2, AF 50/1.8 N, AF-S DX 35/1.8G, AF-S 50/1.8G, Nikkor-N.C 24/2.8, PC-Nikkor 35/2.8, Sigma 24/2.8, Viltrox 14/4 Z, Viltrox 50/2 Z | 107 configs, ~3 repl each |
 | 2026-01-26 | Z 14-24/2.8 S (also `AF for every pic` variant), Z 24-120/4 S, AF Micro 60/2.8D, AF 50/1.8 N, AF-S 50/1.8G, Nikkor-N.C 24/2.8, Sigma 24/2.8, Viltrox 14/4 Z, **Viltrox 16/1.8 Z** (also `AF once` and `AF every pic` variants), Viltrox 50/2 Z | 111 configs, 3–10 repl each |
+| 2026-02-07/20 mm | Z 20/1.8 S, Z 14-24/2.8 S, AF Nikkor 20/2.8, Viltrox AF 20/2.8 Z Air — all at 20 mm | 52 configs, 3–6 repl each. ISO 100 / 400 / 800 ladders |
 
-Scene: planar concrete stair / grass slope with structural detail —
-wall horizon, asphalt boundary, stair treads, zigzag bike path railing,
-lamp posts, fence segments. The `AF for every pic` variants re-trigger
-AF between replicates to sample multiple focal-plane positions (per
-user clarification: this samples the scene's depth structure, not AF
-repeatability per se).
+### D7200 datasets (DX, 3.91 µm pixel pitch — §6)
+
+| Date | Lenses | Notable |
+|---|---|---|
+| 2025-09-10 | AF Fisheye 10.5/2.8G, AF Nikkor 20/2.8, AF-S DX 16-80/2.8-4E, AF-S DX 16-85/3.5-5.6G, AF-S DX 17-55/2.8G, AF-S DX 18-70/3.5-4.5G, Nikkor-N.C 24/2.8, Sigma 10-20/4-5.6, Sigma 18-35/1.8, Sigma 24/2.8, Tokina 11-20/2.8 | 237 configs |
+| 2025-09-11 | DX 18-70 + Sigma 50-150/2.8 I/II + AF 35/2 + AF 50/1.8 + others | 248 configs; **mixed focus — see §6 caveat** |
+
+Scene per dataset (validated by sampling sharp shots — see §3):
+
+- **2026-01-24 / 2026-01-26 / 2025-09-10**: concrete stairs + diagonal handrails + grass embankment + sky.
+  Same physical scene reused across years.
+- **2026-02-07/20 mm**: same location but framed lower → grass-dominated centre, structural content
+  pushed into edges. Different sub-position from the other wide-angle dates.
+- **2025-09-11**: ostensibly same location, but a sub-set of lenses (notably the DX 18-70) was focused
+  at ~1–2 m by mistake. Per-lens EXIF-distance check needed.
 
 Cyclists / pedestrians intermittently in the path — handled by the
 consensus tile picker (§2).
+
+### Lens-encoder presence (deriveable from slug)
+
+EXIF FocusDistance is only reliable for lenses with a distance encoder.
+Determinable from the lens-slug suffix:
+
+| Has encoder | Slug pattern | Examples |
+|---|---|---|
+| ✓ | aperture marked `D` | `AF Micro-Nikkor 60mm f_2.8D`, `AF-S Nikkor 300mm f_4D IF-ED` |
+| ✓ | aperture marked `G` | `AF-S 50/1.8G`, `AF-S DX Nikkor 18-70/3.5-4.5G` |
+| ✓ | aperture marked `E` | `AF-S DX Nikkor 16-80/2.8-4E`, `AF-S 300mm f_4E PF ED VR` |
+| ✓ | Z-mount native | `NIKKOR Z 20mm f_1.8 S`, `Viltrox AF 20_2.8 Z` |
+| ✗ | `AF Nikkor` with no D / G / E | `AF Nikkor 50/1.8 N`, `AF Nikkor 35/2`, `AF Nikkor 20/2.8` |
+| ✗ | manual focus (`AIS`, `Nikkor-N.C Auto`, `PC-Nikkor`) | `Nikon Micro-Nikkor 55mm f_2.8 AIS`, `Nikkor-N.C Auto 24mm f_2.8`, `PC-Nikkor 35mm f_2.8` |
+
+Note: focus drive (`AF`, `AF-S`, `AF-I`, `AF-P`) is independent of encoder
+presence. The encoder marker is the **aperture suffix** (D/G/E), not the
+focus drive.
+
+For non-encoder lenses, distance is inferred from another encoder-equipped
+lens shot at the same FL in the same sub-session (per user: tripod is not
+moved within a focal length).
 
 ## 2. Methodology
 
@@ -288,6 +325,43 @@ aperture** (stop down ~1 stop for usable corners):
 - PC-Nikkor 35/2.8
 - Viltrox 16/1.8 Z (especially the right edge; needs f/4–f/5.6)
 
+## 4f. 2026-02-07/20 mm — Z 20/1.8 group
+
+This day was specifically a 20 mm shootout: Z 20/1.8 S vs Z 14-24/2.8 S
+(at 20 mm) vs AF Nikkor 20/2.8 (F-mount, non-D) vs Viltrox AF 20/2.8 Z
+Air. Same physical location as 2026-01-24/26 but with the framing
+pushed lower → centre is grass-dominated rather than stairs-dominated
+(see §3 scene atlas).
+
+Centre cutoff (radial_cutoff) at f/4, top of each lens / ISO variant:
+
+| Lens (best ISO/aperture for centre) | top centre cy/sensor-px |
+|---|---|
+| NIKKOR Z 14-24/2.8 S | 0.316 (f/4, ISO 100) |
+| Viltrox AF 20/2.8 Z Air | 0.309 (f/4, ISO 100) |
+| NIKKOR Z 20mm f/1.8 S | 0.301 (f/4, ISO 400) |
+| Nikon AF Nikkor 20/2.8 (F-mount, non-D) | 0.254 (f/4, ISO 100) |
+
+**Caveat — different scene content vs 2026-01-24/26**. The grass-
+dominated centre on 2026-02-07 means the consensus tile picker locks
+onto grass texture instead of the structural stairs/handrail it
+finds on 2026-01-24. The visual finding "Z 20/1.8 best, good even
+in edges; Z 14-24 slightly less sharp" is **not** reproduced by the
+centre-only ranking here, where Z 14-24 leads by a tiny margin
+(0.316 vs 0.301 — within FFT-bin quantization). Field-edge data
+would be more discriminating (the Z 20/1.8's flat-field reputation
+shows in corner sharpness, not centre).
+
+**AF Nikkor 20/2.8 underperforms by 20 %** vs the Z lenses at centre.
+Matches the visual reading "edges very fuzzy until f/5.6" — the older
+non-D AF lens is consistent with the other legacy F-mount primes in
+the 2026-01-24 dataset.
+
+The mtf50_slanted_edge algorithm produced more usable output on this
+dataset (4 % median CV vs 34–38 % on 2026-01-24/26 and rank-correlation
+with radial_cutoff jumps to 0.55 from 0.10). Even so, the centre
+ranking is too compressed for the metric to discriminate confidently.
+
 ## 5. Movement-detection findings
 
 The cross-replicate consensus picker flagged cells where the
@@ -298,6 +372,9 @@ indicating moving content (cyclist / pedestrian).
 |---|---|---|---|
 | 2026-01-24 | **39** | mostly Z 14-24 @ 14 / 24 mm | concentrated at x = 0.34 and x = 0.50 (the path / stairs band) |
 | 2026-01-26 | **5** | scattered (Z 14-24 AF-every-pic, Z 24-120 @ 60 mm, AF 50/1.8 N) | mixed |
+| 2026-02-07/20 mm | small (<5) | n/a | n/a |
+| 2025-09-10 (D7200) | small | n/a | n/a |
+| 2025-09-11 (D7200) | small | n/a | n/a |
 
 - 2026-01-24 had substantially more moving-subject contamination
   (39 cells vs 5). Either more cyclists were in the scene that day,
@@ -344,6 +421,82 @@ indicating moving content (cyclist / pedestrian).
    to centre. The Viltrox 16/1.8 has strong right-edge asymmetry
    wide-open through f/2.8 (right edge stuck at 0.20 cy/px) — clean
    from f/4 onward, best at f/5.6.
+
+## 6.5. D7200 (DX, older, separate section)
+
+**Caveat box.** D7200 data is presented separately because:
+1. Different camera (DX, 6000 × 4000, 3.91 µm pixel pitch). Cy/sensor-px
+   values are NOT directly comparable to Z7's 4.35 µm pitch.
+2. Older test methodology — some lenses lack distance encoders (see slug
+   pattern table in §1) and per-session focus may have been less strict.
+3. 2025-09-11 has multiple sub-sessions with **different focus distances**;
+   the DX 18-70 sub-session was focused at ~1–2 m (close-focus mistake)
+   and is invalid. Sigma 50-150/2.8 II was properly focused (22.39 m) on
+   the same day.
+
+### 6.5a. 2025-09-10 — D7200 wide / ultra-wide lineup (237 configs)
+
+Scene: same stairs-and-grass scene as the 2026 Z7 dates (the photographer
+re-uses this physical location across years). DX framing → wider FOV per
+mm.
+
+Top centre cutoff per lens (radial_cutoff, cy/sensor-px), all at the
+lens's best centre aperture:
+
+| Lens (best FL, aperture) | centre cy/sensor-px |
+|---|---|
+| Sigma 18-35/1.8 DC HSM @ 24 / 35 mm, f/5.6 | ~0.30 |
+| AF-S DX 17-55/2.8G @ 35 mm, f/5.6 | ~0.28–0.30 |
+| AF-S DX Nikkor 16-80/2.8-4E @ 24 mm, f/5.6 | ~0.28 |
+| Tokina 11-20/2.8 PRO DX @ 14 mm, f/8 | ~0.26–0.28 |
+| Sigma 10-20/4-5.6 @ 14-17 mm, f/8 | ~0.24–0.26 |
+| AF DX Fisheye 10.5/2.8G @ 10.5 mm, f/8 | ~0.24 |
+| AF Nikkor 20/2.8 (non-D) @ 20 mm, f/8 | ~0.24 (no-D — visual edges very fuzzy until f/5.6 per user) |
+| AF-S DX 16-85/3.5-5.6G @ 24 mm, f/8 | ~0.24 |
+| Nikkor-N.C 24/2.8 (manual focus, no encoder) @ 24 mm, f/8 | ~0.22 |
+| Sigma 24/2.8 Super Wide II Macro (non-D, non-AF) @ 24 mm, f/8 | ~0.22 |
+
+(See `per_measurement.csv` for full table.)
+
+**Algorithm-comparison observations on 2025-09-10:**
+- `radial_cutoff` 0 % median CV, 3 % p90 — high stability.
+- `mtf50_slanted_edge` 15 % median CV, but only 615 / 1185 cells produced
+  → 48 % NaN. Same issue as 2026-01-24: lots of grass/sky tiles without
+  strong edges.
+- `vol`/`brenner` 4 % median CV, normal gradient behaviour.
+- Cross-algorithm Spearman: radial ↔ vol only 0.43 (lower than Z7
+  datasets) — likely because the D7200 sensor + older lenses produce
+  more noise that affects vol/brenner directly but not the spectrum-
+  normalised radial_cutoff.
+
+### 6.5b. 2025-09-11 — D7200 midrange, partial validity
+
+**Validity check by lens (EXIF FocusDistance where available):**
+
+| Lens | EXIF distance | Validity |
+|---|---|---|
+| AF-S DX 18-70/3.5-4.5G | **1.68 m** | INVALID (close-focus mistake) |
+| Sigma 50-150/2.8 EX APO DC HSM II | 22.39 m | valid |
+| AF Nikkor 35/2 (non-D) | no encoder; co-located with 18-70 sub-session | likely INVALID by association |
+| Sigma 50-150/2.8 I (encoded), AF 50/1.8 N (no encoder) | needs per-file check | mixed |
+
+For 2025-09-11 use only the Sigma 50-150 II readings (and possibly the
+Sigma 50-150 I if it shows similar far-focus distance) for cross-day
+comparison. Other lenses on this date have been reshot on 2025-09-06
+(which had proper infinity-class focus per the EXIF distance audit).
+
+### 6.5c. D7200 wide-angle summary
+
+The D7200 wide-angle lineup samples both modern S-mount class lenses
+(Sigma 18-35/1.8, AF-S DX 16-80) and older F-mount kit zooms. The
+modern Sigma 18-35 takes the top spot on the D7200 the same way the
+Z 14-24 does on the Z7 — modern designs hold edges much better than
+the older kit. The AF-S DX 17-55/2.8G is also competitive.
+
+The legacy AF non-D primes (AF 20/2.8, AF 50/1.8 N) and the manual
+focus Nikkor-N.C / Sigma 24/2.8 Super Wide II Macro all sit at 0.22–
+0.24 cy/sensor-px centre — slightly below the modern lenses, consistent
+with the Z7-side pattern.
 
 ## 7. Limitations and follow-ups
 

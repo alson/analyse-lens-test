@@ -1,15 +1,20 @@
-# Long-distance telephoto sharpness — 2026-01 cross-date analysis
+# Long-distance telephoto sharpness — multi-date, multi-camera
 
-Empirical results from three long-distance lens-test sessions in 2026-01
-(2026-01-18, 2026-01-28, 2026-01-30). Companion to
+Empirical results from telephoto / long-distance lens-test sessions
+spanning 2025-07 through 2026-02. Companion to
 [`SHARPNESS_METRICS_LONGDIST.md`](SHARPNESS_METRICS_LONGDIST.md) (methodology).
 
-**Supersedes the earlier `LONGDIST_TELE_RESULTS_2026-01-28.md`** — that doc
-had a focal-length-interpretation error in the TC analysis: it treated
-the `400.0 mm` subdirectory of `Z 100-400 + Z TC-x.x` as
-"lens-at-400 mm with TC mounted" when it's actually the camera-reported
-effective focal length, i.e. `lens-at-(400/TC-factor)` + TC. Numbers in
-this document use the EXIF-effective focal length consistently throughout.
+This doc combines the Z7 telephoto analysis (the original 2026-01
+cross-date study) with newer Z7 sessions (2026-02-07/telephoto) and the
+older D7200 telephoto datasets (2025-07-09, 2025-09-06). D7200 has its
+own section (§13) with the caveat that cy/sensor-px values aren't
+directly cross-camera-comparable due to pixel-pitch differences
+(D7200 3.91 µm vs Z7 4.35 µm).
+
+Earlier note on the FL-labelling fix: the `400.0 mm` subdirectory of
+`Z 100-400 + Z TC-x.x` is the camera-reported effective focal length
+(`lens-at-(400/TC-factor)` + TC), not "lens-at-400 + TC". All numbers
+here use EXIF-effective focal length consistently.
 
 ## 1. Setup
 
@@ -452,16 +457,20 @@ POC scripts under `tile-sharpness/scripts/`:
 
 | Script | Purpose |
 |---|---|
-| `poc_longdist_cross_date_2026_01.py` | v1 cross-date sweep, lowest-ISO filter, best-replicate-per-position |
-| `poc_longdist_cross_date_v2_2026_01.py` | **v2** — no ISO filter, all replicates pooled, top/median/min/top_vs_median/range_pct per cell |
-| `poc_longdist_100_400_field_2026_01_28.py` | Single-day 5-position sweep for 100-400 family on 2026-01-28 (used in §6c edge analysis) |
+| `poc_longdist_cross_date_2026_01.py` | v1 cross-date sweep (Z7 tele 2026-01-{18,28,30}), lowest-ISO filter, best-replicate-per-position |
+| `poc_longdist_cross_date_v2_2026_01.py` | **v2** — same dates, no ISO filter, replicate spread (top/median/min/etc.) |
+| `poc_longdist_100_400_field_2026_01_28.py` | Single-day 5-position sweep for Z 100-400 family on 2026-01-28 |
 | `poc_longdist_300pf_field_2026_01_28.py` | Same for the 300 PF family on 2026-01-28 |
 | `poc_longdist_cross_family_edges_2026_01_28.py` | Cross-family edge / FOM comparison on 2026-01-28 |
-| `poc_longdist_algorithms.py` | Algorithm-comparison framework for the wide-angle datasets (running for 2026-01-24 and 2026-01-26 at time of writing) |
+| `poc_longdist_algorithms.py` | 4-algorithm comparison framework. Used for the wide-angle datasets AND the Z7 2026-02-07/tele + D7200 telephoto datasets in §12-§13 |
 
-All raw cutoff measurements in:
-- `tile-sharpness/scripts/poc_longdist_cross_date_2026_01_out/` (v1, lowest-ISO + best-replicate)
-- `tile-sharpness/scripts/poc_longdist_cross_date_v2_2026_01_out/` (v2, sharpest-of-ISO + replicate spread)
+Per-dataset raw outputs:
+- Z7 2026-01 cross-date v1: `poc_longdist_cross_date_2026_01_out/`
+- Z7 2026-01 cross-date v2: `poc_longdist_cross_date_v2_2026_01_out/`
+- Z7 2026-01-28 field sweeps: `poc_longdist_{100_400,300pf}_field_2026_01_28_out/`
+- Z7 2026-02-07 tele: `poc_longdist_algorithms_out/tele2026_02_07/`
+- D7200 2025-07-09 tele: `poc_longdist_algorithms_out/tele2025_07_09/`
+- D7200 2025-09-06 tele: `poc_longdist_algorithms_out/tele2025_09_06/`
 
 ## 11. v2 update: sharpest-of-ISO + replicate spread
 
@@ -580,3 +589,156 @@ replicate counts (eg. the 2026-01-30 deep sampling vs the 2026-01-18
 - **Single-session readings remain trustworthy only for low-spread cells.**
   Anything with `range_pct` > 30 % or `tvm` > 1.20 should be read as
   "top is a flier, prefer cross-date median".
+
+## 12. Z7 telephoto extras — 2026-02-07/telephoto
+
+Mid-tele session at ~15 m focus distance. Scene = dry-twig 3D shrubbery
+(similar to the 2026-01 sessions but at closer distance — distance was
+re-tuned to keep the subject inside each lens's reasonable infinity
+range, per user methodology).
+
+Lenses in this dataset are a mix of true telephoto (Z 100-400, AF 200/4D)
+and macro lenses at infinity (Z MC 105, Sigma APO 150/2.8, Sigma 105/2.8,
+AF Zoom-Micro 70-180/4.5-5.6D + Kenko Pro 300 1.4×, AF Micro 200/4D +
+Kenko). The macros at infinity give a useful "macro-at-distance" sanity
+check.
+
+### Top centre cutoff (radial_cutoff, cy/sensor-px)
+
+Top of each lens's centre-aperture combinations:
+
+| Lens | Best FL × aperture | centre cy/sensor-px |
+|---|---|---|
+| **AF Zoom-Micro 70-180/4.5-5.6D** | 70 mm f/8 | **0.313** |
+| Z 100-400/4.5-5.6 VR S | 100 mm f/5.6 | 0.309 |
+| Z MC 105/2.8 VR S | 105 mm f/4 / f/5.6 | 0.305 |
+| Sigma Macro 105/2.8 EX DG OS HSM | 105 mm f/2.8 | 0.297 |
+| Z 24-120/4 S | 105 mm f/5.6 | 0.289 |
+| Z 100-400 | 200 mm f/5.6 | 0.281 (typical) |
+| AF Micro-Nikkor 200/4D IF-ED + Kenko Pro 300 1.4× | various | ~0.27 |
+| Sigma APO Macro 150/2.8 EX DG OS HSM | 150 mm f/4 | ~0.27 |
+
+The Z 100-400 at its wide end (100 mm) outperforms its long end on this
+scene because at 15 m focus the wide-end FL is well inside its "infinity"
+range. At 300+ mm the same 15 m distance is borderline → lens performance
+drops there (typical "lens needs much more distance to count as infinity"
+behaviour for longer focal lengths).
+
+The **AF Zoom-Micro 70-180/4.5-5.6D macro** scores top at 70 mm f/8 —
+interesting cross-check that a vintage macro zoom can match modern S-line
+glass on the right scene at the right aperture.
+
+### Algorithm comparison observations (2026-02-07/tele)
+
+Same 4 algorithms ran on this dataset:
+- `radial_cutoff`: 0 % median CV (highly stable, FFT-bin-quantized)
+- `mtf50_slanted_edge`: ~30 % median CV, ~50 % NaN (no usable edges in
+  most tiles — typical for 3D-shrubbery scene)
+- `vol`/`brenner`: ~3 % median CV, gradient-amplitude-dependent
+- Cross-algorithm Spearman (radial ↔ vol): ~0.70 (typical)
+
+## 13. D7200 (DX, separate section)
+
+**Caveat box.** D7200 telephoto data lives here because:
+
+1. **Different camera** (DX, 6000 × 4000, 3.91 µm pixel pitch). Cy/sensor-
+   px values are NOT directly comparable to Z7's 4.35 µm.
+2. **Less strict test methodology** per user — some lenses lack distance
+   encoders, focus distance varied across sessions, wind/light less
+   controlled.
+3. **2025-07-05 unanalyzable** — that day's data is flat NEFs at the
+   lens-dir level (no FL/aperture hierarchy + no co-located JPEGs). 0
+   configs discovered. Would need separate NEF demosaicing to include.
+4. **2025-07-09 used shorter focus distances** than 2025-09-06 (borderline
+   "infinity" for the longest FL × TC combos per user note). 2025-09-06
+   later moved the camera further back for longer FLs; that's why focus
+   distance scales with FL on the 09-06 dataset (300mm@22m, 420/500/600mm
+   @ 31.62m).
+5. **Scenes differ across days.** 2025-07-09 features a structured
+   sign/post scene; 2025-09-06 is 3D shrubbery (matching the later 2026
+   Z7 scene). Cross-day same-lens comparisons on D7200 are partially
+   scene-confounded.
+
+### 13a. 2025-07-09 — F-mount telephoto + Sigma DC zooms (398 configs)
+
+Top centre cutoff (radial_cutoff, cy/sensor-px) per lens at its best
+centre aperture:
+
+| Lens (best FL × aperture) | centre cy/sensor-px |
+|---|---|
+| Sigma 50-150/2.8 EX APO DC HSM I @ 98–150 mm, f/5.6 / f/8 | 0.297–0.301 |
+| Sigma 50-150/2.8 EX APO DC HSM I + Sigma APO TC 1.4× @ 70 mm, f/11 | 0.301 |
+| Sigma 50-100/1.8 DC HSM | A @ 70 mm, f/2.8 / f/8 | 0.297 |
+| AF-S 70-200/2.8G IF-ED + TC-14e I @ 280 mm, f/8 | 0.297 |
+| AF-S 70-200/2.8G IF-ED + Kenko Pro 300 1.4× @ 280 mm, f/8 | 0.297 |
+| AF-S 70-200/2.8G IF-ED + TC-17e II @ 180 mm, f/8 | 0.293 |
+| Sigma 50-150/2.8 EX APO DC HSM II + Sigma APO TC 1.4× @ 70 mm, f/8 | 0.289 |
+| AF Zoom-Micro 70-180/4.5-5.6D | various | ~0.25–0.28 |
+
+Scene-influenced: the structured sign post in the scene produces higher
+cutoffs than 3D shrubbery would.
+
+### 13b. 2025-09-06 — 300 PF + TC ladder on D7200 (837 configs)
+
+Largest D7200 dataset. Scene = 3D shrubbery (same scene class as 2026
+dates but on D7200). Distance scaled with FL: 300 mm @ 22.39 m, 420 /
+500 / 600 mm @ 31.62 m.
+
+Top centre cutoff (radial_cutoff, cy/sensor-px) for the long-FL lenses
+(matching the 2026 Z7 tele dataset):
+
+| Lens × FL × aperture | centre cy/sensor-px |
+|---|---|
+| AF-S 300/4E PF ED VR @ 300 mm, f/5.6 | 0.219 |
+| AF-S 300/4E PF ED VR @ 300 mm, f/8 | 0.215 |
+| AF-S 300/4E PF ED VR @ 300 mm, f/11 | 0.211 |
+| AF-S 300/4D IF-ED @ 300 mm, f/11 | 0.211 |
+| 300 PF + TC-14e I/III @ 420 mm, f/11 | 0.20 (floor) |
+| 300 PF + TC-17e II @ 500 mm, f/11 | 0.20 |
+| 300 PF + TC-20e III @ 600 mm, f/11 | 0.20 |
+| Sigma 50-150 II + TC-2001 @ 300 mm, all apertures | 0.20 |
+| AF-S 70-200/2.8G + TC-20e III @ 400 mm, all apertures | 0.20 |
+
+**The 300 PF (E) is the only long-tele config that holds above the
+metric floor on D7200.** All TC combinations at long FL drop to the
+metric's lower bound on this scene. Same pattern as the Z7 finding
+that F-mount TCs aren't net-positive for distant subjects (§6b of the
+Z7 analysis), now confirmed cross-camera on the older test.
+
+Other notable findings on 2025-09-06:
+- **Mid-tele Sigma 50-150/2.8 EX APO DC HSM I peaks at 50 mm f/8** with
+  centre 0.289 — strong mid-zoom performer.
+- **Sigma 50-100/1.8 DC HSM | A** also holds at 0.27–0.28 across
+  50–85 mm f/5.6–f/11.
+- **TC-laden lenses fall to the metric floor.** Adding Sigma APO TC 1.4×
+  or Sigma TC-1401 or Kenko Pro 300 to any DC-class zoom drops centre to
+  0.20–0.25. Adding Nikon TC-14e I and III to the AF-S 70-200/2.8G holds
+  up better (0.25–0.27) but still loses to the bare zoom.
+
+### 13c. D7200 algorithm-comparison observations
+
+Across both D7200 datasets:
+- `radial_cutoff` median CV 0–1 % (very stable), p90 4–8 %.
+- `mtf50_slanted_edge` 25–35 % median CV, 50–60 % NaN. Same scene-content
+  issue as Z7 datasets.
+- `vol`/`brenner` 7–12 % median CV — notably HIGHER than Z7 (where
+  they're 1–3 %). Hypothesis: D7200 JPEG output has more inter-frame
+  noise that vol/brenner pick up directly but radial_cutoff normalises
+  out.
+- Cross-algorithm Spearman (radial ↔ vol): 0.69–0.79. Lower than 2026-01-24
+  (0.89) but consistent with the other Z7 datasets.
+
+### 13d. D7200 vs Z7 — apples-to-oranges caveat
+
+Direct cross-camera comparison of cy/sensor-px is not meaningful because:
+1. Pixel pitch differs (3.91 µm vs 4.35 µm) — cy/sensor-px on D7200 maps
+   to higher cy/mm-sensor at the same MTF.
+2. JPEG engine differs (D7200 vs Z7 in-camera sharpening).
+3. Sensor cover-glass / OLPF differs (D7200 has OLPF, Z7 does not).
+
+The takeaway from the D7200 datasets is **the ranking within each lens
+family**, not the absolute numbers. The patterns that hold:
+- Modern S-line / G-series lenses dominate older AF non-D primes.
+- Adding F-mount TCs to almost any lens reduces sensor MTF substantially.
+- 300 PF (E) is the only long-tele on D7200 that holds above the
+  noise floor — same as on Z7.

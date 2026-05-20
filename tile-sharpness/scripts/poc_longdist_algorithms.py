@@ -54,7 +54,12 @@ from scipy.stats import spearmanr, pearsonr
 OUT_BASE = Path(__file__).parent / (Path(__file__).stem + "_out")
 OUT_BASE.mkdir(exist_ok=True)
 
+# Sensor pixel pitches (mm). Only matters for converting cy/sensor-px to
+# cy/mm-sensor; rankings within a camera use cy/sensor-px which is
+# pitch-agnostic. Cross-camera comparisons aren't apples-to-apples and
+# are noted in the result docs.
 Z7_PIXEL_PITCH_MM = 4.35e-3
+D7200_PIXEL_PITCH_MM = 3.91e-3
 
 TILE = 256
 SEARCH_STEP = 64
@@ -429,19 +434,79 @@ def lighting_robustness(tile: np.ndarray) -> dict[str, list[tuple[str, float]]]:
 
 # --------------------------------------------------------------------- datasets
 
+def _skip_macro_mag(name: str) -> bool:
+    """Filter for older D7200 lens-dir naming where macro 1:1/1:3 magnification
+    folders sit alongside 'inf' (infinity) folders. Skip 1_1/1_3; keep inf and
+    anything else (D7200 wide-angle datasets don't use the suffix)."""
+    return not (name.endswith(" 1_1") or name.endswith(" 1_3"))
+
+
 DATASETS = {
+    # --- Z7 (FX, 4.35um) ---
     "wide2026_01_24": dict(
         root=Path("/home/alson/shared/files/pics/digikam/test-raw-data/2026-01-24"),
         date="2026-01-24",
         lens_filter=lambda name: not name.endswith("AF for every pic"),
+        pixel_pitch_mm=Z7_PIXEL_PITCH_MM,
+        camera="Z7",
     ),
     "wide2026_01_26": dict(
         root=Path("/home/alson/shared/files/pics/digikam/test-raw-data/2026-01-26"),
         date="2026-01-26",
-        # 2026-01-26 has both "AF for every pic" and "AF once" variants for some lenses.
-        # We use all (the AF-every-pic variant gives more depth-sampling via different
-        # AF positions; the consensus tile picker handles the variation).
         lens_filter=None,
+        pixel_pitch_mm=Z7_PIXEL_PITCH_MM,
+        camera="Z7",
+    ),
+    "wide2026_02_07": dict(
+        root=Path("/home/alson/shared/files/pics/digikam/test-raw-data/2026-02-07/20 mm"),
+        date="2026-02-07",
+        lens_filter=None,
+        pixel_pitch_mm=Z7_PIXEL_PITCH_MM,
+        camera="Z7",
+    ),
+    "tele2026_02_07": dict(
+        root=Path("/home/alson/shared/files/pics/digikam/test-raw-data/2026-02-07/telephoto"),
+        date="2026-02-07",
+        lens_filter=None,
+        pixel_pitch_mm=Z7_PIXEL_PITCH_MM,
+        camera="Z7",
+    ),
+
+    # --- D7200 (DX, 3.91um) — older tests, possibly less strict methodology ---
+    "tele2025_07_05": dict(
+        root=Path("/home/alson/shared/files/pics/digikam/test-raw-data/2025-07-05"),
+        date="2025-07-05",
+        lens_filter=_skip_macro_mag,
+        pixel_pitch_mm=D7200_PIXEL_PITCH_MM,
+        camera="D7200",
+    ),
+    "tele2025_07_09": dict(
+        root=Path("/home/alson/shared/files/pics/digikam/test-raw-data/2025-07-09"),
+        date="2025-07-09",
+        lens_filter=_skip_macro_mag,
+        pixel_pitch_mm=D7200_PIXEL_PITCH_MM,
+        camera="D7200",
+    ),
+    "tele2025_09_06": dict(
+        root=Path("/home/alson/shared/files/pics/digikam/test-raw-data/2025-09-06"),
+        date="2025-09-06",
+        lens_filter=_skip_macro_mag,
+        pixel_pitch_mm=D7200_PIXEL_PITCH_MM,
+        camera="D7200",
+    ),
+    "wide2025_09_10": dict(
+        root=Path("/home/alson/shared/files/pics/digikam/test-raw-data/2025-09-10"),
+        date="2025-09-10",
+        lens_filter=None,
+        pixel_pitch_mm=D7200_PIXEL_PITCH_MM,
+        camera="D7200",
+    ),
+    "mid2025_09_11": dict(
+        root=Path("/home/alson/shared/files/pics/digikam/test-raw-data/2025-09-11"),
+        date="2025-09-11",
+        lens_filter=None,
+        pixel_pitch_mm=D7200_PIXEL_PITCH_MM,
+        camera="D7200",
     ),
 }
 
