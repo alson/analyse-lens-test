@@ -646,9 +646,13 @@ Same 4 algorithms ran on this dataset:
 2. **Less strict test methodology** per user — some lenses lack distance
    encoders, focus distance varied across sessions, wind/light less
    controlled.
-3. **2025-07-05 unanalyzable** — that day's data is flat NEFs at the
-   lens-dir level (no FL/aperture hierarchy + no co-located JPEGs). 0
-   configs discovered. Would need separate NEF demosaicing to include.
+3. **2025-07-05 darktable-demosaiced** — that day's data is flat NEFs at
+   the lens-dir level (no FL/aperture hierarchy + no co-located JPEGs).
+   The NEF-embedded ``JpgFromRaw`` is Nikon "basic" quality (~113 kB/MP)
+   which crushes high-frequency content, so I demosaiced via
+   ``darktable-cli`` to FINE-quality JPEGs (~370 kB/MP) for analysis.
+   See §13a-bis below for the resulting findings (mostly scene-limited
+   — see also that subsection).
 4. **2025-07-09 used shorter focus distances** than 2025-09-06 (borderline
    "infinity" for the longest FL × TC combos per user note). 2025-09-06
    later moved the camera further back for longer FLs; that's why focus
@@ -658,6 +662,38 @@ Same 4 algorithms ran on this dataset:
    sign/post scene; 2025-09-06 is 3D shrubbery (matching the later 2026
    Z7 scene). Cross-day same-lens comparisons on D7200 are partially
    scene-confounded.
+
+### 13a-bis. 2025-07-05 — heath / bush scene (darktable-demosaiced, 35 configs)
+
+Scene: distant heath + a low bush against grass. **Low-contrast vegetation
+with no bare twigs or built structure** — different scene class from the
+2026 telephoto sessions (which use bare-twig 3D shrubbery).
+
+Most measurements hit the radial_cutoff metric's lower bound (0.2031 cy/sensor-
+px, single FFT bin above DC). This is **scene-limited**, not lens-limited:
+the heath/bush content doesn't deliver enough high-frequency texture for
+the metric to discriminate.
+
+The 3 configs that escape the floor:
+
+| Lens × FL × aperture | centre cy/sensor-px |
+|---|---|
+| Tamron 90/2.8 Di Macro VC USD F017 + Kenko Pro 300 1.4× @ 90 mm, f/2.8 / f/5.6 | 0.371 |
+| AF-S 300/4D + TC-14e III @ 420 mm, f/5.6 | 0.367 |
+
+The macro + 1.4× combo is at shorter distance (and the Kenko TC brings more
+subject magnification onto the sensor); the AF-S 300/4D + TC-14e III at
+its longest reach + widest aperture reaches subject content with usable
+texture. Other configs (bare AF-S 300/4D, 70-200/2.8G + various TCs,
+Sigma 150 macro + various TCs) all hit the floor on this scene.
+
+**Conclusion for 2025-07-05**: data is preserved (124 JPEGs demosaiced
+in proper hierarchy) but the radial_cutoff metric is **not informative**
+for ranking these lenses on this particular scene. The metric needs higher-
+texture scene content (bare twigs, structured objects, or much closer
+subject distance) to discriminate. **The vol / brenner / mtf50_slanted_edge
+algorithms produce noise on this data too** (CV 38–80 %), so no algorithm
+in our framework ranks this dataset.
 
 ### 13a. 2025-07-09 — F-mount telephoto + Sigma DC zooms (398 configs)
 
