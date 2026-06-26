@@ -6,8 +6,8 @@ Companion to [`SHARPNESS_METRICS_LONGDIST.md`](SHARPNESS_METRICS_LONGDIST.md)
 (matching telephoto analysis).
 
 Scope: Z7 wide datasets 2026-01-24, 2026-01-26, 2026-02-07/20 mm. D7200
-wide datasets 2025-09-10 and 2025-09-11 (the latter partially invalid —
-see §6). Four sharpness algorithms compared on identical tile selections
+wide datasets 2025-09-10 and 2025-09-11 (the latter is at mixed distance
+classes — see §6.5b). Four sharpness algorithms compared on identical tile selections
 to assess each algorithm's stability, accuracy, and lighting robustness.
 Cross-camera cy/sensor-px values are not directly comparable (D7200 has
 3.91 µm pixel pitch vs Z7's 4.35 µm); the D7200 data lives in §6 with
@@ -431,10 +431,11 @@ indicating moving content (cyclist / pedestrian).
    values are NOT directly comparable to Z7's 4.35 µm pitch.
 2. Older test methodology — some lenses lack distance encoders (see slug
    pattern table in §1) and per-session focus may have been less strict.
-3. 2025-09-11 has multiple sub-sessions with **different focus distances**;
-   the DX 18-70 sub-session was focused at ~1–2 m (close-focus mistake)
-   and is invalid. Sigma 50-150/2.8 II was properly focused (22.39 m) on
-   the same day.
+3. 2025-09-11 has multiple sub-sessions with **different focus distances**.
+   The DX 18-70 sub-session was at 1–2 m (below Focal's 50× FL minimum
+   for these short FLs) — labelled as such in §6.5b. Sigma 50-150/2.8 II
+   was at 22.39 m on the same day. Both are kept in the analysis, just
+   labelled by distance class.
 
 ### 6.5a. 2025-09-10 — D7200 wide / ultra-wide lineup (237 configs)
 
