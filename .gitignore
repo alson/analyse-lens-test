@@ -15,3 +15,8 @@ rail-coverage/output/
 tile-sharpness/out/
 tile-sharpness/out_*/
 tile-sharpness/cross_cohort_summary/
+
+# POC output directories (large, regenerable)
+tile-sharpness/scripts/poc_pad_grid_fft_out/
+tile-sharpness/scripts/poc_subpixel_binning_out/
+tile-sharpness/scripts/poc_wide_feature_inventory_out/

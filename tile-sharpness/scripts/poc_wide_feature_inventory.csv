@@ -1,0 +1,12 @@
+tile_ix,tile_iy,scribe_present,scribe_angle_deg,feature_id,kind,width_px,length_px,slant_deg,isolated,bbox_x0,bbox_y0,bbox_x1,bbox_y1
+0,0,True,94.88,1,dark,44.2,498.1,4.86,True,471,615,920,708
+0,0,True,94.88,2,dark,26.4,342.4,4.32,False,767,1225,1042,1278
+0,-1,True,94.80,,,,,,,,,,
+0,1,True,4.85,1,dark,166.7,808.6,9.68,True,176,34,787,266
+0,1,True,4.85,2,bright,51.0,1055.2,0.34,False,132,637,1099,739
+-1,0,True,4.88,1,dark,94.3,591.9,7.41,True,745,465,1253,622
+1,0,True,4.77,1,dark,47.5,278.0,5.03,True,1039,1219,1300,1290
+-2,-1,False,nan,3,bright,22.2,285.8,169.31,False,544,915,805,981
+-2,-1,False,nan,1,bright,53.6,241.2,161.07,False,1023,629,1257,729
+-2,-1,False,nan,2,bright,40.1,220.2,127.77,False,945,633,1106,803
+2,1,True,4.91,1,dark,59.4,360.2,98.24,False,300,989,389,1319
