@@ -479,24 +479,23 @@ was not moved between lenses in the same sub-session, so nearest-time
 distance is a valid stand-in). Full audit:
 `tile-sharpness/scripts/audit_nef_distance_out/nef_distances_2025-09-11.md`.
 
-Classification by subject distance / focal length ratio (Focal-style
-lens-test minimum is 20-30× FL; ≥ 100× FL is "infinity-class").
-Closer-distance readings aren't invalid — they measure the lens at
-a different distance regime, fine for that regime but not directly
-comparable to infinity-class readings of the same lens on another day.
+Classification by Reikan Focal's two-tier rule: minimum subject distance
+is **20× FL for ≥ 300 mm FL** and **50× FL for < 300 mm FL** (the curve
+stabilises earlier for long teles). Closer-distance readings aren't
+invalid — they measure the lens at a different distance regime, fine
+for that regime but not directly comparable to infinity-class readings
+of the same lens on another day.
 
 **Distance-class distribution (40 cells):**
 
-| Class | Range | n cells |
-|---|---|---|
-| too close | < 20× FL | 0 |
-| close-test | 20–50× FL | 6 |
-| near-infinity | 50–100× FL | 2 |
-| infinity-class | 100–300× FL | 27 |
-| well past infinity | > 300× FL | 11 |
-| Sigma 24/2.8 super wide (no encoder, inferred) | ~12.6 m / 24 mm = 525× | well past infinity |
+| Class | n cells |
+|---|---|
+| below Focal min (< 50× FL for these < 300 mm lenses) | 5 |
+| meets Focal min, < 100× FL | 1 |
+| infinity-class (100–300× FL) | 25 |
+| well past infinity (> 300× FL) | 9 |
 
-**Close-test (20–50× FL) — same scene, closer subject:**
+**Below Focal min (< 50× FL) — close-distance sub-session:**
 
 | Lens | FL | Distance | dist/FL |
 |---|---|---|---|
@@ -506,36 +505,34 @@ comparable to infinity-class readings of the same lens on another day.
 | AF-S DX Zoom-Nikkor 18-70/3.5-4.5G | 50 mm | 1.68 m | 34× |
 | AF-S DX Zoom-Nikkor 18-70/3.5-4.5G | 55 mm | 2.37 m | 43× |
 
-The DX 18-70 sub-session (and the DX 35/1.8G at 0.79 m) were shot at
-close-test distance — clearly intentional sub-test of these lenses at
-shorter range. Their readings are legitimate MTF measurements at that
-distance class but should not be compared 1-for-1 against the same
-lens at infinity-class distance on 2025-09-10.
+The DX 18-70 (and DX 35/1.8G) were shot at close-distance for their
+focal lengths. Below Focal's 50× FL minimum but still legitimate
+close-MTF measurements; just not cross-comparable with the same
+lenses' infinity-class readings on 2025-09-10.
 
-**Near-infinity (50–100× FL):**
+**Meets Focal min, < 100× FL:**
 
 | Lens | FL | Distance | dist/FL |
 |---|---|---|---|
 | AF-S DX Zoom-Nikkor 18-70/3.5-4.5G | 27 mm | 1.41 m | 52× |
-| AF-S DX VR 16-85/3.5-5.6G | 35 mm | 5.01 m | 143× — wait this is infinity-class, see audit |
 
-(Re-check `nef_distances_2025-09-11.md` for the per-row table.)
-
-**Infinity-class and beyond (≥ 100× FL):** 38 cells — almost all
-encoder-equipped readings of AF-S DX 16-80, AF-S DX VR 16-85 (35-55mm),
-AF-S DX 17-55 (24/35/50/55mm), AF-S Nikkor 50/1.8G, Sigma 50-100/1.8,
+**Infinity-class and beyond (≥ 100× FL):** 34 cells — almost all
+encoder-equipped readings of AF-S DX 16-80, AF-S DX VR 16-85 (24-55mm,
+yes including the 24mm at 2.82m = 118× FL), AF-S DX 17-55 (24/35/50/55mm
+and 28mm where 2.99m / 28mm = 107×), AF-S Nikkor 50/1.8G, Sigma
+18-35/1.8 (4.22m = 121-176× FL across its zoom range), Sigma 50-100/1.8,
 Sigma 50-150/2.8 series, plus the time-inferred distances for AIS Micro 55,
 Nikkor-N.C 24, PC-Nikkor 35, Sigma 24/2.8 SWM, AF Nikkor 35/2 (non-D),
 AF Nikkor 50/1.8 (non-D).
 
 **Practical takeaways:**
 
-- The 2025-09-11 dataset is NOT half-invalid; it's two sub-sessions at
-  different distance classes. Most of it is infinity-class.
-- The DX 18-70 + DX 35/1.8G close-test sub-session is a separate
-  test of those lenses at closer distance — useful in its own right
-  but not directly comparable to the same lenses' infinity-class
-  readings on 2025-09-10.
+- The 2025-09-11 dataset is mostly infinity-class. Only 5 cells (the
+  DX 18-70 + DX 35/1.8G close-distance sub-session) sit below Focal's
+  50× FL minimum.
+- Earlier framing that the Sigma 18-35/1.8 at 4.22 m was invalid was
+  wrong: at 24 mm = 176× FL and at 35 mm = 121× FL, both well
+  inside infinity-class.
 - The Sigma 50-150/2.8 EX APO DC HSM II 1001387 vs 1012221 readings
   14.13 vs 22.39 m at 55 mm (both infinity-class) probably reflect
   per-copy focus variation or a brief tripod nudge between two-copy

@@ -332,20 +332,25 @@ def write_md(date: str, summary: dict, path: Path, rows: list[dict]) -> None:
         "equipped frame's distance is used. NEFs adjacent in time were",
         "shot at the same physical subject distance (tripod not moved).",
         "",
-        "**Distance class** (by subject distance / focal length ratio):",
-        "- `too close (< 20× FL)`: below Focal-style lens-test minimum.",
-        "  Closer-distance MTF for some lenses (esp. macro) can be valid",
-        "  but readings can't be cross-compared with infinity-class.",
-        "- `close-test (20–50× FL)`: meets Focal-minimum; legitimate test",
-        "  distance for non-infinity use cases.",
-        "- `near-infinity (50–100× FL)`: comfortable for most lenses;",
-        "  TC-laden long-FL combos often land here.",
-        "- `infinity-class (100–300× FL)`: well past infinity.",
+        "**Distance class** (Reikan Focal two-tier rule by subject",
+        "distance / focal length ratio):",
+        "- Minimum is **20× FL for ≥ 300 mm FL** lenses (the curve stabilises",
+        "  earlier for long teles per Focal docs), **50× FL for < 300 mm FL**.",
+        "- `below Focal min`: under the per-FL minimum — fine for closer-distance",
+        "  testing but not directly cross-comparable to infinity readings.",
+        "- `meets Focal min, < 100× FL`: above minimum but below the comfortable",
+        "  infinity range.",
+        "- `infinity-class (100–300× FL)`: comfortable infinity testing.",
         "- `well past infinity (> 300× FL)`: redundant headroom.",
         "",
         "Closer-distance readings of the same lens aren't less valid; they",
         "measure the lens at a different distance regime. Cross-day same-",
         "lens comparisons need matched distance class for fairness.",
+        "",
+        "*Reikan Focal recommends macro lenses be calibrated at their",
+        "intended use-distance rather than pushed to infinity — but the",
+        "'inf' folders in this dataset are infinity tests, so the standard",
+        "FL-ratio rule applies.*",
         "",
         "| Lens dir | FL (mm) | n NEFs | n w/ dist | min (m) | median (m) | max (m) | inferred (m) | Effective | dist/FL | Validity |",
         "|---|---|---|---|---|---|---|---|---|---|---|",
@@ -365,23 +370,28 @@ def write_md(date: str, summary: dict, path: Path, rows: list[dict]) -> None:
             eff_d = None
             eff_source = "—"
 
-        # Distance class by distance / FL ratio.
-        # Focal-style lens testing recommends >= 20-30× FL as minimum;
-        # 50× FL is comfortable and 100× FL+ is "infinity-class".
+        # Distance class by distance / FL ratio, using Reikan Focal's
+        # two-tier rule:
+        #   - FL >= 300 mm: 20× FL minimum (curve stabilises earlier
+        #     for long teles per Focal docs)
+        #   - FL < 300 mm:  50× FL minimum (the standard recommendation)
         # Closer-distance readings aren't invalid — they measure the
         # lens at a different distance regime, useful for some use cases
         # but not directly cross-comparable with infinity readings.
+        # Macro lenses tested at infinity follow the same rule; Focal
+        # explicitly says use macro-distances if you intend to use the
+        # lens for macro work, but the "inf" folders here are infinity
+        # tests so the standard FL-ratio rule applies.
         if eff_d is None or fl is None or fl <= 0:
             ratio = None
             validity = "UNKNOWN"
         else:
             ratio = eff_d * 1000.0 / fl  # both in mm
-            if ratio < 20:
-                validity = "**too close (< 20× FL)**"
-            elif ratio < 50:
-                validity = "close-test (20–50× FL)"
+            focal_min = 20 if fl >= 300 else 50
+            if ratio < focal_min:
+                validity = f"**below Focal min ({focal_min}× FL)**"
             elif ratio < 100:
-                validity = "near-infinity (50–100× FL)"
+                validity = "meets Focal min, < 100× FL"
             elif ratio < 300:
                 validity = "infinity-class (100–300× FL)"
             else:

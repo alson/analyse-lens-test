@@ -655,30 +655,44 @@ Same 4 algorithms ran on this dataset:
    — see also that subsection).
 4. **2025-07-09 distance audit**: per NEF EXIF FocusDistance audit
    (`audit_nef_distance_out/nef_distances_2025-07-09.md`), classified
-   by subject distance / focal length ratio. Focal recommends ≥ 20-30× FL
-   as lens-test minimum, ≥ 100× FL is "infinity-class". Closer readings
-   aren't invalid; they measure the lens at a different distance regime.
+   by subject distance / focal length ratio using Reikan Focal's two-tier
+   minimum: **20× FL for FL ≥ 300 mm**, **50× FL for FL < 300 mm**.
+   Closer readings aren't invalid — they measure the lens at a different
+   distance regime. Per-(lens, FL) summary:
    - AF-S 300/4D bare @ 300 mm: 37.58 m = **125× FL** → infinity-class.
    - AF-S 300/4D + TC ladder (420 / 500 / 600 mm effective): 37.58 m =
-     **63–89× FL** → near-infinity (the original "borderline" intuition
-     was directionally correct; at 600 mm the ratio is 63× FL).
+     **63–89× FL** → meets Focal min (≥ 20× FL for long teles) but
+     below 100× FL. The original "borderline at long FL" intuition was
+     directionally correct.
    - AF-S 70-200/2.8G + TC ladder at 280 mm effective: 23.71 m = **85× FL**
-     → near-infinity.
+     → meets Focal min (50× FL for < 300mm FL), < 100× FL.
    - Sigma 50-150/2.8 zooms (50–210 mm): 22.39 m = **107–448× FL** →
      infinity-class.
    - Sigma 50-100/1.8 A: 19.95 m = **199–399× FL** → infinity-class.
-   - AF Zoom-Micro 70-180 @ 180 mm: 14.96 m = **83× FL** → near-infinity.
+   - AF Zoom-Micro 70-180 @ 180 mm: 14.96 m = **83× FL** → meets Focal min.
    - **Sigma APO Macro 150/2.8 + TCs (150–300 mm effective)**: 5.96 m =
-     **20–40× FL** → close-test (the macro's "inf" folder was apparently
-     tested at the lens's near-focus end, not at true infinity; the
-     300 mm + Sigma TC-2001 entry sits at 20× FL — right at the
-     Focal-test minimum).
+     **20–40× FL** → **below Focal min** for the 150 mm and 210 mm
+     entries (need 50× FL), at-min for the 300 mm + Sigma TC-2001 entry
+     (20× FL minimum). The macro's "inf" folder was apparently tested
+     at the lens's near-focus end, not true infinity.
    - Tamron SP 90 Macro: 44.67 m = **496× FL** → well past infinity.
 
-   So: 80 of 98 cells (lens, FL) are at near-infinity or further (≥ 50× FL),
-   18 cells in the close-test (20-50× FL) or border range, 0 "too close"
-   (< 20× FL). All cells are usable for some MTF analysis; cross-day
-   same-lens comparisons should match distance class.
+   Final distribution of 98 cells:
+   - 5 below Focal min (all Sigma APO Macro 150 variants)
+   - 17 meet Focal min but < 100× FL (long-tele + TC combos)
+   - 60 infinity-class (100–300× FL)
+   - 16 well past infinity (> 300× FL)
+
+   All cells with meet-Focal-min and above are usable for at-distance
+   MTF analysis; cross-day same-lens comparisons should match distance
+   class. The 5 below-Focal-min Sigma 150 macro readings are usable as
+   close-distance MTF measurements but not directly comparable to the
+   same lens at infinity.
+
+   *Focal explicitly notes that macro lenses should be calibrated at
+   their intended use-distance rather than infinity. The "inf" folders
+   here are infinity-test attempts, so the standard FL-ratio rule
+   applies and the Sigma 150 entries fall below the threshold.*
 5. **Scenes differ across days.** 2025-07-09 features a structured
    sign/post scene; 2025-09-06 is 3D shrubbery (matching the later 2026
    Z7 scene). Cross-day same-lens comparisons on D7200 are partially
