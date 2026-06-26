@@ -115,7 +115,13 @@ These apply to ``run-lens-test/``, ``rail-coverage/``,
     ``characterise.py``) and the through-focus rail-step-mm
     calibration (``rail_calibration.py``, v1 per-sweep + v2
     multi-aperture pooling) used to unlock subject-tilt + field-
-    curvature in real units for older datasets.
+    curvature in real units for older datasets. **Macro-rig / wafer
+    work only.**
+  - ``longdist-sharpness/`` — long-distance natural-target lens-test
+    analysis (telephoto / wide-angle / standard primes at infinity-
+    class distances). Z7 and D7200 datasets 2025-07 through 2026-02.
+    Distinct from ``tile-sharpness/`` which is for the macro-rig
+    wafer setup. Start with ``longdist-sharpness/docs/LONGDIST_HANDOVER.md``.
 
 ## Aperture convention (data joins)
 
