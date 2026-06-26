@@ -1,0 +1,81 @@
+{
+  "sweep1_M0.385": {
+    "success": false,
+    "reason": "only 7 cols, 2 rows"
+  },
+  "sweep2_M1.0": {
+    "success": true,
+    "tilt_detected_deg": 3.875,
+    "theta_rad": 0.06763150867649884,
+    "theta_deg": 3.8750000092657912,
+    "x0_img": -652.2447220774986,
+    "y0_img": 3871.2546040161596,
+    "scale": 1.7569251135739665,
+    "fit_rmse_px": 275.06160086271393,
+    "n_pairs": 24,
+    "n_col_scribes": 6,
+    "n_row_scribes": 4,
+    "col_first_atlas_index": 1,
+    "row_first_atlas_index": 0,
+    "col_match_rmse_ds": 1.588250765379906,
+    "row_match_rmse_ds": 31.46080672769147,
+    "n_col_candidates": 2,
+    "n_row_candidates": 2,
+    "anchor_errors_px": [
+      6344.826051583993,
+      5939.633940343428,
+      6267.196258253348
+    ],
+    "anchor_rmse_px": 6186.377990111373
+  },
+  "sweep3_M2.0": {
+    "success": true,
+    "tilt_detected_deg": 3.625,
+    "theta_rad": 0.06326818546262238,
+    "theta_deg": 3.625000004459212,
+    "x0_img": -1443.540200358737,
+    "y0_img": 10367.895794215363,
+    "scale": 3.35823823228594,
+    "fit_rmse_px": 21.75195221593898,
+    "n_pairs": 9,
+    "n_col_scribes": 3,
+    "n_row_scribes": 3,
+    "col_first_atlas_index": 1,
+    "row_first_atlas_index": 2,
+    "col_match_rmse_ds": 1.9049762224300906,
+    "row_match_rmse_ds": 3.9174216043624126,
+    "n_col_candidates": 5,
+    "n_row_candidates": 2,
+    "anchor_errors_px": [
+      10074.755661346968,
+      10134.496663315529,
+      10150.820503424575
+    ],
+    "anchor_rmse_px": 10120.077093700771
+  },
+  "sweep4_newer_rig": {
+    "success": true,
+    "tilt_detected_deg": 3.875,
+    "theta_rad": 0.06763150867035576,
+    "theta_deg": 3.8750000089138195,
+    "x0_img": 391.5510722435555,
+    "y0_img": 7497.375842386591,
+    "scale": 2.116587163883337,
+    "fit_rmse_px": 18.800958058007087,
+    "n_pairs": 15,
+    "n_col_scribes": 5,
+    "n_row_scribes": 3,
+    "col_first_atlas_index": 0,
+    "row_first_atlas_index": 2,
+    "col_match_rmse_ds": 3.744379692453565,
+    "row_match_rmse_ds": 0.499423347093395,
+    "n_col_candidates": 2,
+    "n_row_candidates": 2,
+    "anchor_errors_px": [
+      6369.4311085018535,
+      6398.77849551155,
+      6361.976693162301
+    ],
+    "anchor_rmse_px": 6376.748553009142
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "theta_rad": 0.06108650673778184,
+  "theta_deg": 3.499999021272366,
+  "x0_img": 3191.5305701838643,
+  "y0_img": 3992.514352622937,
+  "scale": 0.10712795279785474,
+  "fit_rmse_px": 1954.3908844491687,
+  "n_pairs": 323,
+  "col_phase": 2,
+  "row_phase": 1,
+  "col_match_rmse_ds_px": 108.40438899089185,
+  "row_match_rmse_ds_px": 53.65980897618933,
+  "anchor_rmse_px": 1834.219936603061
+}

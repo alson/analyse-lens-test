@@ -1,0 +1,213 @@
+{
+  "sweep1_M0.385": {
+    "success": true,
+    "matches": [
+      {
+        "name": "4B_die",
+        "score": 0.36846649646759033,
+        "scale": 0.65,
+        "x": 3488.0,
+        "y": 3415.0,
+        "tpl_w_ds": 326,
+        "tpl_h_ds": 329,
+        "result_shape": [
+          2424,
+          3803
+        ]
+      },
+      {
+        "name": "2B_die",
+        "score": 0.5803467631340027,
+        "scale": 0.65,
+        "x": 2542.0,
+        "y": 3334.0,
+        "tpl_w_ds": 282,
+        "tpl_h_ds": 324,
+        "result_shape": [
+          2429,
+          3847
+        ]
+      },
+      {
+        "name": "4C_die",
+        "score": 0.35665270686149597,
+        "scale": 0.65,
+        "x": 3530.0,
+        "y": 2912.0,
+        "tpl_w_ds": 322,
+        "tpl_h_ds": 284,
+        "result_shape": [
+          2469,
+          3807
+        ]
+      }
+    ],
+    "correspondences": [
+      [
+        4.5,
+        1.5,
+        3488.0,
+        3415.0
+      ],
+      [
+        2.5,
+        1.5,
+        2542.0,
+        3334.0
+      ],
+      [
+        4.5,
+        2.5,
+        3530.0,
+        2912.0
+      ]
+    ],
+    "theta_rad": 0.0822640234008312,
+    "theta_deg": 4.713381346633069,
+    "x0_img": 1258.7297944519867,
+    "y0_img": 3960.246218113524,
+    "scale": 0.6334229951993998,
+    "rmse_px": 1.6919061265355293,
+    "anchor_errors_px": [
+      7.719977487091693,
+      16.230244287212045,
+      14.515077403079045
+    ],
+    "anchor_rmse_px": 13.337995277166627
+  },
+  "sweep2_M1.0": {
+    "success": false,
+    "reason": "only 1 matches above threshold",
+    "matches": [
+      {
+        "name": "4B_die",
+        "score": 0.2365213930606842,
+        "scale": 0.65,
+        "x": 6442.0,
+        "y": 2033.0,
+        "tpl_w_ds": 326,
+        "tpl_h_ds": 329,
+        "result_shape": [
+          2424,
+          3803
+        ]
+      },
+      {
+        "name": "2B_die",
+        "score": 0.40389230847358704,
+        "scale": 0.35,
+        "x": 7612.0,
+        "y": 5143.0,
+        "tpl_w_ds": 152,
+        "tpl_h_ds": 175,
+        "result_shape": [
+          2578,
+          3977
+        ]
+      },
+      {
+        "name": "4C_die",
+        "score": 0.2772068977355957,
+        "scale": 0.8,
+        "x": 2797.0,
+        "y": 1124.0,
+        "tpl_w_ds": 397,
+        "tpl_h_ds": 350,
+        "result_shape": [
+          2403,
+          3732
+        ]
+      }
+    ]
+  },
+  "sweep3_M2.0": {
+    "success": false,
+    "reason": "only 1 matches above threshold",
+    "matches": [
+      {
+        "name": "4B_die",
+        "score": 0.19284923374652863,
+        "scale": 0.5,
+        "x": 4467.0,
+        "y": 861.0,
+        "tpl_w_ds": 251,
+        "tpl_h_ds": 253,
+        "result_shape": [
+          2500,
+          3878
+        ]
+      },
+      {
+        "name": "2B_die",
+        "score": 0.47352704405784607,
+        "scale": 0.35,
+        "x": 984.0,
+        "y": 1621.0,
+        "tpl_w_ds": 152,
+        "tpl_h_ds": 175,
+        "result_shape": [
+          2578,
+          3977
+        ]
+      },
+      {
+        "name": "4C_die",
+        "score": 0.24262121319770813,
+        "scale": 0.35,
+        "x": 4176.0,
+        "y": 4655.0,
+        "tpl_w_ds": 174,
+        "tpl_h_ds": 153,
+        "result_shape": [
+          2600,
+          3955
+        ]
+      }
+    ]
+  },
+  "sweep4_newer_rig": {
+    "success": false,
+    "reason": "only 2 matches above threshold",
+    "matches": [
+      {
+        "name": "4B_die",
+        "score": 0.2353179156780243,
+        "scale": 0.35,
+        "x": 860.0,
+        "y": 2093.0,
+        "tpl_w_ds": 176,
+        "tpl_h_ds": 177,
+        "result_shape": [
+          2576,
+          3953
+        ]
+      },
+      {
+        "name": "2B_die",
+        "score": 0.4177868068218231,
+        "scale": 0.35,
+        "x": 3214.0,
+        "y": 4993.0,
+        "tpl_w_ds": 152,
+        "tpl_h_ds": 175,
+        "result_shape": [
+          2578,
+          3977
+        ]
+      },
+      {
+        "name": "4C_die",
+        "score": 0.6766960620880127,
+        "scale": 2.1,
+        "x": 1570.0,
+        "y": 3436.0,
+        "tpl_w_ds": 1042,
+        "tpl_h_ds": 918,
+        "result_shape": [
+          1835,
+          3087
+        ]
+      }
+    ]
+  }
+}

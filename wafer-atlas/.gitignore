@@ -1,0 +1,32 @@
+# Painted input PNGs (50 MB each) — kept outside git, available on shared mount.
+in/*.png
+
+# Full-resolution overlay PNGs (~4 MB each) — regeneratable from scripts.
+out/grid_*.png
+out/recon_grid_*.png
+
+# Per-sweep registration overlays (~5 MB each) — regeneratable.
+out/sweep_anchors/*.png
+
+# Per-die crop overlays (~600 KB each) — regeneratable.
+out/die_*_crop.png
+out/die_*.png
+out/0129/die_*.png
+out/0129/grid_overlay.png
+out/0129/verify_0129_painted.png
+out/v2/
+
+# Registration method outputs — regeneratable.
+out/registration/*.png
+out/task12/*.png
+out/task15/*.png
+
+# Stale intermediate atlas (superseded by ../atlas.json).
+out/atlas_top3.json
+out/0129/atlas_top3.json
+out/0129/atlas_0129_painted.json
+
+# Standard Python
+__pycache__/
+*.pyc
+.venv/

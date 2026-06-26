@@ -2,6 +2,32 @@
 
 State as of 2026-05-18.
 
+> **2026-05-18 (atlas track) — wafer-atlas subproject + atlas-anchored
+> 4D-bar slanted-edge demo.** New subproject at
+> `../wafer-atlas/`. Read its README + HANDOVER first for the full
+> picture. Highlights:
+>
+> 1. **Atlas built** from f/8 + 35mm extension overview photo:
+>    16 super-cell die types catalogued with bond_pads / slanted_edge /
+>    experimental features. User-painted feature regions parsed into
+>    `wafer-atlas/atlas.json`.
+> 2. **Anchor-based per-sweep registration** working (RMSE 2-8 px on
+>    4 test sweeps spanning M=0.385 to M=2.0). Per-sweep affine fit
+>    from 3 user-supplied scribe-intersection anchors. ~30 sec
+>    GIMP work per sweep.
+> 3. **Atlas-anchored 4D-bar slanted-edge MTF50** (`task15`): finds
+>    focus argmax within **±1 shot of LSF reference** on Task 2
+>    (M=0.385) and Task 4 (M=2.0). Two anomalies (sweep 2 gap of
+>    −13, sweep 4 monotonic decrease) under investigation. This is
+>    a viable atlas-targeted alternative to scribe-LSF at low M
+>    where scribes are under-sampled.
+> 4. **Autonomous registration** (work-in-progress): morphological
+>    long-line detection ported from
+>    `archive-2026-05/measure_wafer_squares` recovers scale + rotation
+>    + super-cell pattern but has up-to-3-way absolute-label ambiguity
+>    for partial-wafer sweeps. Resolution path: whole-vs-jagged-die
+>    counting per super-cell type (see wafer-atlas/HANDOVER §2).
+
 > **2026-05-18 (late) — verdict relabel, peaks-v2 crops, task 7 result.**
 >
 > 1. **Verdict labels renamed** to spread-only descriptors:
@@ -423,6 +449,27 @@ launched 2026-05-17, both uncommitted under
 If A works it's the simpler land. B is the bigger architectural
 move — it would also feed the eventual `A_n/A_1` MTF readout that
 extends the cross-M comparison up to M=2.0.
+
+**2026-05-18 update — atlas approach lands a third option, C:**
+
+POCs A and B both ran but each had limitations:
+- A (subpixel binning, `scripts/poc_subpixel_binning.py`): lifts
+  Task 2 from 10.4 → 20.5 lp/mm subject (~2× gain) but still below
+  the ~33 target. LSD/Hough endpoint bias produces L/R-asymmetric
+  ESFs; Task 3 over-reads 1.5× (65.8 vs cached 42.7 lp/mm).
+- B (pad-grid FFT, `scripts/poc_pad_grid_fft.py`): pitch discovery
+  via 2D FFT finds 18.4 µm pad fundamental. Argmax slipped by 18
+  shots from LSF reference but the LSF argmax shot is within 0.5-
+  3.3 % of pad-FFT max — viable as a peak-value cross-lens signal
+  at low M, not a drop-in argmax picker.
+- C (atlas-anchored 4D-bar slanted-edge, `wafer-atlas/scripts/
+  task15_*.py`): runs the existing `methods/lsf.cross_section +
+  lsf_mtf50` on the wafer's 4D vertical bar via atlas-anchored
+  position. **Argmax shot 136 vs LSF reference shot 137 on Task 2
+  (gap −1)**, same on Task 4 (gap −1). MTF50 magnitude is lower
+  (14.75 vs A's 20.5 lp/mm) because the 4D bar's intrinsic optical
+  geometry is what's measured, but per-shot focus discrimination
+  is excellent. Production-track candidate.
 
 ### 6. Retry scribe-line / scale detection with corrected super-cell grid
 

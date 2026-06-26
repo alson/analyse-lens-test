@@ -1,0 +1,21 @@
+[project]
+name = "wafer-atlas"
+version = "0.1.0"
+description = "Coordinate system + feature catalogue for the test wafer used in analyse-lens-test."
+requires-python = ">=3.14"
+dependencies = [
+    "tile-sharpness",
+    "matplotlib>=3.9",
+    "numpy>=2.0",
+    "opencv-contrib-python>=4.10",
+    "pillow>=11",
+    "scikit-image>=0.24",
+    "scipy>=1.13",
+]
+
+[tool.uv.sources]
+tile-sharpness = { path = "../tile-sharpness", editable = true }
+
+[build-system]
+requires = ["uv_build>=0.11.8,<0.12.0"]
+build-backend = "uv_build"
