@@ -478,7 +478,7 @@ Per-(lens, FL) audit of EXIF FocusDistance plus temporally-nearest
 encoder-equipped frame's distance for non-encoder lenses (the tripod
 was not moved between lenses in the same sub-session, so nearest-time
 distance is a valid stand-in). Full audit:
-`tile-sharpness/scripts/audit_nef_distance_out/nef_distances_2025-09-11.md`.
+`../scripts/audit_nef_distance_out/nef_distances_2025-09-11.md`.
 
 Classification by Reikan Focal's two-tier rule: minimum subject distance
 is **20× FL for ≥ 300 mm FL** and **50× FL for < 300 mm FL** (the curve
@@ -582,9 +582,14 @@ with the Z7-side pattern.
 
 | File | Content |
 |---|---|
-| `tile-sharpness/scripts/poc_longdist_algorithms.py` | Algorithm-comparison script (4 algorithms + consensus tile + lighting probe) |
-| `tile-sharpness/scripts/poc_longdist_algorithms_out/wide2026_01_24/` | Per-measurement CSV + algorithms_summary.md + correlation_matrices.png for 2026-01-24 |
-| `tile-sharpness/scripts/poc_longdist_algorithms_out/wide2026_01_26/` | Same for 2026-01-26 |
+| `../scripts/poc_longdist_algorithms.py` | Algorithm-comparison script (4 algorithms + consensus tile + lighting probe) |
+| `../scripts/audit_nef_distance.py` | EXIF FocusDistance audit script (NEFs preferred, JPEG fallback). Used for the §6.5b validity check on 2025-09-11. |
+| `../scripts/poc_longdist_algorithms_out/wide2026_01_24/` | Per-measurement CSV + algorithms_summary.md + correlation_matrices.png |
+| `../scripts/poc_longdist_algorithms_out/wide2026_01_26/` | Same for 2026-01-26 |
+| `../scripts/poc_longdist_algorithms_out/wide2026_02_07/` | Same for 2026-02-07/20 mm |
+| `../scripts/poc_longdist_algorithms_out/wide2025_09_10/` | Same for D7200 2025-09-10 |
+| `../scripts/poc_longdist_algorithms_out/mid2025_09_11/` | Same for D7200 2025-09-11 (mixed distance classes — see §6.5b) |
+| `../scripts/audit_nef_distance_out/nef_distances_2025-09-11.{csv,md}` | Per-(lens, FL) distance audit for the validity check |
 
 Per-measurement CSV columns: date, lens_dir, focal_mm, aperture,
 position_frac, algorithm, top, median, min, top_vs_median, range_pct,

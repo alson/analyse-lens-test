@@ -1,0 +1,20 @@
+[project]
+name = "longdist-sharpness"
+version = "0.1.0"
+description = "Sharpness analysis of long-distance natural-target lens tests (telephoto / wide-angle), distinct from the tile-sharpness macro-rig project."
+requires-python = ">=3.14"
+dependencies = [
+    "matplotlib>=3.9",
+    "numpy>=2.0",
+    "opencv-contrib-python>=4.10",
+    "pandas>=2.2",
+    "pillow>=11",
+    "scikit-image>=0.24",
+    "scipy>=1.13",
+]
+
+[tool.uv]
+# Scripts-only project: nothing imports `longdist_sharpness`, so the root
+# is not a build target. Without this, uv tries to build it and fails
+# (no src/ package).
+package = false

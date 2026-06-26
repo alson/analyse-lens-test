@@ -453,7 +453,7 @@ TC-14e III is the weakest at f/16 (large shake-sensitivity).**
 
 ## 10. Data and code
 
-POC scripts under `tile-sharpness/scripts/`:
+POC scripts under `../scripts/`:
 
 | Script | Purpose |
 |---|---|
