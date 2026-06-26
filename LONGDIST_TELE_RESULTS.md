@@ -653,11 +653,21 @@ Same 4 algorithms ran on this dataset:
    ``darktable-cli`` to FINE-quality JPEGs (~370 kB/MP) for analysis.
    See §13a-bis below for the resulting findings (mostly scene-limited
    — see also that subsection).
-4. **2025-07-09 used shorter focus distances** than 2025-09-06 (borderline
-   "infinity" for the longest FL × TC combos per user note). 2025-09-06
-   later moved the camera further back for longer FLs; that's why focus
-   distance scales with FL on the 09-06 dataset (300mm@22m, 420/500/600mm
-   @ 31.62m).
+4. **2025-07-09 distance audit (corrected)**: contrary to my earlier note,
+   2025-07-09 was **NOT** shorter on the long-FL combos. Per NEF EXIF
+   FocusDistance audit (`audit_nef_distance_out/nef_distances_2025-07-09.md`):
+   - AF-S 300/4D and all its TC chains (300–600 mm effective): **37.58 m**
+     (longer than 2025-09-06's 31.62 m or 2026-01's 31.62 m for the
+     300 PF + TC combos).
+   - AF-S 70-200/2.8G and TC chains (70–400 mm effective): **23.71 m**.
+   - Sigma 50-150/2.8 zooms: **22.39 m**. Sigma 50-100/1.8: **19.95 m**.
+   - AF Zoom-Micro 70-180: **14.96 m** (the shortest in the dataset —
+     borderline for the 180 mm end specifically).
+   - Sigma APO Macro 150/2.8: 5.96 m (close — at infinity but the
+     lens's near-focus end is well below for a 150 mm lens).
+   - Tamron SP 90 Macro: **44.67 m** (the longest in the dataset).
+   So if anything, 2025-07-09 ran *farther* than 2025-09-06 on the long
+   tele combos. Earlier "borderline distance" claim withdrawn.
 5. **Scenes differ across days.** 2025-07-09 features a structured
    sign/post scene; 2025-09-06 is 3D shrubbery (matching the later 2026
    Z7 scene). Cross-day same-lens comparisons on D7200 are partially

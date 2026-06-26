@@ -28,7 +28,7 @@ its own ranking.
 | Date | Lenses | Notable |
 |---|---|---|
 | 2025-09-10 | AF Fisheye 10.5/2.8G, AF Nikkor 20/2.8, AF-S DX 16-80/2.8-4E, AF-S DX 16-85/3.5-5.6G, AF-S DX 17-55/2.8G, AF-S DX 18-70/3.5-4.5G, Nikkor-N.C 24/2.8, Sigma 10-20/4-5.6, Sigma 18-35/1.8, Sigma 24/2.8, Tokina 11-20/2.8 | 237 configs |
-| 2025-09-11 | DX 18-70 + Sigma 50-150/2.8 I/II + AF 35/2 + AF 50/1.8 + others | 248 configs; **mixed focus — see §6 caveat** |
+| 2025-09-11 | DX 18-70 + Sigma 50-150/2.8 I/II + AF 35/2 + AF 50/1.8 + others (18 lenses) | 248 configs; **mixed validity — per-(lens, FL) audit in §6.5b** |
 
 Scene per dataset (validated by sampling sharp shots — see §3):
 
@@ -36,8 +36,9 @@ Scene per dataset (validated by sampling sharp shots — see §3):
   Same physical scene reused across years.
 - **2026-02-07/20 mm**: same location but framed lower → grass-dominated centre, structural content
   pushed into edges. Different sub-position from the other wide-angle dates.
-- **2025-09-11**: ostensibly same location, but a sub-set of lenses (notably the DX 18-70) was focused
-  at ~1–2 m by mistake. Per-lens EXIF-distance check needed.
+- **2025-09-11**: ostensibly same location, but multiple sub-sessions
+  drifted to close focus (DX 18-70 at 1.0–2.4 m, DX 35/1.8G at 0.79 m,
+  Sigma 18-35/1.8 at 4.22 m). Per-(lens, FL) validity audit in §6.5b.
 
 Cyclists / pedestrians intermittently in the path — handled by the
 consensus tile picker (§2).
@@ -469,21 +470,70 @@ lens's best centre aperture:
   more noise that affects vol/brenner directly but not the spectrum-
   normalised radial_cutoff.
 
-### 6.5b. 2025-09-11 — D7200 midrange, partial validity
+### 6.5b. 2025-09-11 — D7200 midrange, per-(lens, FL) validity
 
-**Validity check by lens (EXIF FocusDistance where available):**
+Per-(lens, FL) audit of JPEG-side EXIF FocusDistance plus temporally-nearest
+encoder-equipped frame's distance for non-encoder lenses (the photographer
+did not move the tripod between lenses in the same sub-session, so
+nearest-time distance is a valid stand-in). Full audit:
+`tile-sharpness/scripts/audit_nef_distance_out/nef_distances_2025-09-11.md`.
 
-| Lens | EXIF distance | Validity |
-|---|---|---|
-| AF-S DX 18-70/3.5-4.5G | **1.68 m** | INVALID (close-focus mistake) |
-| Sigma 50-150/2.8 EX APO DC HSM II | 22.39 m | valid |
-| AF Nikkor 35/2 (non-D) | no encoder; co-located with 18-70 sub-session | likely INVALID by association |
-| Sigma 50-150/2.8 I (encoded), AF 50/1.8 N (no encoder) | needs per-file check | mixed |
+**INVALID (effective distance < 5 m) — exclude from analysis:**
 
-For 2025-09-11 use only the Sigma 50-150 II readings (and possibly the
-Sigma 50-150 I if it shows similar far-focus distance) for cross-day
-comparison. Other lenses on this date have been reshot on 2025-09-06
-(which had proper infinity-class focus per the EXIF distance audit).
+| Lens | FL | Distance | Source |
+|---|---|---|---|
+| AF-S DX Zoom-Nikkor 18-70/3.5-4.5G | 24 mm | 1.00 m | encoder |
+| AF-S DX Zoom-Nikkor 18-70/3.5-4.5G | 27 mm | 1.41 m | encoder |
+| AF-S DX Zoom-Nikkor 18-70/3.5-4.5G | 35 mm | 1.68 m | encoder |
+| AF-S DX Zoom-Nikkor 18-70/3.5-4.5G | 50 mm | 1.68 m | encoder |
+| AF-S DX Zoom-Nikkor 18-70/3.5-4.5G | 55 mm | 2.37 m | encoder |
+| AF-S DX Nikkor 35mm f/1.8G | 35 mm | 0.79 m | encoder |
+| AF-S DX VR 16-85/3.5-5.6G | 24 mm | 2.82 m | encoder |
+| AF-S DX VR 16-85/3.5-5.6G | 28 mm | 3.55 m | encoder |
+| AF-S DX 17-55/2.8G | 28 mm | 2.99 m | encoder |
+| Sigma 18-35/1.8 DC HSM | 24 / 28 / 35 mm | 4.22 m | encoder |
+
+**VALID (close, 5–15 m):**
+
+| Lens | FL | Distance | Source |
+|---|---|---|---|
+| AF-S DX Nikkor 16-80/2.8-4E ED VR | 24–55 mm | 10.59 m | encoder |
+| AF-S DX VR 16-85/3.5-5.6G | 35 mm | 5.01 m | encoder |
+| AF-S DX VR 16-85/3.5-5.6G | 50 / 55 mm | 10.59 m | encoder |
+| AF-S DX 17-55/2.8G | 24 / 35 / 50 / 55 mm | 7.50–10.59 m | encoder |
+| AF-S Nikkor 50/1.8G | 50 mm | 6.31 m | encoder |
+| Sigma 50-100/1.8 DC HSM A | 50 / 55 mm | 12.59 m | encoder |
+| Sigma 50-150/2.8 EX APO DC HSM I | 50 / 56 mm | 8.91 m | encoder |
+| Sigma 50-150/2.8 EX APO DC HSM II (1001387) | 50 / 55 mm | 14.13 m | encoder |
+| Sigma 50-150/2.8 EX APO DC HSM II (1012221) | 50 mm | 14.13 m | encoder |
+| AF Nikkor 35/2 (non-D) | 35 mm | ~6.31 m | inferred (nearest-time to AF-S 50/1.8G at 6.31 m) |
+| AF Nikkor 50/1.8 (non-D) | 50 mm | ~6.31 m | inferred |
+| AIS Micro-Nikkor 55/2.8 (×2 copies) | 55 mm | ~6.31 m | inferred |
+| Nikkor-N.C Auto 24/2.8 (manual) | 24 mm | ~12.59 m | inferred |
+| PC-Nikkor 35/2.8 (manual) | 35 mm | ~12.59 m | inferred |
+| Sigma 24/2.8 Super Wide II Macro (non-encoder) | 24 mm | ~12.59 m | inferred |
+
+**VALID (far, ≥ 15 m):**
+
+| Lens | FL | Distance | Source |
+|---|---|---|---|
+| Sigma 50-150/2.8 EX APO DC HSM II (1012221) | 55 mm | 22.39 m | encoder |
+
+**Net validity** on 2025-09-11: about 60 % of (lens, FL) combinations are
+at valid distance; the rest is the close-focus mistake sub-session. The
+validity-by-(lens, FL) granularity matters: the AF-S DX 16-85 and the
+AF-S DX 17-55 each have a wide-end sub-session that drifted to close
+focus, while their longer-FL sub-sessions are valid.
+
+For cross-day comparison, the **2025-09-11 valid subset** is usable as
+an independent sample of the same scene at slightly closer distance
+(5–15 m vs 2025-09-10's 11.9 m / 22-49 m range). Lenses that also
+appear on 2025-09-10 should agree within the metric's noise floor if
+the centre-cutoff readings are scene-stable; if not, the divergence
+flags either (a) lens batch / copy difference (the Sigma 50-150 II
+1001387 vs 1012221 reading 14.13 vs 22.39 m at 55 mm is interesting),
+or (b) distance-dependent MTF (more likely at the closer 5–15 m
+distances on this dataset than at 11.9+ m on 2025-09-10).
 
 ### 6.5c. D7200 wide-angle summary
 
