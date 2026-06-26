@@ -332,8 +332,23 @@ def write_md(date: str, summary: dict, path: Path, rows: list[dict]) -> None:
         "equipped frame's distance is used. NEFs adjacent in time were",
         "shot at the same physical subject distance (tripod not moved).",
         "",
-        "| Lens dir | FL (mm) | n NEFs | n w/ dist | min (m) | median (m) | max (m) | inferred (m) | Effective | Validity |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "**Distance class** (by subject distance / focal length ratio):",
+        "- `too close (< 20× FL)`: below Focal-style lens-test minimum.",
+        "  Closer-distance MTF for some lenses (esp. macro) can be valid",
+        "  but readings can't be cross-compared with infinity-class.",
+        "- `close-test (20–50× FL)`: meets Focal-minimum; legitimate test",
+        "  distance for non-infinity use cases.",
+        "- `near-infinity (50–100× FL)`: comfortable for most lenses;",
+        "  TC-laden long-FL combos often land here.",
+        "- `infinity-class (100–300× FL)`: well past infinity.",
+        "- `well past infinity (> 300× FL)`: redundant headroom.",
+        "",
+        "Closer-distance readings of the same lens aren't less valid; they",
+        "measure the lens at a different distance regime. Cross-day same-",
+        "lens comparisons need matched distance class for fairness.",
+        "",
+        "| Lens dir | FL (mm) | n NEFs | n w/ dist | min (m) | median (m) | max (m) | inferred (m) | Effective | dist/FL | Validity |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for (lens_dir, fl), s in summary.items():
         med = s["median_m"]
@@ -350,23 +365,37 @@ def write_md(date: str, summary: dict, path: Path, rows: list[dict]) -> None:
             eff_d = None
             eff_source = "—"
 
-        if eff_d is None:
+        # Distance class by distance / FL ratio.
+        # Focal-style lens testing recommends >= 20-30× FL as minimum;
+        # 50× FL is comfortable and 100× FL+ is "infinity-class".
+        # Closer-distance readings aren't invalid — they measure the
+        # lens at a different distance regime, useful for some use cases
+        # but not directly cross-comparable with infinity readings.
+        if eff_d is None or fl is None or fl <= 0:
+            ratio = None
             validity = "UNKNOWN"
-        elif eff_d < 5.0:
-            validity = "**INVALID (< 5 m)**"
-        elif eff_d < 15.0:
-            validity = "valid (close)"
         else:
-            validity = "valid (far)"
+            ratio = eff_d * 1000.0 / fl  # both in mm
+            if ratio < 20:
+                validity = "**too close (< 20× FL)**"
+            elif ratio < 50:
+                validity = "close-test (20–50× FL)"
+            elif ratio < 100:
+                validity = "near-infinity (50–100× FL)"
+            elif ratio < 300:
+                validity = "infinity-class (100–300× FL)"
+            else:
+                validity = "well past infinity (> 300× FL)"
 
         fmt = lambda x: f"{x:.2f}" if x is not None else "—"
         inferred_cell = f"{inf_d:.2f}" if (inf_d is not None and not has_enc) else "—"
         eff_cell = f"{eff_d:.2f} ({eff_source})" if eff_d is not None else "—"
+        ratio_cell = f"{ratio:.0f}×" if ratio is not None else "—"
         lines.append(
             f"| {lens_dir} | {fl or '—'} | {s['n_nefs']} | "
             f"{s['n_with_distance']} | {fmt(s['min_m'])} | "
             f"**{fmt(s['median_m'])}** | {fmt(s['max_m'])} | "
-            f"{inferred_cell} | {eff_cell} | {validity} |"
+            f"{inferred_cell} | {eff_cell} | {ratio_cell} | {validity} |"
         )
 
     lines += ["", f"## Sessions (gap = 5 min)", ""]
