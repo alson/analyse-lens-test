@@ -7,11 +7,12 @@ docs and are linked from here.
 ## Git
 
 - **Commit author email**: ``git@alm.nufan.net`` for every commit in
-  this tree. Author name ``Alson van der Meulen`` is fine; only the
-  email needs the override (the shell default may resolve to the work
-  email, which doesn't belong on these personal repos). Use ``-c
-  user.email=git@alm.nufan.net`` per command rather than overwriting
-  the local config.
+  this tree. Both this machine and ``nufan`` already have this set as
+  the global default (``~/.gitconfig`` here, ``~/.config/git/config``
+  on nufan) and no env vars override it, so plain ``git commit`` is
+  fine — no per-command ``-c user.email=…`` needed. Only override if
+  you see a different identity in ``git log`` (e.g., if a work-machine
+  config sync changes the global default in the future).
 
 ## Python tooling
 
