@@ -36,10 +36,16 @@ morphological path fail (anchor RMSE ~6000px):
   skip the missing line instead of mis-numbering everything after it. (Gap-aware
   labelling also fixed sweep2, where a spurious extra row had inflated its RMSE.)
 
+  EDGE ARTEFACTS. The rotation reflect-seam / frame boundary produce spurious
+  long 'scribes' a few px from the de-rotated frame edge (e.g. sweep2's y=2 row).
+  _drop_edge_peaks removes them; left in, sweep2's fit RMSE was 141 px (one bad
+  line at 280 px residual dragging the whole affine), vs 56 px once dropped.
+
   RESULT (reg_auto.py, vs known anchors): ALL FOUR sweeps register FULLY
-  AUTONOMOUSLY at oracle-level accuracy — sweep1 col2/row2 27 px, sweep2
-  col5/row2 141 px, sweep3 col5/row2 46 px, sweep4 col4/row2 37 px (all were
-  6,000-10,000 px or, for sweep1, total detection failure). Includes the nicked-
+  AUTONOMOUSLY at downsample-precision accuracy — sweep1 col2/row2 27 px, sweep2
+  col5/row2 56 px, sweep3 col5/row2 46 px, sweep4 col4/row2 37 px (all were
+  6,000-10,000 px or, for sweep1, total detection failure). Accuracy is limited
+  by the 1024-px detection downsample, not by magnification. Includes the nicked-
   corner (sweep2) and deep-interior (sweep3: "absence of a nick is information")
   cases.
 
@@ -155,14 +161,25 @@ def _detect_lowM(gray_ds, ds_scale, HW, path):
     mder = ndi_rotate(wafer.astype(np.float32), tilt, reshape=False, order=1) > 0.5
     bp = mm.bandpass_image(derot)
 
+    Hd, Wd = derot.shape
+
     def peaks(axis):
         sig = _long_line_sig(bp, mder, axis)
         if sig.max() <= 0:
             return np.array([], int)
-        return np.sort(find_peaks(sig / sig.max(), distance=6, prominence=0.08)[0])
+        pk = np.sort(find_peaks(sig / sig.max(), distance=6, prominence=0.08)[0])
+        return _drop_edge_peaks(pk, Wd if axis == 0 else Hd)
 
     return dict(path=path, gray_ds=gray_ds, ds_scale=ds_scale, HW=HW, tilt=tilt, derot=derot,
                 col_x=peaks(0), row_y=peaks(1))
+
+
+def _drop_edge_peaks(pk, dim, margin_frac=0.015):
+    """Drop peaks within a few px of the de-rotated frame edge: the rotation
+    reflect-seam and frame boundary produce spurious long 'scribes' there (e.g.
+    sweep2's y=2 row, which otherwise corrupts the affine fit)."""
+    m = max(6, int(margin_frac * dim))
+    return np.array([p for p in pk if m <= p <= dim - 1 - m], dtype=int)
 
 
 def detect(path):
@@ -170,17 +187,19 @@ def detect(path):
     # PRIMARY: proven gradient-tilt + frame-relative long-line (works at M>=1).
     tilt = mm.detect_tilt_via_gradient(gray_ds)
     derot = ndi_rotate(gray_ds, tilt, reshape=False, order=1, mode="reflect")
+    Hd, Wd = derot.shape
 
-    def peaks(extractor):
+    def peaks(extractor, dim):
         sig = extractor(mm.bandpass_image(derot))
         pk = mm.find_line_peaks(sig)
         if len(pk) < mm.RELAX_TRIGGER_N_LINES:
             pk2 = mm.find_line_peaks(extractor(mm.bandpass_image(derot), gap_bridge_px=mm.GAP_BRIDGE_PX))
             if len(pk2) > len(pk):
                 pk = pk2
-        return np.sort(pk)
+        return _drop_edge_peaks(np.sort(pk), dim)
 
-    col_x, row_y = peaks(mm.extract_long_line_columns), peaks(mm.extract_long_line_rows)
+    col_x = peaks(mm.extract_long_line_columns, Wd)   # x-positions
+    row_y = peaks(mm.extract_long_line_rows, Hd)       # y-positions
     if len(col_x) >= 3 and len(row_y) >= 3:
         return dict(path=path, gray_ds=gray_ds, ds_scale=ds_scale, HW=(H, W),
                     tilt=tilt, derot=derot, col_x=col_x, row_y=row_y)
