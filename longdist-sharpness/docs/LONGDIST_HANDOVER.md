@@ -287,16 +287,24 @@ the scene-content issue. Either:
 - (b) Drop the centre-only comparison for this dataset and report
   edge values instead
 
-### 5.5 D7200 cross-camera caveat is acknowledged but not quantified
+### 5.5 D7200 cross-camera bridge factor — LANDED 2026-06
 
-Both result docs say "cross-camera cy/sensor-px is not directly
-comparable" but don't quantify how to bridge. The JPEG engine
-difference (D7200 vs Z7) is a separate factor from the pixel-pitch
-difference. Possible follow-up: develop a small set of D7200 and Z7
-shots of the **same scene at same distance and same lens** to measure
-the cross-camera scaling factor directly. Not currently possible from
-the existing data because no shared lens at shared scene+distance
-exists in the dataset.
+**Status: landed. See [`CROSS_CAMERA_BRIDGE_RESULTS.md`](CROSS_CAMERA_BRIDGE_RESULTS.md).**
+
+Three F-mount lenses (Sigma 24/2.8 SWII, Nikkor-N.C 24/2.8, AF
+Nikkor 20/2.8) appear in both D7200 (2025-09-10) and Z7 (2026-01-24
+or 2026-02-07) wide datasets at the stairs scene. Cross-camera
+ratio at matched (lens, FL, aperture, best position):
+
+- **Z7 / D7200 in cy/sensor-px: ~1.35×** (median across 24 ratios)
+- **Z7 / D7200 in cy/mm-sensor: ~1.21×** (factors out the small
+  pitch difference — D7200 3.91 µm vs Z7 4.35 µm is only an 11 %
+  spread, so the cy/mm conversion barely moves the ratio).
+
+Multiply D7200 `radial_cutoff` by ~1.35 to compare against a Z7
+reading in cy/sensor-px (or 1.21 if working in cy/mm-sensor). The
+factor captures Z7's no-OLPF + JPEG-pipeline advantage net of the
+pitch difference.
 
 ## 6. Gotchas the next session should know about
 

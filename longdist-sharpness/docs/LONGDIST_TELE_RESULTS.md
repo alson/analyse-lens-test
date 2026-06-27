@@ -906,17 +906,33 @@ Across both D7200 datasets:
 - Cross-algorithm Spearman (radial ↔ vol): 0.69–0.79. Lower than 2026-01-24
   (0.89) but consistent with the other Z7 datasets.
 
-### 13d. D7200 vs Z7 — apples-to-oranges caveat
+### 13d. D7200 vs Z7 — bridged 2026-06 via shared-lens shared-scene measurement
 
-Direct cross-camera comparison of cy/sensor-px is not meaningful because:
-1. Pixel pitch differs (3.91 µm vs 4.35 µm) — cy/sensor-px on D7200 maps
-   to higher cy/mm-sensor at the same MTF.
+Direct cross-camera comparison of cy/sensor-px is not 1:1 because:
+1. Pixel pitch differs (3.91 µm vs 4.35 µm — but only 11 % spread).
 2. JPEG engine differs (D7200 vs Z7 in-camera sharpening).
 3. Sensor cover-glass / OLPF differs (D7200 has OLPF, Z7 does not).
 
-The takeaway from the D7200 datasets is **the ranking within each lens
-family**, not the absolute numbers. The patterns that hold:
+**Quantified bridge factor (§5.5 follow-up, landed 2026-06):**
+Three F-mount lenses tested on both bodies at the stairs scene
+(Sigma 24/2.8 SWII, Nikkor-N.C 24/2.8, AF Nikkor 20/2.8) give a
+**Z7 / D7200 ratio of ~1.35× in cy/sensor-px** (~1.21× in cy/mm-sensor)
+across 24 matched (lens, aperture) cells. See
+[`CROSS_CAMERA_BRIDGE_RESULTS.md`](CROSS_CAMERA_BRIDGE_RESULTS.md)
+for the full table.
+
+Use the factor as a first-cut estimate when reading D7200 numbers in
+this doc against the Z7 sections of `LONGDIST_TELE_RESULTS.md` and
+`WIDEANGLE_RESULTS.md`. The bridge was measured on wide-angle scene
+content; for telephoto / 3D-shrubbery the factor may shift because
+JPEG sharpening interacts with scene content, so verify case-by-case
+before drawing fine-grained conclusions.
+
+The takeaway from the D7200 datasets is still primarily **the ranking
+within each lens family** rather than absolute numbers. The
+within-D7200 patterns that hold:
 - Modern S-line / G-series lenses dominate older AF non-D primes.
-- Adding F-mount TCs to almost any lens reduces sensor MTF substantially.
+- Adding F-mount TCs to almost any lens reduces sensor MTF
+  substantially.
 - 300 PF (E) is the only long-tele on D7200 that holds above the
   noise floor — same as on Z7.
