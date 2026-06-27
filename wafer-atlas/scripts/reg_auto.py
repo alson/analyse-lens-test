@@ -16,25 +16,23 @@ morphological path fail (anchor RMSE ~6000px):
       which the handover's "whole-vs-jagged" plan could not. Verified correct on
       sweeps 2/3/4 (all row_first=2).
     - COL: the two phase-consistent candidates are type-IDENTICAL (same mod-4
-      pattern), so the 4D bar cannot pick between them and only the physical
-      wafer edge can. `wafer_mask()` segments the wafer (textured region) on the
-      full ORIGINAL image and reports which frame side the fracture edge is in
-      view on; a substantial edge commits that side, a confirmed-interior FOV
-      (no edge) takes the lone interior candidate, else low-confidence
-      ("interior-default?") + the candidate set is reported.
+      pattern), so only the WAFER OUTLINE can pick between them. fragment_-
+      disambiguate() matches the observed per-cell wafer coverage against the
+      fragment-outline prior (out/fragment_map.json, built by build_fragment_-
+      map.py from the whole-fragment sweep1). The candidate whose nick pattern
+      matches wins, by score margin. CRITICAL: _observed_cov distinguishes
+      off-WAFER (jagged) from off-FRAME (FOV boundary) cells — without that,
+      a column extrapolated past the frame edge looks "nicked" and the match
+      fails. Column phase is taken from the wide pitch when in view, else from
+      the 4D bar (its die-col is ≡0 mod 4).
 
-  RESULT (reg_auto.py, vs known anchors): sweep4 fully autonomous at 37 px
-  (was 6,377 px); rows correct on sweeps 2/3/4. The wafer-edge segmenter is now
-  reliable (no false positives: interior sweeps 3/4 report no edge; sweep1's
-  substantial edge is detected) so sweep4 resolves its column principledly as a
-  confirmed-interior FOV. Two columns still don't resolve, for reasons that are
-  NOT the registration math:
-    * sweep2 — the fragment fills the FOV leaving only tiny corner nicks, so no
-      substantial edge is in view (an information limit). Resolving it needs the
-      fragment-shape / whole-vs-jagged PRIOR (match which corners are nicked to
-      the wafer's known outline), not better segmentation.
-    * sweep3 — detection-degenerate (3 cols / 3 rows, no wide pitch in view), so
-      even the phase is under-determined.
+  RESULT (reg_auto.py, vs known anchors): all three sweeps with good scribe
+  detection register FULLY AUTONOMOUSLY — sweep2 col5/row2 573 px, sweep3
+  col5/row2 46 px, sweep4 col4/row2 37 px (all were 6,000-10,000 px). This
+  includes sweep2 (nicked corners) and sweep3 (deep-interior FOV: ruled out the
+  alternate offset because it would have put col 0's jaggedness in view —
+  "absence of a nick is information"). sweep1 still fails upstream at low-M
+  scribe detection (7 cols / 2 rows), a detection problem, not labelling.
 
 Run:  reg_auto.py            # autonomous registration of all sweeps + validation
       reg_auto.py --validate # just the mapping/label sanity probe
@@ -66,6 +64,8 @@ def _load(modname, fname):
 mm = _load("mm", "register_method_morphological.py")
 af = _load("af", "anchor_fit_sweep.py")
 ATLAS = json.load(open(A / "atlas.json"))
+_FRAG_PATH = A / "out" / "fragment_map.json"
+FRAGMENT_MAP = json.load(open(_FRAG_PATH))["coverage"] if _FRAG_PATH.exists() else None
 D_COL = ATLAS["die_pitch_px_in_0129"]["d_col"]
 D_ROW = ATLAS["die_pitch_px_in_0129"]["d_row"]
 WIDE_COL = int(np.argmax(D_COL))   # 0
@@ -117,9 +117,84 @@ def detect(path):
                 pk = pk2
         return np.sort(pk)
 
-    return dict(gray_ds=gray_ds, ds_scale=ds_scale, HW=(H, W), tilt=tilt, derot=derot,
+    return dict(path=path, gray_ds=gray_ds, ds_scale=ds_scale, HW=(H, W), tilt=tilt, derot=derot,
                 col_x=peaks(mm.extract_long_line_columns),
                 row_y=peaks(mm.extract_long_line_rows))
+
+
+def _sweep_wafer_fullres(path):
+    """Full-res wafer mask (segmented at 1/4 res for speed, upsampled)."""
+    from PIL import Image
+    img = np.asarray(Image.open(path).convert("L"))
+    small = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4), interpolation=cv2.INTER_AREA)
+    wsmall, _ = wafer_mask(small)
+    return cv2.resize(wsmall, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+
+def _observed_cov(wafer, p, col, row, n=5):
+    """Wafer coverage over IN-FRAME samples only. Returns None for cells mostly
+    outside the image: an off-FRAME cell (FOV boundary) must NOT be confused with
+    an off-WAFER cell (jagged edge) — that distinction is what makes interior
+    FOVs like sweep3 resolvable."""
+    H, W = wafer.shape
+    hits = infr = 0
+    for u in np.linspace(0.15, 0.85, n):
+        for v in np.linspace(0.15, 0.85, n):
+            x, y = af.grid_xy(col + u, row + v, p, ATLAS)
+            xi, yi = int(round(x)), int(round(y))
+            if 0 <= xi < W and 0 <= yi < H:
+                infr += 1
+                hits += int(wafer[yi, xi])
+    if infr < 0.5 * n * n:
+        return None
+    return hits / infr
+
+
+def _fragment_score(det, wafer, cf, rf):
+    """Fit the affine for offset (cf,rf), then weighted MSE between observed and
+    fragment-map cell coverage over in-frame cells (nicked cells weighted up)."""
+    col_x, row_y = det["col_x"], det["row_y"]
+    cl = [cf + i for i in range(len(col_x))]
+    rl_top = rf + (len(row_y) - 1)
+    pairs = [(cl[ci], rl_top - ri,
+              *derot_to_orig(float(xd), float(yd), det))
+             for ci, xd in enumerate(col_x) for ri, yd in enumerate(row_y)]
+    p = af.fit_sweep_affine(pairs, ATLAS, theta_init_deg=det["tilt"], scale_init=0.5)
+    H, W = wafer.shape
+    diffs, wts = [], []
+    for col in range(N_COL_LINES):
+        for row in range(N_ROW_LINES - 1):
+            x, y = af.grid_xy(col + 0.5, row + 0.5, p, ATLAS)
+            if not (0 < x < W and 0 < y < H):
+                continue
+            m = FRAGMENT_MAP.get(f"{col},{row}")
+            if m is None:
+                continue
+            o = _observed_cov(wafer, p, col, row)
+            if o is None:                 # off-frame cell -> not a wafer-edge signal
+                continue
+            diffs.append((o - m) ** 2)
+            wts.append(1.0 + 3.0 * (1.0 - m))
+    if not diffs:
+        return -1e9, p
+    diffs, wts = np.array(diffs), np.array(wts)
+    return -float((diffs * wts).sum() / wts.sum()), p
+
+
+def fragment_disambiguate(det, col_cands, row_first, margin_thr=0.02):
+    """Pick the column offset whose fragment-outline nick pattern best matches the
+    observation. Returns (col_first, method) or (None, 'frag-ambiguous')."""
+    if FRAGMENT_MAP is None or not col_cands:
+        return None, "no-fragment-map"
+    wafer = _sweep_wafer_fullres(det["path"])
+    scored = sorted(((_fragment_score(det, wafer, cf, row_first)[0], cf) for cf in col_cands),
+                    reverse=True)
+    if len(scored) == 1:
+        return scored[0][1], "fragment(single)"
+    margin = scored[0][0] - scored[1][0]
+    if margin >= margin_thr:
+        return scored[0][1], f"fragment(margin={margin:.3f})"
+    return None, f"frag-ambiguous(margin={margin:.3f})"
 
 
 def derot_to_orig(xd, yd, det):
@@ -247,18 +322,31 @@ def register(name, det, anchors=None, verbose=True):
         res["reason"] = f"insufficient scribes ({len(col_x)} cols, {len(row_y)} rows)"
         return res
 
-    col_cands = candidate_offsets(col_x, D_COL, WIDE_COL, N_COL_LINES)
-    # rows: image-y ascending = wafer-rl DESCENDING. Convert to wafer order.
-    row_y_desc = row_y[::-1]                       # top-of-image first
-    # tall-row pitch in wafer order: use -y so wafer-rl increases with array idx
-    row_pos_wafer = np.sort(-row_y.astype(float))  # wafer-y ascending proxy
-    row_cands = candidate_offsets(row_pos_wafer, D_ROW, TALL_ROW, N_ROW_LINES)
-
     ev = edge_visibility(det)
     res["edge_visibility"] = ev
     EV_THR = 0.15          # a CLEAN wafer edge along the border line
     bars = detect_4d_bars(det)
     res["n_bars_detected"] = len(bars)
+
+    # Column PHASE (mod 4): PREFER the wide-column pitch (reliable when a wide
+    # column is in view); fall back to the 4D bar (its die-col is ≡0 mod 4, so
+    # the col-line just left of the bar is ≡0 mod 4) when no clear wide pitch is
+    # in view (e.g. sweep3's 3 short pitches).
+    n_col_runs = N_COL_LINES - len(col_x) + 1
+    sp = np.diff(np.sort(col_x))
+    col_phase = None
+    if sp.size and sp.max() / np.median(sp) > 1.12:
+        c0 = candidate_offsets(col_x, D_COL, WIDE_COL, N_COL_LINES)
+        col_phase = (c0[0] % 4) if c0 else None
+    if col_phase is None and bars:
+        bx = bars[0][0]
+        left = np.where(col_x < bx)[0]
+        col_phase = (-(int(left[-1]) if left.size else -1)) % 4
+    col_cands = ([c for c in range(n_col_runs) if c % 4 == col_phase]
+                 if col_phase is not None else list(range(n_col_runs)))
+
+    row_pos_wafer = np.sort(-row_y.astype(float))  # wafer-y ascending proxy
+    row_cands = candidate_offsets(row_pos_wafer, D_ROW, TALL_ROW, N_ROW_LINES)
 
     def _interior(cands, n, n_lines):
         return [c for c in cands if not _touches_edge(c, n, n_lines)]
@@ -299,18 +387,23 @@ def register(name, det, anchors=None, verbose=True):
     col_first, col_method = None, "ambiguous"
     if len(col_cands) == 1:
         col_first, col_method = col_cands[0], "unique-phase"
-    elif ev["right"] >= EV_THR and ev["right"] >= ev["left"]:
-        col_first, col_method = (max(col_cands) if col_cands else N_COL_LINES - len(col_x)), "right-edge"
-    elif ev["left"] >= EV_THR:
-        col_first, col_method = (min(col_cands) if col_cands else 0), "left-edge"
     else:
-        intr = _interior(col_cands, len(col_x), N_COL_LINES)
-        if len(intr) == 1:
-            # plausible but UNVERIFIED: a true edge-touching FOV with an
-            # undetected small corner cut would also land here. Low confidence.
-            col_first, col_method = intr[0], "interior-default?"
-        elif col_cands:
-            col_first, col_method = None, f"ambiguous{col_cands}"
+        # PRIMARY: match the observed corner-nick pattern to the fragment outline.
+        if FRAGMENT_MAP is not None and row_first is not None:
+            col_first, col_method = fragment_disambiguate(det, col_cands, row_first)
+        # FALLBACK: substantial wafer edge in view, else lone interior candidate.
+        if col_first is None:
+            if ev["right"] >= EV_THR and ev["right"] >= ev["left"]:
+                col_first, col_method = (max(col_cands) if col_cands else N_COL_LINES - len(col_x)), "right-edge"
+            elif ev["left"] >= EV_THR:
+                col_first, col_method = (min(col_cands) if col_cands else 0), "left-edge"
+            else:
+                intr = _interior(col_cands, len(col_x), N_COL_LINES)
+                if len(intr) == 1:
+                    col_first, col_method = intr[0], "interior-default?"
+                elif col_cands:
+                    col_first = None
+                    col_method = col_method if col_method.startswith("frag") else f"ambiguous{col_cands}"
 
     res.update(col_candidates=col_cands, row_candidates=row_cands,
                col_first=col_first, col_method=col_method,
