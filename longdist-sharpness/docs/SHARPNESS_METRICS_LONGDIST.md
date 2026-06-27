@@ -4,6 +4,20 @@
 > the macro / silicon-wafer rig. The long-distance rig uses natural
 > targets and *no* focus-bracketing rail — depth variation is built into
 > the scene instead.
+>
+> **2026-06 metric updates** (see [`LONGDIST_HANDOVER.md`](LONGDIST_HANDOVER.md)
+> §5.1–§5.5 for the full list):
+> - `radial_cutoff` now uses `REF_BAND = (0.01, 0.10)` (was 0.20),
+>   smooths the normalised spectrum (σ=2 bins), and locates the
+>   *last* threshold crossing with sub-bin linear interpolation. See
+>   [`RADIAL_CUTOFF_SUBBIN_RESULTS.md`](RADIAL_CUTOFF_SUBBIN_RESULTS.md)
+>   and [`RADIAL_CUTOFF_REFBAND_RESULTS.md`](RADIAL_CUTOFF_REFBAND_RESULTS.md).
+> - New algorithm `mtf50_known_edge` reports MTF50, MTF@Nyquist, and
+>   MTF10 from CV-discovered Hough edges on a sharp reference. See
+>   [`MTF50_KNOWN_EDGE_RESULTS.md`](MTF50_KNOWN_EDGE_RESULTS.md).
+> - D7200 ↔ Z7 cross-camera bridge factor measured: ~1.35× in
+>   cy/sensor-px. See
+>   [`CROSS_CAMERA_BRIDGE_RESULTS.md`](CROSS_CAMERA_BRIDGE_RESULTS.md).
 
 ## The two long-distance test designs
 

@@ -1,13 +1,75 @@
 # Long-distance & wide-angle sharpness — session handover
 
-State as of 2026-06-XX (handover written at the end of a multi-day
-session covering long-distance telephoto and wide-angle / standard
-lens-test analysis on both Z7 and D7200).
+State as of **2026-06-28** (handover updated at the end of a
+2026-06 session that landed §5.1–§5.5 follow-ups, added MTF@Nyquist
++ MTF10 to the §5.1 algorithm, and computed the D7200↔Z7 bridge).
 
 This doc is for the next chat session picking up the work. Read it first.
 The detailed numbers and per-lens prose are in [`LONGDIST_TELE_RESULTS.md`](LONGDIST_TELE_RESULTS.md)
 and [`WIDEANGLE_RESULTS.md`](WIDEANGLE_RESULTS.md); methodology is in
-[`SHARPNESS_METRICS_LONGDIST.md`](SHARPNESS_METRICS_LONGDIST.md).
+[`SHARPNESS_METRICS_LONGDIST.md`](SHARPNESS_METRICS_LONGDIST.md);
+metric-change reasoning is in
+[`MTF50_KNOWN_EDGE_RESULTS.md`](MTF50_KNOWN_EDGE_RESULTS.md),
+[`RADIAL_CUTOFF_SUBBIN_RESULTS.md`](RADIAL_CUTOFF_SUBBIN_RESULTS.md),
+[`RADIAL_CUTOFF_REFBAND_RESULTS.md`](RADIAL_CUTOFF_REFBAND_RESULTS.md),
+[`CROSS_CAMERA_BRIDGE_RESULTS.md`](CROSS_CAMERA_BRIDGE_RESULTS.md).
+
+## 2026-06 session — what landed
+
+14 commits covering the §5 follow-up list plus enhancements:
+
+| Commit | Topic |
+|---|---|
+| `85c15e5` | §5.1 CV-discovered slanted-edge MTF50 |
+| `1a8b2f1` | §5.2 sub-bin interpolation on radial_cutoff |
+| `bd914fe` | §5.3 ref-band + smoothing + last-crossing |
+| `4656373` | Cross-date analyses refreshed under §5.3 |
+| `31c53fa` | Result-doc §5.3 banners + §6 headline refresh |
+| `bc73d41` | Tele datasets refreshed + LONGDIST_TELE §12/§13 prose |
+| `5aa5652` | §7 per-lens prose + conclusions-changed summary |
+| `ba09716` | §5.5 D7200 ↔ Z7 cross-camera bridge factor |
+| `73d9aa7` | mtf50_known_edge: MTF@Nyquist + MTF10; §5.4 Z 20/1.8 |
+| `bf9ba32` | Distance-class column on v2 cross-date tables |
+| `775e30c` | §4a/c/d WIDEANGLE prose under §5.3 |
+| `3381429` | Handover §5.3b (distance-class) marked landed |
+| `a06267e` | §4b/§6.5 WIDEANGLE prose; telephoto §5.1 extension proposals |
+
+**Metric changes — what shifted under §5.3:**
+
+- `radial_cutoff`: REF_BAND lowered to (0.01, 0.10), Gaussian
+  smoothing σ=2 bins, last-crossing instead of first-crossing.
+  Absolute values are ~12 % lower for sharp Z7 measurements and
+  *higher* for soft cases previously floored at 0.20.
+- `mtf50_known_edge` (new §5.1 algorithm): CV-discovered Hough
+  edges + ESF contrast normalisation + Tukey taper + smoothed
+  spectrum. Reports MTF50, MTF@Nyquist, MTF10 frequency — three
+  complementary numbers per measurement.
+
+**Key conclusions that changed under §5.3** (not just rescaled):
+
+1. Z TC effectiveness over bare-cropping went from +10 % / +15 %
+   (1.4× / 2.0×) to +24 % / +65 %. The old metric capped the bare
+   400 mm at the 0.20 floor, masking the bare-vs-TC gap.
+2. Z 100-400 bare's "all apertures look the same" still holds, but
+   the absolute level is 0.14–0.19 cy/mm-subj (not the blanket 0.20
+   the floor was reporting).
+3. 300 PF bare's "best centre aperture" is f/5.6, not f/8 (within
+   noise of each other; the f/8 claim was an FFT-bin artefact).
+4. **300 PF + TC-20e III edge/centre on 2026-01-28 reads 1.24** in
+   the new metric (was 1.02) — could be 3D-scene focal-plane
+   artefact, worth visual inspection before publishing.
+5. D7200 long-FL TC chains previously all at 0.20 floor now show
+   clear ordering: bare 0.183 > Kenko 1.4× 0.158 > TC-20e III
+   0.140.
+6. **Z 20/1.8 S top of 20 mm lineup on 2026-02-07** (MTF50_known_edge
+   0.476, beats Z 14-24 at 0.427) — restored user's visual finding
+   via §5.1 CV-edge picker bypassing the grass-centre confound.
+7. **Cross-camera bridge factor: Z7 / D7200 ≈ 1.35×** in
+   cy/sensor-px (1.21× in cy/mm-sensor — pitch differs only 11 %,
+   so the units barely matter). Three F-mount lenses tested on
+   both bodies at the stairs scene.
+
+## 1. What was done this session
 
 ## 1. What was done this session
 
@@ -46,10 +108,13 @@ Four algorithms run on identical tile selections by
    in cy/sensor-pixel. Hyper-stable (0 % median CV), full coverage,
    fully lighting-invariant.
 2. **`mtf50_slanted_edge`** — ISO-12233-style auto-detect. 60–70 %
-   NaN rate on real scenes; current auto-detect doesn't fire on the
-   scene's visible edges (handrails / stair treads / wall horizon).
-   **The user just asked for a CV-based edge ROI rewrite — see §5.1
-   pending work.**
+   NaN rate on real scenes; auto-detect doesn't fire on the scene's
+   visible edges (handrails / stair treads / wall horizon).
+   Superseded by **`mtf50_known_edge`** (§5.1, LANDED 2026-06) which
+   CV-discovers long Hough edges on a sharp reference and measures
+   MTF50, MTF@Nyquist, and MTF10 at the known direction. NaN rate
+   dropped to 9–19 % on wide-angle datasets. See
+   [`MTF50_KNOWN_EDGE_RESULTS.md`](MTF50_KNOWN_EDGE_RESULTS.md).
 3. **`vol`** — variance of Laplacian, gradient-domain. Stable but
    tracks brightness quadratically (−50 % at −0.5 EV, +273 % at
    +1 EV). Same-lighting use only.
@@ -133,12 +198,18 @@ Encoder presence check is hardcoded in `audit_nef_distance.py`'s
 
 ## 4. Key findings carried into the docs
 
-These are the surprising / non-obvious takeaways:
+These are the surprising / non-obvious takeaways. **All numbers in
+this section refer to the §5.3 metric** (post-2026-06). Sections in
+the result docs that still cite pre-§5.3 values are flagged with a
+banner; tables in §4 / §6 of WIDEANGLE_RESULTS.md and §6 / §12 / §13
+of LONGDIST_TELE_RESULTS.md were refreshed.
 
 1. **TC vs cropping the bare 400 mm frame** (`LONGDIST_TELE_RESULTS.md` §6a):
    bare-cropped + upsampled cannot exceed the bare-lens cutoff (info
-   theory). Z TC-1.4× delivers +10 %, Z TC-2.0× +15 % over bare-cropped
-   ceiling (top numbers; median numbers are smaller: +5–10 %).
+   theory). Z TC-1.4× delivers **+24 %** (was +10 %), Z TC-2.0×
+   **+65 %** (was +15 %) over the bare-cropped ceiling. The bare
+   ceiling itself is 0.17 cy/mm-subj (was 0.20 — that was the
+   §5.2 metric floor masking the gap).
 
 2. **Z 100-400 bare-vs-TC effective focal length labelling fix**: the
    directory `Z 100-400 + Z TC-2.0× / 400.0 mm` is `lens-at-200mm + TC`
@@ -152,23 +223,29 @@ These are the surprising / non-obvious takeaways:
    is competitive with bare 300 PF (new finding from 2026-01-30 deep
    sampling).
 
-4. **Z 100-400 family edge/centre ≈ 1.0–1.08** (flat field at all FLs,
-   bare or with Z TCs). **300 PF bare at f/8 edge/centre = 0.60**
-   (centre-only lens at its centre-best stop). Stop down for edges
-   on the F-mount + TC combos: best is consistently f/11.
+4. **Z 100-400 family edge/centre ≈ 1.05–1.12** (flat field at all
+   FLs, bare or with Z TCs). **300 PF bare at f/5.6 edge/centre =
+   0.60** (centre-only lens at its centre-best stop; best-centre
+   moved from f/8 → f/5.6 under §5.3). The 300 PF + TC-20e III at
+   f/11 edge/centre 1.24 on 2026-01-28 is **anomalous** — likely a
+   3D-scene focal-plane artefact, worth visual inspection.
 
 5. **Algorithm comparison** (`WIDEANGLE_RESULTS.md` §3): radial_cutoff
-   wins. mtf50_slanted_edge auto-detect fails on real edges
-   (60–70 % NaN). vol/brenner same-family.
+   (§5.3) is still the primary; `mtf50_known_edge` (§5.1) is the new
+   slanted-edge variant for wide-angle/stairs scenes. vol/brenner
+   same-family.
 
 6. **Wide-angle centre cluster vs edges**: Z 14-24/2.8 S leads centre
-   (0.348 cy/sensor-px at 24 mm f/4); Viltrox AF 50/2 Z best 50 mm;
-   AF-S DX 35/1.8G best 35 mm. **But centres are FFT-bin quantized**
-   so differences within 0.30–0.35 cluster aren't reliable. **Edges
-   open up a wider spread**: F-mount primes drop right edge to 0.20
-   floor at centre-best aperture; Z/Viltrox AF lenses hold edges close
-   to centre. Viltrox 16/1.8 has strong right-edge asymmetry wide-open
-   through f/2.8 (right edge stuck at 0.20).
+   (0.326 cy/sensor-px at 24 mm f/4 under §5.3); Z 24-120/4 S at
+   24 mm f/5.6 takes the #2 spot (0.314); Viltrox AF 50/2 Z best
+   50 mm (0.312). Pre-§5.3 the centre values clustered at 0.30–0.35
+   due to FFT-bin quantization; that compression is **resolved**
+   (442 distinct values across 535 measurements on wide2026_01_24).
+   Edge values that hit the 0.20 floor pre-§5.3 (F-mount primes
+   wide-open) resolve into 0.13–0.21 range, revealing the actual
+   ordering. Viltrox 16/1.8 right edge wide-open is at 0.13–0.16
+   (about half the left edge sharpness) — stronger
+   stop-down-for-corners recommendation under §5.3.
 
 7. **Visual confirmation of "stop down for edges"** on legacy primes
    matches the user's manual notes (AF 20/2.8 fuzzy edges until f/5.6,
@@ -316,6 +393,66 @@ reading in cy/sensor-px (or 1.21 if working in cy/mm-sensor). The
 factor captures Z7's no-OLPF + JPEG-pipeline advantage net of the
 pitch difference.
 
+### 5.6 Open follow-ups (post-2026-06)
+
+The §5.1–§5.5 list landed in 2026-06. New items the next session
+could pick up, in rough priority order:
+
+#### 5.6a Extend `mtf50_known_edge` to telephoto datasets
+
+The §5.1 algorithm currently requires ≥ 400-px Hough segments,
+which is plentiful on the wide-angle stairs scene but sparse on
+telephoto / 3D-shrubbery. Four concrete paths (full discussion in
+[`MTF50_KNOWN_EDGE_RESULTS.md`](MTF50_KNOWN_EDGE_RESULTS.md)
+"Extending to telephoto" section):
+
+- **(A) Relaxed-length retry**: drop `HOUGH_MIN_LINE_PX` from 400
+  to ~150 and re-run on telephoto datasets. Highest-confidence
+  candidates: **2025-07-09 sign-post** (galvanised pole has real
+  step edges) and **2026-01-28 / 30 hedge** (sky/hedge horizon +
+  distant rooflines). Lowest effort first cut.
+- **(B) Sky/hedge boundary segmentation**: brightness-threshold the
+  sky region, take the bottom row of sky per column, smooth, then
+  MTF perpendicular to local tangent. Most general but biggest
+  engineering lift.
+- **(C) Hand-pick edge coordinates per dataset**: open one sharp
+  F8 reference, note (x, y, angle, length) for 2–6 edges, dump as
+  JSON into the per-(lens, FL) `edges.json`. Zero algorithm risk;
+  ~5 min manual labour per scene.
+- **(D) Stay with `radial_cutoff` for true shrubbery** —
+  2026-02-07/telephoto and similar edgeless scenes don't need a
+  slanted-edge metric.
+
+Recommendation: start with (A) on 2025-07-09 sign-post. The user
+noted that some earlier 2025 and 2026-01/02 telephoto shots may
+have usable edges; the late-2026 shots are pure shrubbery.
+
+#### 5.6b 300 PF + TC-20e III edge/centre anomaly on 2026-01-28
+
+§6c of `LONGDIST_TELE_RESULTS.md` shows the TC-20e III combo with
+edge/centre **1.24** at f/11 (was 1.02 pre-§5.3). The §5.3 metric
+shows edges peaking *above* centre — possibly a 3D-scene focal-plane
+artefact (centre and edge branches at different depths) or a
+centre-tile-placement issue. **Visual inspection** of the
+2026-01-28 frames at this combo's 5 field positions would confirm
+whether this is real off-axis-better-than-centre behaviour or an
+analysis artefact. Output: brief note added to §6c.
+
+#### 5.6c Spot-refresh remaining pre-§5.3 prose
+
+Most of the per-lens prose in `LONGDIST_TELE_RESULTS.md` §7 and the
+`WIDEANGLE_RESULTS.md` §4 / §6 tables were refreshed in 2026-06. A
+few small narrative paragraphs further down the docs may still cite
+pre-§5.3 numbers — banners at the top of each doc note this.
+Rankings hold; only absolute magnitudes shift. Low-priority polish.
+
+#### 5.6d Telephoto datasets in `mtf50_known_edge_out/`
+
+The §5.1 algorithm has only been run on the five wide-angle / mid
+datasets so far. If (A)/(C) above proves workable on a tele dataset,
+add the relevant `tele*` keys to the DATASETS dict in
+`poc_known_edge_mtf50.py` and run.
+
 ## 6. Gotchas the next session should know about
 
 ### 6.1 EXIF FocusDistance stripped from JPEG MakerNotes on some days
@@ -417,21 +554,38 @@ dataset: 2–15 min depending on config count.
 - **Results**:
   - `LONGDIST_TELE_RESULTS.md` — Z7 + D7200 telephoto findings
   - `WIDEANGLE_RESULTS.md` — Z7 + D7200 wide-angle findings
+- **Metric-change result docs** (all 2026-06):
+  - `MTF50_KNOWN_EDGE_RESULTS.md` — §5.1 CV-edge MTF50 + MTF@Nyquist
+    + MTF10 algorithm and results; includes "Extending to telephoto"
+    proposals (§5.6a target).
+  - `RADIAL_CUTOFF_SUBBIN_RESULTS.md` — §5.2 sub-bin interpolation.
+  - `RADIAL_CUTOFF_REFBAND_RESULTS.md` — §5.3 ref-band + smoothing.
+  - `CROSS_CAMERA_BRIDGE_RESULTS.md` — §5.5 D7200 ↔ Z7 bridge factor.
 - **Scripts** in `../scripts/`:
-  - `poc_longdist_algorithms.py` — algorithm comparison, all 4 algos
-  - `poc_longdist_cross_date_2026_01.py` — v1 cross-date (lowest-ISO)
-  - `poc_longdist_cross_date_v2_2026_01.py` — v2 cross-date (replicate spread)
-  - `poc_longdist_{100_400,300pf}_field_2026_01_28.py` — single-day field sweeps
-  - `poc_longdist_cross_family_edges_2026_01_28.py` — cross-family edge comparison
-  - `audit_nef_distance.py` — EXIF distance audit
-  - `extract_2025_07_05_jpegs.py` — NEF→JPEG via darktable
+  - `poc_longdist_algorithms.py` — algorithm comparison, all 4 algos.
+    Exports `find_cutoff_from_spec()` shared by the cross-date scripts.
+  - `poc_known_edge_mtf50.py` — §5.1 CV-edge MTF algorithm
+    (discover + dataset + debug-all-segments modes).
+  - `poc_known_edge_mtf50_compare.py` — §5.1 vs auto-detect summary.
+  - `poc_longdist_cross_date_2026_01.py` — v1 cross-date (lowest-ISO);
+    superseded by v2.
+  - `poc_longdist_cross_date_v2_2026_01.py` — v2 cross-date with
+    distance-class column.
+  - `poc_longdist_{100_400,300pf}_field_2026_01_28.py` — single-day field sweeps.
+  - `poc_longdist_cross_family_edges_2026_01_28.py` — cross-family edge comparison.
+  - `audit_nef_distance.py` — EXIF distance audit.
+  - `extract_2025_07_05_jpegs.py` — NEF→JPEG via darktable.
 - **Output dirs** (CSVs, MDs, PNGs):
-  - `poc_longdist_algorithms_out/{wide,tele,mid}<dataset_key>/`
-  - `poc_longdist_cross_date_2026_01_out/`
-  - `poc_longdist_cross_date_v2_2026_01_out/`
-  - `poc_longdist_{100_400,300pf}_field_2026_01_28_out/`
-  - `poc_longdist_cross_family_edges_2026_01_28_out/`
-  - `audit_nef_distance_out/`
+  - `poc_longdist_algorithms_out/{wide,tele,mid}<dataset_key>/` — all
+    refreshed under §5.3 in 2026-06.
+  - `poc_known_edge_mtf50_out/<dataset>/` — §5.1 per-(lens, FL)
+    overlay + edges.json + per_measurement.csv (3 metric columns).
+  - `poc_longdist_cross_date_2026_01_out/`,
+    `poc_longdist_cross_date_v2_2026_01_out/` — refreshed §5.3 +
+    distance-class column on the v2 MD tables.
+  - `poc_longdist_{100_400,300pf}_field_2026_01_28_out/` — refreshed §5.3.
+  - `poc_longdist_cross_family_edges_2026_01_28_out/` — refreshed §5.3.
+  - `audit_nef_distance_out/`.
 
 ## 9. Hard-won facts kept in memory but not always in docs
 
