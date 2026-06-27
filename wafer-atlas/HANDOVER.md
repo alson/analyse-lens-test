@@ -20,18 +20,26 @@ v3, `grid_calibration` block). POC C bond-pad measurement works (`task17`).
 
 ### Next steps (priority order)
 
-1. **Re-run `task15` + `task17` under the v3 grid (hygiene).** I recalibrated the
-   atlas pitches ~1% and regenerated the anchor affines + `fragment_outline`, but
-   the committed `out/task15/*` and `out/diag_2026_06/task17_*` measurement
-   outputs still reflect the OLD geometry. Re-run both, confirm nothing regressed,
-   commit refreshed results. *(low effort)*
+> **Update (2026-06-27, follow-up): steps 1 & 2 below are DONE** (commits
+> `336f4c0` hygiene re-run, `ffe8d3f` autonomous switch). Top remaining item is
+> now **#3 (validate on an unseen sweep)**.
 
-2. **Close the loop: make `task15`/`task17` use autonomous registration.** They
-   currently consume MANUAL anchor affines (`out/sweep_anchors/anchor_fit_params.json`).
-   Switch them to `reg_auto.register(...)["affine_refined"]` (and
-   `reg_auto.grid_xy_distorted` for non-macro lenses) so a NEW sweep needs zero
-   manual anchoring. This is the highest-leverage payoff of the 2026-06-27 work.
-   *(medium effort)*
+1. ~~**Re-run `task15` + `task17` under the v3 grid (hygiene).**~~ **DONE**
+   (`336f4c0`). Re-ran both with the manual anchors under the v3 atlas: every
+   task15 focus argmax and the task17 headline (coverage 100%, lapvar usable 87%,
+   median 138) are UNCHANGED — only underlying per-shot values shift ~1% as the
+   ROIs move. No regression; outputs refreshed.
+
+2. ~~**Close the loop: make `task15`/`task17` use autonomous registration.**~~
+   **DONE** (`ffe8d3f`). Added `reg_auto.register_and_refine(name)` (detect →
+   register → `refine_full_res`, returns the refined distortion-aware affine +
+   provenance). task15 + task17 now default to autonomous registration; projection
+   routed through `reg_auto.grid_xy_distorted` so the radial term applies for
+   non-macro lenses (sweep1 k1=+0.015, sweep4 k1=−0.021; macros stay similarity).
+   `--manual` restores the hand-clicked anchors for cross-check. **Verified
+   identical to baseline**: task15 focus argmaxes match on every instance
+   (137/136/134, 30/21, 28, 0); task17 headline identical. Cold-registration fit
+   residuals 1.11/2.52/5.87/2.22px. **A new sweep needs zero manual anchoring.**
 
 3. **Validate `reg_auto` on a genuinely unseen sweep.** All four test sweeps were
    used in development (two in the grid recal). Pick an untouched sweep (other
