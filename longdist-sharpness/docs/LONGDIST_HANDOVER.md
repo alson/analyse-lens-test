@@ -230,16 +230,23 @@ benefit.
 Suggested entry-point script: `../scripts/poc_known_edge_mtf50.py`.
 Dependencies: opencv-contrib-python is already in `tile-sharpness/pyproject.toml`.
 
-### 5.2 Sub-bin interpolation on radial_cutoff
+### 5.2 Sub-bin interpolation on radial_cutoff — LANDED 2026-06
 
-The centre-cluster compression on wide-angle (0.30–0.35 across many
-lenses, often hitting the same FFT bin value) is FFT-bin quantization.
-Fixes:
-- Linear interpolate between consecutive FFT bins at the cutoff threshold
-  crossing
-- Or use 512×512 tiles instead of 256×256 (finer bin spacing, slower)
+**Status: landed. See [`RADIAL_CUTOFF_SUBBIN_RESULTS.md`](RADIAL_CUTOFF_SUBBIN_RESULTS.md).**
 
-Should improve discriminating power without changing rankings.
+`alg_radial_cutoff` in `poc_longdist_algorithms.py` now linearly
+interpolates between bracketing FFT bins at the `CUTOFF_THRESHOLD =
+0.05` crossing. Three datasets (wide2026_01_24, wide2026_02_07,
+mid2025_09_11) see 5–15× more distinct measurement values with
+Spearman ≈ 1.0 to the pre-fix output (rankings preserved).
+
+Two datasets (wide2025_09_10 D7200, wide2026_01_26 Z7) show no
+improvement — their actual cutoff falls *inside* the ref band, so
+they sit at the metric's floor regardless. That's a metric issue,
+not an interpolation issue, and is teed up as the §5.3 follow-up
+(lower `REF_BAND[1]` from 0.20 to ~0.10 to extend usable range).
+512×512 tiles for finer bin spacing also remains an option but
+costs ~4× compute time.
 
 ### 5.3 Apply distance-class labelling to existing plots
 

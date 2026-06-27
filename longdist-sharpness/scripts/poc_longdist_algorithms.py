@@ -91,7 +91,14 @@ def radial_spectrum(tile: np.ndarray) -> np.ndarray:
 
 
 def alg_radial_cutoff(tile: np.ndarray) -> float:
-    """Normalised radial-spectrum cutoff in cy/sensor-pixel."""
+    """Normalised radial-spectrum cutoff in cy/sensor-pixel.
+
+    Linearly interpolates between the bracketing FFT bins at the
+    threshold crossing (§5.2 handover). Without interpolation many
+    lenses' centre measurements compress onto the same 1/n-cy/px-
+    spaced bin value, making it impossible to discriminate, e.g.,
+    Z 14-24 vs Z 20/1.8 at 24mm/F8 even when they differ optically.
+    """
     spec = radial_spectrum(tile)
     n = tile.shape[0]
     freq = np.arange(n // 2 + 1) / n
@@ -108,7 +115,18 @@ def alg_radial_cutoff(tile: np.ndarray) -> float:
     below = np.where(norm[start:] < CUTOFF_THRESHOLD)[0]
     if len(below) == 0:
         return float("nan")
-    return float(freq[start + below[0]])
+    i = start + int(below[0])
+    if i == 0:
+        return float(freq[i])
+    v_prev = float(norm[i - 1])
+    v_curr = float(norm[i])
+    # Linear sub-bin interp at the crossing. v_prev should be ≥ the
+    # threshold by construction (i is the FIRST bin below); guard
+    # anyway in case of NaN / equal-value edge cases.
+    if v_prev > CUTOFF_THRESHOLD and v_prev != v_curr:
+        frac = (v_prev - CUTOFF_THRESHOLD) / (v_prev - v_curr)
+        return float(freq[i - 1] + frac * (freq[i] - freq[i - 1]))
+    return float(freq[i])
 
 
 def alg_vol(tile: np.ndarray) -> float:
