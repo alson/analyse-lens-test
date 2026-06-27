@@ -243,10 +243,27 @@ Spearman ≈ 1.0 to the pre-fix output (rankings preserved).
 Two datasets (wide2025_09_10 D7200, wide2026_01_26 Z7) show no
 improvement — their actual cutoff falls *inside* the ref band, so
 they sit at the metric's floor regardless. That's a metric issue,
-not an interpolation issue, and is teed up as the §5.3 follow-up
-(lower `REF_BAND[1]` from 0.20 to ~0.10 to extend usable range).
-512×512 tiles for finer bin spacing also remains an option but
-costs ~4× compute time.
+not an interpolation issue. Addressed in §5.3 below.
+
+### 5.3 `radial_cutoff` ref-band + smoothing — LANDED 2026-06
+
+**Status: landed. See [`RADIAL_CUTOFF_REFBAND_RESULTS.md`](RADIAL_CUTOFF_REFBAND_RESULTS.md).**
+
+`alg_radial_cutoff` now uses `REF_BAND = (0.01, 0.10)` (was 0.20),
+Gaussian-smooths the normalised spectrum (σ=2 bins), and locates the
+last-crossing rather than the first. The two previously-stuck
+datasets gain 10–23× more distinct centre values; the three already-
+good datasets keep their rankings (Spearman 0.97–0.98 vs §5.2).
+
+**Downstream impact — same units, different scale.** Absolute
+`radial_cutoff` numbers in `LONGDIST_TELE_RESULTS.md` and
+`WIDEANGLE_RESULTS.md` are now ~12 % lower for sharp Z7 measurements
+and higher for soft cases that were previously floored. Rankings
+within each comparison are preserved (except where the old metric
+was at floor, in which case the new metric reveals previously-hidden
+ordering). The cross-date analysis scripts have NOT been re-run yet
+— left as deliberate follow-up so the headline analysis docs can be
+edited with the new numbers.
 
 ### 5.3 Apply distance-class labelling to existing plots
 

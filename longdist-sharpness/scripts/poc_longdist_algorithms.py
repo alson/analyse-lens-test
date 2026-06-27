@@ -67,8 +67,13 @@ FIELD_POSITIONS = [0.18, 0.34, 0.50, 0.66, 0.82]
 FIELD_BOX_W_FRAC = 0.15
 FIELD_BOX_H_FRAC = 0.20
 
-REF_BAND = (0.01, 0.20)        # for radial_cutoff in cy/sensor-px
+REF_BAND = (0.01, 0.10)        # for radial_cutoff in cy/sensor-px
 CUTOFF_THRESHOLD = 0.05
+# Gaussian smoothing of the normalised radial spectrum before locating
+# the cutoff. Suppresses bin-to-bin oscillations in the mid-frequency
+# range that otherwise let the first-crossing logic fire on noise dips.
+# Sigma is in radial-bin units (1 bin = 1/n cy/px ≈ 0.0039 for n=256).
+RADIAL_SMOOTH_SIGMA = 2.0
 
 
 # --------------------------------------------------------------------- algorithms
@@ -93,11 +98,27 @@ def radial_spectrum(tile: np.ndarray) -> np.ndarray:
 def alg_radial_cutoff(tile: np.ndarray) -> float:
     """Normalised radial-spectrum cutoff in cy/sensor-pixel.
 
-    Linearly interpolates between the bracketing FFT bins at the
-    threshold crossing (§5.2 handover). Without interpolation many
-    lenses' centre measurements compress onto the same 1/n-cy/px-
-    spaced bin value, making it impossible to discriminate, e.g.,
-    Z 14-24 vs Z 20/1.8 at 24mm/F8 even when they differ optically.
+    Three layers of robustness compared to the original implementation:
+
+    1. **Lower ref band** (§5.3): ``REF_BAND = (0.01, 0.10)`` instead
+       of the original (0.01, 0.20). On softer datasets (D7200
+       wide-angle, Z7 wide with soft corners) the spectrum drops below
+       the threshold inside the old ref band, so the metric saturated
+       at 0.2031 cy/px. Lowering REF_BAND[1] gives those datasets
+       headroom while still capturing the low-frequency reference.
+    2. **Gaussian smoothing** (§5.3): the radial spectrum has
+       bin-to-bin oscillations (visible at sigma=0). Smoothing with
+       sigma=2 bins removes spurious noise dips that would otherwise
+       cause the first-crossing logic to fire at the wrong frequency.
+    3. **Last-crossing + linear sub-bin interp** (§5.2 + §5.3):
+       finds the highest frequency where the smoothed spectrum is
+       still above ``CUTOFF_THRESHOLD = 0.05``, then linearly
+       interpolates to where it would cross. More robust than
+       first-crossing on noisy spectra and gives sub-bin precision.
+
+    Returns NaN if the entire post-ref-band spectrum is already
+    below threshold (extremely soft tile — usually means no usable
+    sharpness signal at all).
     """
     spec = radial_spectrum(tile)
     n = tile.shape[0]
@@ -109,23 +130,23 @@ def alg_radial_cutoff(tile: np.ndarray) -> float:
     if ref <= 0:
         return float("nan")
     norm = spec / ref
+    if RADIAL_SMOOTH_SIGMA > 0:
+        norm = ndi.gaussian_filter1d(norm, sigma=RADIAL_SMOOTH_SIGMA)
     start = int(np.argmax(freq > REF_BAND[1]))
     if start == 0:
         start = 1
-    below = np.where(norm[start:] < CUTOFF_THRESHOLD)[0]
-    if len(below) == 0:
+    above = np.where(norm[start:] > CUTOFF_THRESHOLD)[0]
+    if len(above) == 0:
         return float("nan")
-    i = start + int(below[0])
-    if i == 0:
+    i = start + int(above[-1])
+    # Crossing is between bin i (above) and bin i+1 (below)
+    if i + 1 >= len(norm):
         return float(freq[i])
-    v_prev = float(norm[i - 1])
-    v_curr = float(norm[i])
-    # Linear sub-bin interp at the crossing. v_prev should be ≥ the
-    # threshold by construction (i is the FIRST bin below); guard
-    # anyway in case of NaN / equal-value edge cases.
-    if v_prev > CUTOFF_THRESHOLD and v_prev != v_curr:
+    v_prev = float(norm[i])
+    v_curr = float(norm[i + 1])
+    if v_prev != v_curr and v_prev > CUTOFF_THRESHOLD:
         frac = (v_prev - CUTOFF_THRESHOLD) / (v_prev - v_curr)
-        return float(freq[i - 1] + frac * (freq[i] - freq[i - 1]))
+        return float(freq[i] + frac * (freq[i + 1] - freq[i]))
     return float(freq[i])
 
 
