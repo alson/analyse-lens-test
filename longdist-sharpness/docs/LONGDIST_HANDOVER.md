@@ -265,14 +265,18 @@ ordering). The cross-date analysis scripts have NOT been re-run yet
 — left as deliberate follow-up so the headline analysis docs can be
 edited with the new numbers.
 
-### 5.3 Apply distance-class labelling to existing plots
+### 5.3b Distance-class labelling on cross-date tables — LANDED 2026-06
 
-The cross-day comparison plots (e.g., `combined_field_curves.png` in
-`poc_longdist_cross_family_edges_2026_01_28_out/`) silently mix readings
-that are now classified as different distance classes. Adding distance-
-class markers (or filtering to one class per plot) would prevent
-misreading. Low-priority polish — the per-measurement CSVs preserve
-the data; only plots need re-emitting.
+(Original §5.3 in this list before the metric-fix §5.3 was added —
+kept the original numbering for continuity.)
+
+Addressed via the v2 cross-date overlap and per_date tables (which
+now carry a `dist class` column per Reikan two-tier rule: 20× FL
+minimum for FL ≥ 300 mm, 50× FL otherwise; 100× FL = infinity-class).
+No actual cross-day PNG existed — `combined_field_curves.png` is
+single-day 2026-01-28 data so it doesn't need the label. See
+`poc_longdist_cross_date_v2_2026_01_out/overlap.md` for the labelled
+table.
 
 ### 5.4 2026-02-07/wide scene-content confound — RESOLVED 2026-06 by §5.1
 
