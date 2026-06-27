@@ -20,9 +20,10 @@ v3, `grid_calibration` block). POC C bond-pad measurement works (`task17`).
 
 ### Next steps (priority order)
 
-> **Update (2026-06-27, follow-up): steps 1 & 2 below are DONE** (commits
-> `336f4c0` hygiene re-run, `ffe8d3f` autonomous switch). Top remaining item is
-> now **#3 (validate on an unseen sweep)**.
+> **Update (2026-06-27, follow-up): steps 1, 2 & 3 below are DONE** (commits
+> `336f4c0` hygiene re-run, `ffe8d3f` autonomous switch, plus the unseen-sweep
+> validation). Top remaining items are now **#4 (atlas + maze-FFT, deferred)** and
+> **#5 (consolidation / regression test)**.
 
 1. ~~**Re-run `task15` + `task17` under the v3 grid (hygiene).**~~ **DONE**
    (`336f4c0`). Re-ran both with the manual anchors under the v3 atlas: every
@@ -41,10 +42,18 @@ v3, `grid_calibration` block). POC C bond-pad measurement works (`task17`).
    (137/136/134, 30/21, 28, 0); task17 headline identical. Cold-registration fit
    residuals 1.11/2.52/5.87/2.22px. **A new sweep needs zero manual anchoring.**
 
-3. **Validate `reg_auto` on a genuinely unseen sweep.** All four test sweeps were
-   used in development (two in the grid recal). Pick an untouched sweep (other
-   aperture/lens under `…/test-raw-data/`), run `reg_auto`, confirm it registers.
-   *(low–medium)*
+3. ~~**Validate `reg_auto` on a genuinely unseen sweep.**~~ **DONE**
+   (`scripts/diag_validate_unseen.py`). Registered **NIKKOR Z MC 105mm f/2.8 @
+   1:1 / F11 (2026-01-29)** — a different lens from all four dev sweeps, never
+   used in dev or the grid recal, an internal-focus macro at the standard F11.
+   Fully autonomous (no anchors): **fit RMSE 2.42px** (12 intersections),
+   col_first=5 (fragment, margin 0.281), row_first=2 (4D-bar), tilt 4.25°
+   (in-envelope), model=similarity (correctly no radial term for a macro).
+   Independent cross-check: recovered **scale 1.666 matches sweep2's 1.655 (the
+   other M=1.0 macro) to 0.7%** — a wrong registration could not reproduce the
+   known M=1.0 scale. Generalization confirmed. *(Note: many lenses store
+   full-frame stacks directly under the aperture dir, e.g. `…/1_1/F11/*.jpg`;
+   only `cropped/` subdirs hold per-region tiles.)*
 
 4. **Item #3 (deferred): atlas + maze-FFT at high M** — see Pending §3 below.
    Still untouched.
