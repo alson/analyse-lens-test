@@ -24,7 +24,7 @@ The atlas knows:
 3. **Per-feature FFT pitch signatures** for the pad-grid features
    (so a sharpness measurement at low M can target a known pad
    periodicity instead of guessing).
-4. **The fragment outline** (`fragment_outline`, schema v2) — per
+4. **The fragment outline** (`fragment_outline`, schema v3) — per
    physical die cell (col 0..10 × row A..F) wafer coverage: 1 = whole,
    0 = absent (off-wafer), in between = jagged/partial. This is the
    "whole-vs-jagged" inventory, used to disambiguate the absolute
@@ -137,7 +137,7 @@ clean at that pose.
 
 | Path | Content |
 |---|---|
-| `atlas.json` | Canonical atlas data (16 die types + grid + structural metadata + `fragment_outline`, schema v2). |
+| `atlas.json` | Canonical atlas data (16 die types + grid + structural metadata + `fragment_outline` + recalibrated `grid_calibration`, schema v3). |
 | `scripts/` | Build pipeline + measurement scripts. Numbered/dated by iteration. |
 | `in/0129_painted2.png` | User-painted feature regions on the 0129 photo (50 MB, not in git). |
 | `out/0129/grid_params.json` | Per-photo grid solve for the atlas-build 0129 photo. |
@@ -147,5 +147,11 @@ clean at that pose.
 ## Status
 
 Atlas build, anchor-based registration, and atlas-anchored measurement
-are all working end-to-end. Autonomous registration and a few specific
-measurement quirks remain as follow-ups — see HANDOVER.md.
+are all working end-to-end. **Autonomous registration is now also working**
+(`scripts/reg_auto.py`): tilt-by-scribe-alignment + 4D-bar row anchor +
+fragment-outline column disambiguation + gap-aware labelling, then a fast
+full-res refinement (with a radial-distortion term for non-macro lenses) to
+~1–6px. The wafer grid was recalibrated from full-res measurements (schema v3).
+Several sections above (the `Sweep test set` table, the "Autonomous
+(work-in-progress)" note) predate this work — see **`REPORT_2026-06-27.md`** for
+the current state and `HANDOVER.md` for the original handover.

@@ -1,0 +1,20 @@
+{
+ "d_col": [
+  852.7660703189351,
+  712.7524860305638,
+  711.7709563893028,
+  714.0019809427604
+ ],
+ "d_row": [
+  713.5191132241254,
+  850.7810865294127,
+  714.5630927595147,
+  711.1993198876598
+ ],
+ "refs": [
+  "sweep1_M0.385",
+  "sweep2_M1.0"
+ ],
+ "held_out_improved": true,
+ "note": "recalibrated wafer pitches in 0129-px (d_col[0] anchored to atlas); joint fit over reference sweeps with per-sweep affine+radial distortion."
+}

@@ -98,6 +98,7 @@ def main():
     atlas["schema_version"] = max(atlas.get("schema_version", 1), 2)
     json.dump(atlas, open(atlas_path, "w"), indent=2)
     json.dump(fragment_outline, open(A / "out" / "fragment_map.json", "w"), indent=1)
+    _schema = atlas["schema_version"]
 
     print("Fragment coverage map (rows F..A top..bottom, cols 0..10):")
     print("      " + " ".join(f"c{c:<3}" for c in range(N_COL)))
@@ -124,7 +125,7 @@ def main():
             ax[1].text(col, row, f"{grid[row,col]:.2f}", ha="center", va="center", fontsize=8)
     fig.colorbar(im, ax=ax[1]); fig.tight_layout()
     fig.savefig(OUT / "fragment_map.png", dpi=100)
-    print(f"\npromoted fragment_outline into atlas.json (schema_version -> 2); "
+    print(f"\npromoted fragment_outline into atlas.json (schema_version={_schema}); "
           f"copy at out/fragment_map.json; overlay at out/diag_2026_06/fragment_map.png")
 
 
