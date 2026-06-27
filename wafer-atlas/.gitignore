@@ -18,11 +18,13 @@ out/v2/
 
 # Registration method outputs — regeneratable.
 out/registration/*.png
-out/task12/*.png
 out/task15/*.png
 
 # 2026-06-27 follow-up diagnostics — regeneratable from scripts (JSON kept).
 out/diag_2026_06/*.png
+
+# Unified atlas-focus tool plots — regeneratable (per-sweep JSON kept).
+out/atlas_focus/*.png
 
 # Stale intermediate atlas (superseded by ../atlas.json).
 out/atlas_top3.json

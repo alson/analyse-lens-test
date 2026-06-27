@@ -1,0 +1,96 @@
+{
+ "name": "sweep3_M2.0",
+ "M": 2.0,
+ "n_shots": 77,
+ "n_dies": 4,
+ "lsf_ref": 30,
+ "use_maze": true,
+ "reg_fit_rmse_px": 5.8692577440044085,
+ "lapvar": {
+  "usable": 4,
+  "n": 4,
+  "median": 32,
+  "iqr": [
+   31,
+   32
+  ],
+  "gap_vs_lsf": 2
+ },
+ "maze": {
+  "usable": 4,
+  "n": 4,
+  "median": 32,
+  "iqr": [
+   31,
+   32
+  ],
+  "gap_vs_lsf": 2
+ },
+ "tilt": null,
+ "per_die": [
+  {
+   "col": 5,
+   "row": 2,
+   "cx": 3018.141526818012,
+   "cy": 4129.356003811895,
+   "lap": {
+    "argmax": 29,
+    "snr": 23.240623978372412,
+    "usable": true
+   },
+   "maze": {
+    "argmax": 29,
+    "snr": 4.056998449083954,
+    "usable": true
+   }
+  },
+  {
+   "col": 5,
+   "row": 3,
+   "cx": 3197.7585541702297,
+   "cy": 1738.0616011833608,
+   "lap": {
+    "argmax": 32,
+    "snr": 34.48305982096358,
+    "usable": true
+   },
+   "maze": {
+    "argmax": 32,
+    "snr": 4.679497060566527,
+    "usable": true
+   }
+  },
+  {
+   "col": 6,
+   "row": 2,
+   "cx": 5407.357923641861,
+   "cy": 4308.81694614796,
+   "lap": {
+    "argmax": 32,
+    "snr": 23.58746793013008,
+    "usable": true
+   },
+   "maze": {
+    "argmax": 32,
+    "snr": 4.139226934085638,
+    "usable": true
+   }
+  },
+  {
+   "col": 6,
+   "row": 3,
+   "cx": 5586.974950994079,
+   "cy": 1917.522543519426,
+   "lap": {
+    "argmax": 33,
+    "snr": 33.566567424538306,
+    "usable": true
+   },
+   "maze": {
+    "argmax": 35,
+    "snr": 4.460305616778575,
+    "usable": true
+   }
+  }
+ ]
+}
