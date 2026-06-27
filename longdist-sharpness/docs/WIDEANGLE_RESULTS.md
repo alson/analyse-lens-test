@@ -37,7 +37,9 @@ its own ranking.
 > Lenses that previously read identical 0.328 cy/sensor-px at centre
 > now have differentiable values. Edge values that previously hit
 > the 0.20 floor (F-mount primes wide-open) resolve into 0.13–0.18
-> cy/px range — rankings the same, magnitudes more honest.
+> cy/px range — rankings the same, magnitudes more honest. The
+> §4a–§4d tables and the §6/§6.5 lens prose are now all refreshed
+> with §5.3 values.
 
 ## 1. Setup
 
@@ -288,16 +290,28 @@ that spans the whole frame width — stop down past the centre-best
 aperture. Best **edge-mean** ((x=0.18 + x=0.82)/2) aperture per lens
 where it differs notably from centre-best:
 
-| Lens | Centre-best | Edge-best | Edge-mean @ best |
-|---|---|---|---|
-| Viltrox AF 14/4 Z @ 14 | f/5.6 (centre 0.30) | **f/5.6** | 0.305 |
-| Viltrox AF 50/2 Z @ 50 | f/2.8 (centre 0.336) | **f/4** | 0.307 (with centre 0.324) |
-| Nikon AF Micro 60/2.8D @ 60 | f/5.6 (centre 0.324) | **f/8** | 0.282 (with centre still 0.32) |
-| Nikon AF-S DX 35/1.8G @ 35 | f/5.6 (centre 0.324) | **f/8** | 0.278 (centre drops only to 0.316) |
-| NIKKOR Z 14-24/2.8 S @ 24 | f/4 (centre 0.348) | **f/5.6** | 0.279 |
+Table refreshed under §5.3 metric:
 
-For most lenses, the edge optimum is **1 stop tighter than the centre
-optimum** — confirming the photographer's rule of thumb.
+| Lens | Centre-best | Edge-best | Edge-mean @ best | centre at edge-best |
+|---|---|---|---|---|
+| AF Nikkor 50/1.8 N @ 50 | f/2.8 (centre 0.290) | **f/11** | 0.275 | 0.247 |
+| Viltrox AF 50/2 Z @ 50 | f/2.8 (centre 0.312) | **f/4** | 0.271 | 0.279 |
+| NIKKOR Z 24-120/4 S @ 50 | f/4 (centre 0.268) | **f/5.6** | 0.268 | 0.247 |
+| AF Nikkor 35/2 @ 35 | f/16 (centre 0.250) | **f/11** | 0.253 | 0.249 |
+| NIKKOR Z 24-120/4 S @ 24 | f/5.6 (centre 0.314) | **f/4** | 0.253 | 0.314 |
+| AF Micro 60/2.8D @ 60 | f/5.6 (centre 0.296) | **f/11** | 0.246 | 0.257 |
+| NIKKOR Z 14-24/2.8 S @ 24 | f/4 (centre 0.326) | **f/5.6** | 0.242 | 0.318 |
+| AF-S 50/1.8G @ 50 | f/2 (centre 0.288) | **f/11** | 0.242 | 0.221 |
+| Sigma 24/2.8 SWII @ 24 | f/5.6 (centre 0.282) | **f/8** | 0.234 | 0.268 |
+| PC-Nikkor 35/2.8 @ 35 | f/4 (centre 0.271) | **f/11** | 0.208 | 0.215 |
+
+The classic rule of thumb "edge optimum is 1–2 stops tighter than
+centre optimum" still holds under §5.3 for the F-mount AF-D / G
+primes (50/1.8 N centre F2.8 → edge F11, AF Micro 60/2.8D centre
+F5.6 → edge F11). The Z and Viltrox AF lenses are tighter — centre
+and edge optima are within 1 stop. The §5.2 metric mapped many of
+these centre-best apertures onto the same FFT bin, masking which
+lens actually peaks where; §5.3 resolves this.
 
 ### 4c. Viltrox 16/1.8 Z — strong wide-open asymmetry
 
@@ -523,21 +537,30 @@ Scene: same stairs-and-grass scene as the 2026 Z7 dates (the photographer
 re-uses this physical location across years). DX framing → wider FOV per
 mm.
 
-Top centre cutoff per lens (radial_cutoff, cy/sensor-px), all at the
-lens's best centre aperture:
+Top centre cutoff per lens (radial_cutoff, cy/sensor-px) under §5.3:
 
 | Lens (best FL, aperture) | centre cy/sensor-px |
 |---|---|
-| Sigma 18-35/1.8 DC HSM @ 24 / 35 mm, f/5.6 | ~0.30 |
-| AF-S DX 17-55/2.8G @ 35 mm, f/5.6 | ~0.28–0.30 |
-| AF-S DX Nikkor 16-80/2.8-4E @ 24 mm, f/5.6 | ~0.28 |
-| Tokina 11-20/2.8 PRO DX @ 14 mm, f/8 | ~0.26–0.28 |
-| Sigma 10-20/4-5.6 @ 14-17 mm, f/8 | ~0.24–0.26 |
-| AF DX Fisheye 10.5/2.8G @ 10.5 mm, f/8 | ~0.24 |
-| AF Nikkor 20/2.8 (non-D) @ 20 mm, f/8 | ~0.24 (no-D — visual edges very fuzzy until f/5.6 per user) |
-| AF-S DX 16-85/3.5-5.6G @ 24 mm, f/8 | ~0.24 |
-| Nikkor-N.C 24/2.8 (manual focus, no encoder) @ 24 mm, f/8 | ~0.22 |
-| Sigma 24/2.8 Super Wide II Macro (non-D, non-AF) @ 24 mm, f/8 | ~0.22 |
+| Tokina 11-20/2.8 PRO DX @ 18 mm, f/8 | **0.231** |
+| Sigma 10-20/4-5.6 EX DC HSM @ 17 mm, f/8 | 0.181 |
+| AF-S DX 18-70/3.5-4.5G @ 20 mm, f/11 | 0.173 |
+| AF DX Fisheye 10.5/2.8G @ 10.5 mm, f/4 | 0.139 |
+| AF-S DX 16-85/3.5-5.6G @ 22 mm, f/5.6 | 0.108 |
+| AF-S DX 16-80/2.8-4E @ 20 mm, f/5.6 | 0.106 |
+| Sigma 18-35/1.8 DC HSM @ 22 mm, f/2.8 | 0.102 |
+
+Under §5.3 the D7200 wide values are **substantially lower** than
+the pre-§5.3 prose stated (which had them at ~0.22–0.30). That prose
+was reading the §5.2 metric floor — under §5.3 the D7200 + OLPF +
+JPEG-pipeline combo on this stairs scene is genuinely soft, with the
+Tokina 11-20 PRO DX clearly leading and the AF-S DX kit zooms +
+Sigma 18-35 in a tighter 0.10–0.11 cluster at centre. Cross-camera
+ratio (§5.5) of ~1.35× brings these closer to the Z7 readings but
+the Sigma 18-35 still trails the Z 14-24 substantially.
+
+Multiply D7200 numbers by ~1.35 (cy/sensor-px) or ~1.21 (cy/mm-sensor)
+when bridging to Z7 readings — see
+[`CROSS_CAMERA_BRIDGE_RESULTS.md`](CROSS_CAMERA_BRIDGE_RESULTS.md).
 
 (See `per_measurement.csv` for full table.)
 
@@ -622,17 +645,26 @@ AF Nikkor 50/1.8 (non-D).
 ### 6.5c. D7200 wide-angle summary
 
 The D7200 wide-angle lineup samples both modern S-mount class lenses
-(Sigma 18-35/1.8, AF-S DX 16-80) and older F-mount kit zooms. The
-modern Sigma 18-35 takes the top spot on the D7200 the same way the
-Z 14-24 does on the Z7 — modern designs hold edges much better than
-the older kit. The AF-S DX 17-55/2.8G is also competitive.
+(Sigma 18-35/1.8, AF-S DX 16-80) and older F-mount kit zooms.
 
-The legacy AF non-D primes (AF 20/2.8, AF 50/1.8 N) and the manual
-focus Nikkor-N.C / Sigma 24/2.8 Super Wide II Macro all sit a few
-percent below the modern lenses at centre, consistent with the
-Z7-side pattern. (Pre-§5.3 they read 0.22–0.24 in this lineup; the
-§5.3 absolute values are roughly 12 % lower but the relative ordering
-is unchanged.)
+Under §5.3 the centre cy/sensor-px values land in a 0.10–0.23 range
+on the 2025-09-10 wide dataset and 0.13–0.23 on 2025-09-11 midrange
+— substantially lower than the pre-§5.3 0.22–0.30 readings, which
+were at the §5.2 metric floor. The D7200 sensor + OLPF + JPEG-pipeline
+combo is genuinely soft on this stairs scene at these focal lengths,
+and **the Tokina 11-20 PRO DX (0.231 at 18 mm f/8) tops the wide
+lineup** rather than the Sigma 18-35/1.8 — the Sigma trails because
+on 2025-09-10 its best reads are at the wide end (~0.10 at 22 mm
+f/2.8) where wide-open softness dominates. The Sigma's mid range
+(35 mm f/4 reads 0.191 on 2025-09-11) is more competitive.
+
+The legacy AF non-D primes (AF 35/2 at 0.187, AF 50/1.8 N at 0.159
+on 2025-09-11) and the manual focus Nikkor-N.C / Sigma 24/2.8
+Super Wide II Macro (0.16 / 0.13) sit below the modern lenses,
+consistent with the Z7-side pattern. To compare directly against
+the Z7 datasets, apply the **§5.5 cross-camera bridge factor of
+~1.35×** (cy/sensor-px) — see
+[`CROSS_CAMERA_BRIDGE_RESULTS.md`](CROSS_CAMERA_BRIDGE_RESULTS.md).
 
 ## 7. Limitations and follow-ups
 

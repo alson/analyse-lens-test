@@ -129,12 +129,107 @@ coherent normalisation.
   use different edge sets. Cross-(lens, FL) MTF50 comparison is not
   apples-to-apples in the way `radial_cutoff` is.
 - **Telephoto / 3D-shrubbery scenes** still don't have usable step
-  edges. The new algorithm is for wide-angle / mid stairs-scene
-  datasets only.
+  edges across the entire dataset. The new algorithm is for
+  wide-angle / mid stairs-scene datasets by default. See
+  "Extending to telephoto" below for scene-by-scene options.
 - **Above sensor Nyquist** the slanted-edge oversampling produces
   spectrum values but they mix real lens MTF with aliased content
   (Z7 has no OLPF). The algorithm caps reads at 0.5 cy/sensor-px
   deliberately.
+
+## Extending to telephoto / mid datasets — proposals
+
+The current algorithm requires ≥ 400-px long Hough segments on a
+sharp reference, which is plentiful on the wide-angle stairs scene
+but sparse on the existing telephoto frames (mostly 3D shrubbery
+where the dominant gradients are short twig branches). Three
+practical paths, ordered by complexity:
+
+### A. Try the existing algorithm at relaxed length, per-dataset
+
+Lowest-effort first cut. Drop `HOUGH_MIN_LINE_PX` from 400 to ~150
+and re-run on each telephoto dataset. If the algorithm finds usable
+edges at the lower length and the resulting MTF50 values pass the
+reference-MTF floor (≥ 0.20), the dataset is implicitly viable.
+
+Likely viable candidates by visual inspection of one sharp F8 frame:
+
+- **2025-07-09 (D7200)** — the **galvanised sign post** in the scene
+  has two long vertical edges (left/right of the pole) of order
+  150–300 px. With min-length lowered, Hough should pick these.
+  The pole-vs-grass contrast is high and the edge is a true step.
+  This is the highest-confidence telephoto candidate.
+- **2026-01-28 / 30 (Z7)** — the 300 PF and Z 100-400 family shots
+  at 31.62 m / 84 m include a **distant building skyline / chimney
+  silhouettes** plus the **horizon-line where the shrubbery meets
+  sky**. Lengths are scene-dependent; worth checking with a single
+  `discover` run.
+
+Workflow: run `poc_known_edge_mtf50.py discover --reference <sharp_F8>`
+with the lowered minimum, view the overlay, and decide per scene.
+
+### B. Sky / hedge boundary as a "soft" structural edge
+
+For shrubbery shots the only inherently long boundary is the
+**sky/hedge horizon** — irregular (twigs poking up) but mostly
+monotonic. Two ways to extract it:
+
+1. **Brightness-threshold segmentation**: binarise on the sky
+   brightness, take the bottom row of the sky region per column,
+   smooth with a median filter. The resulting curve is the
+   sky/hedge boundary. Sample MTF perpendicular to its local
+   tangent in 20–40 short ROIs along the curve.
+2. **Hough on the smoothed boundary**: extract the contour as a
+   1-D y(x) signal, look for the longest near-horizontal stretch
+   where curvature is low, and treat that stretch as a single
+   "slanted" edge for ISO-12233-style MTF.
+
+This is the most general approach but takes real engineering
+(segmentation tuning, boundary smoothing, MTF on a curved-rather-
+than-straight edge). The boundary is also where lens *centre*
+isn't always — the metric becomes a "boundary MTF" which may
+emphasise different field positions than the wide-angle MTF50.
+
+### C. Hand-pick edge coordinates per dataset
+
+Lowest-tech path: open one sharp F8 reference per dataset in any
+image viewer, note the (x, y, angle, length) of 2–6 well-chosen
+edges, dump those as JSON into the per-(lens, FL) edges.json the
+algorithm normally generates. The measurement step works unchanged
+because it's just reading `EdgeSpec` records.
+
+Pros: zero algorithm risk; you pick edges the algorithm already
+knows how to measure.
+Cons: manual labour per dataset (~5 minutes per scene class), and
+the choice is no longer reproducible from code.
+
+For the existing datasets this would be:
+
+- 2025-07-09 sign-post: 2–3 pole edges
+- 2026-01-28 / 30 hedge: sky/hedge horizon + any visible
+  distant building or roofline
+- 2026-02-07 telephoto: shrubbery only — skip; the dataset is
+  genuinely edgeless and the bell-curve / radial_cutoff path
+  remains the right metric there.
+
+A small CLI to load a `edges.json` you hand-curate and run the
+measurement step against the dataset's other apertures /
+replicates would be ~30 lines on top of the existing code.
+
+### D. Different metric for true shrubbery
+
+When no usable structural edges exist, fall back to the existing
+`radial_cutoff` (§5.3 metric) for ranking. The current per-config
+sharpness CSV under `poc_longdist_algorithms_out/tele*/` is already
+the right artefact for those datasets — no need to force a
+slanted-edge metric onto a scene that doesn't have edges.
+
+### Recommendation
+
+Start with (A) on 2025-07-09 (sign-post) — if it works, that's the
+test case for the relaxed-length variant. Then (C) for any specific
+telephoto cross-date the user wants quantified. (B) is a research
+project rather than a quick fix.
 
 ## 2026-06 — Z 20/1.8 ordering on wide2026_02_07 restored
 
