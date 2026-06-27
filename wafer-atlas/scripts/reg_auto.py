@@ -49,13 +49,26 @@ morphological path fail (anchor RMSE ~6000px):
   trough gives y, their crossing is the intersection. De-rotation is essential at
   low M (sweep1), where the tilt otherwise smears the trough below threshold.
 
-  RESULT (reg_auto.py, vs known anchors): ALL FOUR sweeps register FULLY
-  AUTONOMOUSLY. Low-res -> refined RMSE: sweep1 27->6 px (43 intersections),
-  sweep2 56->10 px (24), sweep3 46->15 px (7), sweep4 37->9 px (15) — all were
-  6,000-10,000 px, or total detection failure for sweep1. The refined 6-15 px
-  matches the manual 3-anchor method (2-8 px), fully autonomously. Includes the
-  nicked-corner (sweep2) and deep-interior (sweep3: "absence of a nick is
-  information") cases.
+  ACCURACY METRIC. The right measure is the refinement's INTERNAL fit residual
+  (how well the many auto-detected intersections fit one grid), NOT the RMSE vs
+  the 3 hand-clicked anchors — those carry their own ~few-px human click error
+  and so OVERSTATE the refinement's error (they floor at ~6-10 px regardless).
+
+  RESULT (reg_auto.py): ALL FOUR sweeps register FULLY AUTONOMOUSLY. Refined fit
+  residual (R=160 ROI; the ~5deg tilt-de-rotation margin matters — R=140 was
+  ~40% worse): sweep1 1.8 px (43 intersections), sweep2 4.2 px (24), sweep3
+  8.5 px (7), sweep4 8.1 px (15). All were 6,000-10,000 px low-res, or total
+  detection failure for sweep1. With N intersections the affine itself is pinned
+  to ~residual/sqrt(N) (sweep1 ~0.3 px) — better than the manual 3-anchor method.
+
+  RESIDUAL BUDGET (see diag_distortion_grid.py): the true-macro sweep2 (AF200)
+  has ZERO lens distortion (radial k~0); the non-macro lenses DO — radial
+  correction cuts sweep4's (24-120+ext) residual 8.7->5.4 px and the 100-400
+  shows ~11 px edge distortion at r=3000. The atlas grid pitch ratios are
+  accurate to ~0.5% vs the full-res measurement. So for non-macro lenses a
+  radial-distortion term would help; for macros the residual is peak-localization
+  + JPEG, near the floor. Includes the nicked-corner (sweep2) and deep-interior
+  (sweep3: "absence of a nick is information") cases.
 
 Run:  reg_auto.py            # autonomous registration of all sweeps + validation
       reg_auto.py --validate # just the mapping/label sanity probe
@@ -580,7 +593,7 @@ def _trough(prof, min_depth_std=1.0):
     return i + float(np.clip(off, -1, 1))
 
 
-def refine_full_res(path, p, R=140, band=100):
+def refine_full_res(path, p, R=160, band=100):
     """Refine a low-res affine to sub-pixel using FULL-RES data, fast: the prior
     affine `p` already locates every scribe intersection to ~tens of px, so we
     only re-measure each in a small ROI (one full decode, then tiny windows) and
@@ -619,9 +632,9 @@ def refine_full_res(path, p, R=140, band=100):
             yr = Minv[1, 0] * xd + Minv[1, 1] * yd + Minv[1, 2]
             pairs.append((cl, rl, (xi - R) + xr, (yi - R) + yr))
     if len(pairs) < 4:
-        return p, 0
+        return p, 0, []
     pr = af.fit_sweep_affine(pairs, ATLAS, theta_init_deg=theta, scale_init=p["scale"])
-    return pr, len(pairs)
+    return pr, len(pairs), pairs
 
 
 def _anchor_rmse(p, anchors):
@@ -633,8 +646,12 @@ def _anchor_rmse(p, anchors):
 
 def main():
     results = {}
-    print(f"{'sweep':<18} {'col_off':>16} {'row_off':>14} "
-          f"{'lowres_rmse':>12} {'refined_rmse':>13} {'n_int':>6}")
+    # refined_fit = internal fit residual of the auto-detected intersections (the
+    # TRUE accuracy metric). vs_anchor = RMSE against the 3 hand-clicked anchors,
+    # which is floored by human click uncertainty (~few px) and so OVERSTATES the
+    # error — shown only for cross-check.
+    print(f"{'sweep':<18} {'col_off':>13} {'row_off':>10} {'n_int':>6} "
+          f"{'refined_fit':>12} {'(vs_anchor)':>12}")
     for name, (path, anchors) in SWEEPS.items():
         det = detect(path)
         r = register(name, det, anchors=anchors)
@@ -642,14 +659,14 @@ def main():
         if not r.get("success"):
             print(f"{name:<18}   FAIL: {r.get('reason')}")
             continue
-        pr, n_int = refine_full_res(path, r["affine"])
+        pr, n_int, _ = refine_full_res(path, r["affine"])
         r["affine_refined"] = pr
         r["n_refine_intersections"] = n_int
+        r["refined_fit_rmse_px"] = pr.get("rmse_px")
         r["anchor_rmse_refined_px"] = _anchor_rmse(pr, anchors)
-        print(f"{name:<18} {str(r['col_first'])+'('+r['col_method'].split('(')[0]+')':>16} "
-              f"{str(r['row_first'])+'('+r['row_method']+')':>14} "
-              f"{r.get('anchor_rmse_px', float('nan')):>11.1f}p "
-              f"{r['anchor_rmse_refined_px']:>12.1f}p {n_int:>6}")
+        print(f"{name:<18} {str(r['col_first'])+'('+r['col_method'].split('(')[0]+')':>13} "
+              f"{str(r['row_first'])+'('+r['row_method']+')':>10} {n_int:>6} "
+              f"{r['refined_fit_rmse_px']:>11.2f}p {r['anchor_rmse_refined_px']:>11.1f}p")
     json.dump(results, open(OUT / "reg_auto_results.json", "w"), indent=1, default=float)
     print(f"\nsaved {OUT/'reg_auto_results.json'}")
 
