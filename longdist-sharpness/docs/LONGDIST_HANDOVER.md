@@ -184,9 +184,22 @@ These are the surprising / non-obvious takeaways:
 
 ## 5. Open follow-ups (priority order)
 
-### 5.1 CV-based edge ROI for `mtf50_slanted_edge` (USER JUST REQUESTED)
+### 5.1 CV-based edge ROI for `mtf50_slanted_edge` — LANDED 2026-06
 
-**Status: planned, not started.**
+**Status: landed. See [`MTF50_KNOWN_EDGE_RESULTS.md`](MTF50_KNOWN_EDGE_RESULTS.md).**
+
+Implementation: `scripts/poc_known_edge_mtf50.py` (discover + dataset
+modes) and `scripts/poc_known_edge_mtf50_compare.py`. Output under
+`scripts/poc_known_edge_mtf50_out/<dataset>/`. NaN rate dropped from
+38–71 % (auto-detect) to 9–19 %; replicate CV from ~35–85 % to
+single-digit medians; Spearman ρ vs `radial_cutoff` went from
+essentially zero to 0.34–0.52 across all five wide-angle datasets.
+
+The original "planned" notes below are kept for context. Open
+follow-up: §5.2 sub-bin interpolation is now the next bottleneck —
+many sharp edges saturate the new metric at the ≈0.49 cy/px Nyquist
+cap. Telephoto / 3D-shrubbery scenes still don't benefit from this
+algorithm (no usable structural edges).
 
 User specifically asked for a computer-vision approach since we know
 which structural objects are in each scene-class. Auto-detect currently

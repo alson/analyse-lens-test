@@ -1,0 +1,763 @@
+"""CV-based known-edge slanted-edge MTF50 — prototype.
+
+The auto-detect ``mtf50_slanted_edge`` in ``poc_longdist_algorithms.py``
+fails on 60-70 % of real wide-angle tiles because its in-tile gradient
+direction estimate doesn't fire on the scene's actual long edges (wall
+horizon, stair-tread boundaries, pavement edge). The fix: locate the
+long edges per-(lens, FL) reference image via Canny + Hough, then
+measure each test image's MTF50 with the *given* edge direction rather
+than auto-detecting.
+
+This script supports three modes:
+
+- ``discover``: take one reference JPEG, find top-K candidate edges,
+  emit an overlay PNG + JSON specs. The first deliverable — lets the
+  user eyeball whether the right edges were picked.
+- ``measure``: take a JSON spec + a test JPEG, return MTF50 per edge.
+- ``dataset``: walk a dataset like ``poc_longdist_algorithms.py``,
+  pick a per-(lens, FL) sharp reference, discover edges, measure on
+  every replicate, and write per_measurement.csv.
+
+Run via ``direnv exec . uv run python scripts/poc_known_edge_mtf50.py``.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Optional
+
+import cv2
+import numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+
+# Reuse dataset definitions + config discovery from the algorithm script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import poc_longdist_algorithms as pla  # noqa: E402
+
+# ----- tunables -----------------------------------------------------------
+
+# Hough line minimum length (in the original full-resolution frame).
+# Bumped from 200 → 400 to reject grass-texture short edges that
+# otherwise out-score the long structural edges (pavement boundary,
+# hill horizon) on the wide-angle stairs scene.
+HOUGH_MIN_LINE_PX = 400
+# Hough max gap that still merges two collinear segments.
+HOUGH_MAX_GAP_PX = 24
+# Canny thresholds (on 0..255 luma). Low edge of L=30 catches the
+# grass/asphalt and grass/sky boundaries which are moderate contrast.
+CANNY_LOW = 30
+CANNY_HIGH = 90
+# After Hough, segments closer in (rho, theta) than this are merged.
+# Bumped to 100 px so the many parallel sub-edges along the
+# pavement/grass boundary (paver grout lines etc.) collapse to one.
+NMS_RHO_PX = 100.0
+NMS_THETA_RAD = math.radians(5.0)
+# Spatial-diversity binning: split the frame into N_BIN_X × N_BIN_Y
+# cells and keep at most MAX_PER_BIN candidates per cell.
+N_BIN_X = 4
+N_BIN_Y = 3
+MAX_PER_BIN = 2
+# ROI shape (long axis along the edge, short axis across).
+EDGE_ROI_LEN = 256
+EDGE_ROI_WID = 128
+# Minimum slant from axis-aligned, in either direction. Without slant
+# the ESF has no sub-pixel sampling and the MTF caps at Nyquist.
+MIN_SLANT_DEG = 1.0
+# Top-K edges to keep after scoring.
+DEFAULT_TOP_K = 12
+# Reference-MTF50 floor for accepting a candidate edge. Texture and
+# soft / partial edges fall well below 0.15 on the Z7 sharp F8 frame.
+MTF_REF_FLOOR = 0.20
+# Local refinement search radius perpendicular to the edge (px in the
+# original image). Handles micro-shifts in edge position between
+# replicates (subject motion, JPEG noise, slight rig vibration).
+# Kept small (5) so the search can't hop onto a nearby parallel
+# feature (e.g. a paver grout line ~10 px from the main boundary).
+LOCAL_REFINE_RADIUS = 5
+# After refinement, the gradient-peak strength must be at least this
+# fraction of the reference strength; otherwise the edge is occluded
+# (pedestrian / cyclist / moving cloud) and MTF50 is NaN.
+MIN_PEAK_RATIO = 0.40
+# Final MTF50 floor — values below this are FFT-bin-noise artefacts
+# (the LSF is too noisy to give a meaningful spectrum). Drops the
+# 0.02-0.08 cy/px outliers that occasionally survive the refinement
+# step and inflate replicate-spread CV.
+MTF50_RESULT_FLOOR = 0.10
+
+# ----- edge spec ----------------------------------------------------------
+
+@dataclass
+class EdgeSpec:
+    """One candidate edge in image coordinates.
+
+    ``angle_rad`` is the orientation of the edge line itself (NOT the
+    gradient normal). ``length_px`` is the Hough segment length. Score
+    is the product of mean gradient strength and two-sided contrast.
+    """
+    mid_x: float
+    mid_y: float
+    angle_rad: float
+    length_px: float
+    grad_mean: float
+    contrast: float
+    score: float
+
+    # Reference gradient-peak strength (across-edge ΔI mean over the
+    # length-aligned sample line). Filled in by ``discover_edges`` and
+    # used at measurement time to detect occluded edges in test frames.
+    ref_peak: float = 0.0
+
+    # Optional metadata
+    edge_id: Optional[int] = None
+    label: Optional[str] = None
+
+    def to_json(self) -> dict:
+        d = asdict(self)
+        return d
+
+    @classmethod
+    def from_json(cls, d: dict) -> "EdgeSpec":
+        return cls(**d)
+
+
+# ----- discovery ----------------------------------------------------------
+
+def _canny_hough_segments(luma: np.ndarray) -> np.ndarray:
+    """Run Canny + probabilistic Hough on a uint8 luma image. Returns
+    an (N, 4) array of segments [x1, y1, x2, y2]."""
+    if luma.dtype != np.uint8:
+        luma = luma.astype(np.uint8)
+    edges = cv2.Canny(luma, CANNY_LOW, CANNY_HIGH, apertureSize=3, L2gradient=True)
+    segs = cv2.HoughLinesP(
+        edges,
+        rho=1,
+        theta=math.pi / 720,           # 0.25 deg resolution
+        threshold=80,
+        minLineLength=HOUGH_MIN_LINE_PX,
+        maxLineGap=HOUGH_MAX_GAP_PX,
+    )
+    if segs is None:
+        return np.empty((0, 4), dtype=np.int32)
+    return segs.reshape(-1, 4)
+
+
+def _segment_to_polar(x1: float, y1: float, x2: float, y2: float) -> tuple[float, float]:
+    """Return (rho, theta) for the infinite line containing the segment.
+    theta is the angle of the line (not the normal); rho is the
+    signed perpendicular distance from origin in pixel units."""
+    angle = math.atan2(y2 - y1, x2 - x1)
+    # Normal direction (perpendicular to segment direction)
+    nx = -math.sin(angle)
+    ny = math.cos(angle)
+    rho = nx * x1 + ny * y1
+    # Canonicalise: keep theta in [-pi/2, pi/2)
+    if angle >= math.pi / 2:
+        angle -= math.pi
+        rho = -rho
+    elif angle < -math.pi / 2:
+        angle += math.pi
+        rho = -rho
+    return rho, angle
+
+
+def _nms_merge(segments: list[tuple[float, float, float, float, float]],
+               rho_tol: float, theta_tol: float) -> list[tuple[float, float, float, float, float]]:
+    """Greedy NMS: keep the longest segment in each (rho, theta) cluster.
+    Each input tuple is (rho, theta, x1, y1, x2, y2)? Actually use what
+    the caller passes."""
+    kept: list[tuple[float, float, float, float, float]] = []
+    for seg in segments:
+        rho, theta, length, mid_x, mid_y, *rest = seg
+        keep = True
+        for k_rho, k_theta, *_ in kept:
+            d_theta = abs(theta - k_theta)
+            d_theta = min(d_theta, math.pi - d_theta)
+            if d_theta < theta_tol and abs(rho - k_rho) < rho_tol:
+                keep = False
+                break
+        if keep:
+            kept.append(seg)
+    return kept
+
+
+def _gradient_along_normal(luma: np.ndarray, mid_x: float, mid_y: float,
+                           angle_rad: float, half_length: int,
+                           probe_offset: int = 6) -> tuple[float, float]:
+    """Sample brightness on either side of the edge.
+
+    Returns ``(grad_mean, contrast)`` where:
+    - ``grad_mean`` = mean absolute brightness gradient across the edge
+      (samples along the edge, finite-diff perpendicular).
+    - ``contrast`` = mean(|side_a - side_b|), where side_a and side_b
+      are sampled along strips parallel to the edge offset by
+      ``probe_offset`` px on either side."""
+    nx = -math.sin(angle_rad)
+    ny = math.cos(angle_rad)
+    tx = math.cos(angle_rad)
+    ty = math.sin(angle_rad)
+    h, w = luma.shape
+    s = np.linspace(-half_length, half_length, num=2 * half_length + 1)
+    pts_x = mid_x + s * tx
+    pts_y = mid_y + s * ty
+    a_x = pts_x + probe_offset * nx
+    a_y = pts_y + probe_offset * ny
+    b_x = pts_x - probe_offset * nx
+    b_y = pts_y - probe_offset * ny
+
+    def sample(xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        xi = np.clip(np.round(xs).astype(np.int32), 0, w - 1)
+        yi = np.clip(np.round(ys).astype(np.int32), 0, h - 1)
+        return luma[yi, xi].astype(np.float32)
+
+    a = sample(a_x, a_y)
+    b = sample(b_x, b_y)
+    contrast = float(np.mean(np.abs(a - b)))
+    # Gradient: short finite-difference perpendicular at each midpoint
+    p_x = mid_x + s * tx + 1.5 * nx
+    p_y = mid_y + s * ty + 1.5 * ny
+    m_x = mid_x + s * tx - 1.5 * nx
+    m_y = mid_y + s * ty - 1.5 * ny
+    grad_mean = float(np.mean(np.abs(sample(p_x, p_y) - sample(m_x, m_y))))
+    return grad_mean, contrast
+
+
+def _is_too_axis_aligned(angle_rad: float) -> bool:
+    """Reject edges that are within MIN_SLANT_DEG of horizontal or vertical
+    AND axis-aligned (i.e., within the dead zone where the slanted-edge ESF
+    can't be sub-pixel sampled)."""
+    deg = math.degrees(angle_rad) % 180
+    # Distance to nearest axis (0 or 90 or 180)
+    d0 = min(deg, 180 - deg)              # to horizontal
+    d90 = abs(deg - 90)                   # to vertical
+    return min(d0, d90) < MIN_SLANT_DEG
+
+
+def all_hough_segments_for_debug(luma: np.ndarray) -> list[tuple[int, int, int, int, float, float]]:
+    """Return (x1, y1, x2, y2, length, angle_deg) for every Hough segment
+    that passes the minimum-length filter, for debug overlays."""
+    segs = _canny_hough_segments(luma)
+    out = []
+    for x1, y1, x2, y2 in segs:
+        length = math.hypot(x2 - x1, y2 - y1)
+        if length < HOUGH_MIN_LINE_PX:
+            continue
+        _, theta = _segment_to_polar(float(x1), float(y1), float(x2), float(y2))
+        out.append((int(x1), int(y1), int(x2), int(y2), float(length),
+                    float(math.degrees(theta))))
+    return out
+
+
+def discover_edges(luma: np.ndarray, top_k: int = DEFAULT_TOP_K,
+                   roi_len: int = EDGE_ROI_LEN) -> list[EdgeSpec]:
+    """Find candidate edges via Canny+Hough; rank by gradient*contrast."""
+    segs = _canny_hough_segments(luma)
+    raw: list[tuple] = []
+    for x1, y1, x2, y2 in segs:
+        length = math.hypot(x2 - x1, y2 - y1)
+        if length < HOUGH_MIN_LINE_PX:
+            continue
+        rho, theta = _segment_to_polar(float(x1), float(y1), float(x2), float(y2))
+        # Use the line angle relative to x-axis in [-pi/2, pi/2)
+        mid_x = (x1 + x2) / 2.0
+        mid_y = (y1 + y2) / 2.0
+        raw.append((rho, theta, length, mid_x, mid_y, x1, y1, x2, y2))
+
+    # NMS by (rho, theta)
+    raw.sort(key=lambda r: -r[2])  # sort longest first so longest wins ties
+    merged = _nms_merge(raw, rho_tol=NMS_RHO_PX, theta_tol=NMS_THETA_RAD)
+
+    # Score each by gradient*contrast over the segment, with axis-aligned reject
+    specs: list[EdgeSpec] = []
+    for rho, theta, length, mid_x, mid_y, x1, y1, x2, y2 in merged:
+        # The "line angle" we record is the segment direction; reject
+        # if too close to perfectly axis-aligned (no slant for ESF).
+        if _is_too_axis_aligned(theta):
+            continue
+        half = min(int(length / 2), roi_len // 2)
+        grad_mean, contrast = _gradient_along_normal(luma, mid_x, mid_y, theta, half)
+        # Length factor: long, low-contrast structural edges should beat
+        # short, high-contrast grass-texture edges for slanted-edge MTF.
+        # sqrt(length) gives a gentle reward without saturating.
+        score = grad_mean * contrast * math.sqrt(length)
+        specs.append(EdgeSpec(
+            mid_x=float(mid_x), mid_y=float(mid_y),
+            angle_rad=float(theta), length_px=float(length),
+            grad_mean=grad_mean, contrast=contrast, score=score,
+        ))
+
+    specs.sort(key=lambda s: -s.score)
+
+    # Drop candidates whose MTF50 on the reference falls below
+    # MTF_REF_FLOOR. Texture / soft / partial edges produce values
+    # near 0.05; clean step edges land at 0.25-0.50 on this Z7 JPEG.
+    h, w = luma.shape
+    cleaned: list[EdgeSpec] = []
+    for s in specs:
+        m = mtf50_known_edge(luma, s)
+        if math.isnan(m) or m < MTF_REF_FLOOR:
+            continue
+        cleaned.append(s)
+
+    # Spatial-diversity filter: bin into N_BIN_X × N_BIN_Y cells and
+    # keep MAX_PER_BIN candidates per cell (taken in score order).
+    bin_w = w / N_BIN_X
+    bin_h = h / N_BIN_Y
+    per_bin: dict[tuple[int, int], int] = {}
+    diverse: list[EdgeSpec] = []
+    for s in cleaned:
+        bx = min(N_BIN_X - 1, int(s.mid_x / bin_w))
+        by = min(N_BIN_Y - 1, int(s.mid_y / bin_h))
+        if per_bin.get((bx, by), 0) >= MAX_PER_BIN:
+            continue
+        per_bin[(bx, by)] = per_bin.get((bx, by), 0) + 1
+        diverse.append(s)
+        if len(diverse) >= top_k:
+            break
+
+    for i, s in enumerate(diverse):
+        s.edge_id = i
+        # Record the reference gradient-peak strength so test-frame
+        # measurements can detect occluded / moved-subject edges.
+        _, _, peak = _refine_edge_position(luma, s)
+        s.ref_peak = peak
+    return diverse
+
+
+# ----- overlay ------------------------------------------------------------
+
+OVERLAY_MAX_WIDTH = 1800  # downsample overlays to this before saving
+
+
+def render_overlay(rgb: np.ndarray, specs: list[EdgeSpec],
+                   out_path: Path, roi_len: int = EDGE_ROI_LEN,
+                   roi_wid: int = EDGE_ROI_WID) -> None:
+    """Draw selected edges + their ROIs on the colour image. The
+    output is downsampled to OVERLAY_MAX_WIDTH px to keep the file
+    git-friendly — visual inspection only needs ~1800 px wide."""
+    canvas = rgb.copy()
+    h, w = canvas.shape[:2]
+    for spec in specs:
+        angle = spec.angle_rad
+        tx = math.cos(angle); ty = math.sin(angle)
+        nx = -math.sin(angle); ny = math.cos(angle)
+        half_len = roi_len / 2
+        half_wid = roi_wid / 2
+        # Edge line endpoints (yellow)
+        ex1 = int(spec.mid_x - half_len * tx); ey1 = int(spec.mid_y - half_len * ty)
+        ex2 = int(spec.mid_x + half_len * tx); ey2 = int(spec.mid_y + half_len * ty)
+        cv2.line(canvas, (ex1, ey1), (ex2, ey2), (255, 255, 0), 3)
+        # ROI box (cyan)
+        corners = []
+        for sx, sy in [(-1, -1), (1, -1), (1, 1), (-1, 1)]:
+            cx = spec.mid_x + sx * half_len * tx + sy * half_wid * nx
+            cy = spec.mid_y + sx * half_len * ty + sy * half_wid * ny
+            corners.append((int(cx), int(cy)))
+        for i in range(4):
+            cv2.line(canvas, corners[i], corners[(i + 1) % 4], (0, 255, 255), 2)
+        # Label (red)
+        cv2.putText(canvas, f"#{spec.edge_id} {math.degrees(angle):+.1f}°",
+                    (int(spec.mid_x) + 8, int(spec.mid_y) - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.4, (255, 0, 0), 3)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    img = Image.fromarray(canvas)
+    if img.width > OVERLAY_MAX_WIDTH:
+        new_h = int(round(img.height * OVERLAY_MAX_WIDTH / img.width))
+        img = img.resize((OVERLAY_MAX_WIDTH, new_h), Image.LANCZOS)
+    img.save(out_path, quality=85)
+
+
+# ----- MTF50 with known angle --------------------------------------------
+
+def _extract_axis_aligned_roi(luma: np.ndarray, mid_x: float, mid_y: float,
+                              angle_rad: float, length: int = EDGE_ROI_LEN,
+                              width: int = EDGE_ROI_WID) -> Optional[np.ndarray]:
+    """Extract an axis-aligned bounding box around the oriented edge.
+
+    The box has to be big enough to contain the edge segment (length
+    along the edge, width across the edge) regardless of orientation,
+    so its sides are ``L = |length * cos(θ)| + |width * sin(θ)|`` and
+    ``H = |length * sin(θ)| + |width * cos(θ)|``. We pad slightly so
+    that pixels well outside the ROI don't get binned. Returns the
+    box (as a luma sub-array) plus the (x0, y0) origin in the original
+    image — caller needs origin to map ROI coords back to image coords."""
+    h, w = luma.shape
+    cos_a = math.cos(angle_rad); sin_a = math.sin(angle_rad)
+    box_w = int(math.ceil(abs(length * cos_a) + abs(width * sin_a))) + 4
+    box_h = int(math.ceil(abs(length * sin_a) + abs(width * cos_a))) + 4
+    x0 = int(round(mid_x - box_w / 2))
+    y0 = int(round(mid_y - box_h / 2))
+    if x0 < 0 or y0 < 0 or x0 + box_w > w or y0 + box_h > h:
+        return None
+    return luma[y0:y0 + box_h, x0:x0 + box_w], (x0, y0)
+
+
+def _refine_edge_position(luma: np.ndarray, spec: EdgeSpec,
+                          length: int = EDGE_ROI_LEN,
+                          width: int = EDGE_ROI_WID,
+                          search_radius: int = LOCAL_REFINE_RADIUS
+                          ) -> tuple[float, float, float]:
+    """Search ±search_radius px perpendicular to the edge for the
+    gradient-energy maximum; return (new_mid_x, new_mid_y, peak_strength).
+
+    Sub-pixel refinement is done by a parabolic fit to the 3 strongest
+    perpendicular offsets. Peak strength is the average across-edge
+    gradient at the refined position, which lets the caller reject
+    occluded edges (cyclist crossing) where the local gradient
+    collapses.
+    """
+    h, w = luma.shape
+    angle = spec.angle_rad
+    nx = -math.sin(angle); ny = math.cos(angle)
+    tx = math.cos(angle); ty = math.sin(angle)
+    half_len = min(length / 2, spec.length_px / 2)
+    n_samples = max(32, int(half_len))
+    s = np.linspace(-half_len, half_len, num=2 * n_samples + 1)
+    pts_t_x = spec.mid_x + s * tx
+    pts_t_y = spec.mid_y + s * ty
+
+    offsets = np.arange(-search_radius, search_radius + 1)
+    energies = np.zeros_like(offsets, dtype=np.float64)
+    for i, off in enumerate(offsets):
+        # Sample brightness profile across the edge at this offset
+        a_x = pts_t_x + (off + 1.5) * nx
+        a_y = pts_t_y + (off + 1.5) * ny
+        b_x = pts_t_x + (off - 1.5) * nx
+        b_y = pts_t_y + (off - 1.5) * ny
+        ax = np.clip(np.round(a_x).astype(np.int32), 0, w - 1)
+        ay = np.clip(np.round(a_y).astype(np.int32), 0, h - 1)
+        bx = np.clip(np.round(b_x).astype(np.int32), 0, w - 1)
+        by = np.clip(np.round(b_y).astype(np.int32), 0, h - 1)
+        diff = luma[ay, ax].astype(np.float32) - luma[by, bx].astype(np.float32)
+        energies[i] = float(np.mean(np.abs(diff)))
+
+    i_max = int(np.argmax(energies))
+    peak_strength = float(energies[i_max])
+    # Parabolic sub-pixel refinement
+    if 0 < i_max < len(offsets) - 1:
+        y0, y1, y2 = energies[i_max - 1], energies[i_max], energies[i_max + 1]
+        denom = (y0 - 2 * y1 + y2)
+        if denom != 0:
+            sub = 0.5 * (y0 - y2) / denom
+        else:
+            sub = 0.0
+    else:
+        sub = 0.0
+    refined_off = float(offsets[i_max]) + sub
+    return (spec.mid_x + refined_off * nx,
+            spec.mid_y + refined_off * ny,
+            peak_strength)
+
+
+def mtf50_known_edge(luma: np.ndarray, spec: EdgeSpec,
+                     length: int = EDGE_ROI_LEN,
+                     width: int = EDGE_ROI_WID,
+                     refine: bool = True,
+                     min_peak: float = 0.0) -> float:
+    """ESF → LSF → MTF50 on an axis-aligned ROI around a known edge,
+    projecting pixel coords onto the known gradient-normal direction.
+
+    The edge runs along ``(cos(angle), sin(angle))`` so the gradient
+    normal is ``(-sin(angle), cos(angle))``. For every pixel in the
+    ROI we compute its signed distance to the edge midpoint along the
+    normal, then bin into 0.25-px bins to recover an oversampled ESF.
+
+    Pixels too far from the modelled edge (along the edge tangent) are
+    masked out — only the central ``length`` strip parallel to the
+    edge contributes. This rejects the corners of the ROI that don't
+    belong to the edge profile.
+
+    Returns MTF50 in cycles per ORIGINAL image pixel."""
+    if refine:
+        mx, my, peak = _refine_edge_position(luma, spec, length=length,
+                                              width=width)
+        if min_peak > 0 and peak < min_peak:
+            return float("nan")
+    else:
+        mx, my = spec.mid_x, spec.mid_y
+    out = _extract_axis_aligned_roi(luma, mx, my, spec.angle_rad,
+                                    length=length, width=width)
+    if out is None:
+        return float("nan")
+    roi, (x0, y0) = out
+    angle = spec.angle_rad
+    cos_a = math.cos(angle); sin_a = math.sin(angle)
+    nx = -sin_a; ny = cos_a
+    tx = cos_a; ty = sin_a
+
+    h, w = roi.shape
+    yy, xx = np.indices((h, w))
+    # Coords relative to the (possibly refined) edge midpoint, in
+    # original image pixels.
+    dx = (x0 + xx) - mx
+    dy = (y0 + yy) - my
+    # Distance along edge normal (across-edge)
+    dist_n = dx * nx + dy * ny
+    # Distance along edge tangent (along-edge)
+    dist_t = dx * tx + dy * ty
+    # Mask: keep pixels within length/2 along edge and width/2 across
+    mask = (np.abs(dist_t) <= length / 2) & (np.abs(dist_n) <= width / 2)
+    if mask.sum() < length * 4:
+        return float("nan")
+
+    bin_size = 0.25
+    d = dist_n[mask].ravel()
+    v = roi[mask].ravel()
+    d_min = float(d.min()); d_max = float(d.max())
+    n_bins = int(math.ceil((d_max - d_min) / bin_size)) + 1
+    if n_bins < 32:
+        return float("nan")
+    bin_idx = np.clip(((d - d_min) / bin_size).astype(np.int32), 0, n_bins - 1)
+    esf_sum = np.bincount(bin_idx, v.astype(np.float64), minlength=n_bins)
+    esf_count = np.bincount(bin_idx, minlength=n_bins)
+    esf = esf_sum / np.maximum(esf_count, 1)
+    valid = esf_count > 2
+    if valid.sum() < 32:
+        return float("nan")
+    first = int(np.argmax(valid))
+    last = n_bins - 1 - int(np.argmax(valid[::-1]))
+    esf = esf[first:last + 1]
+    if len(esf) < 32:
+        return float("nan")
+    esf = ndi.gaussian_filter1d(esf, sigma=1.0)
+    lsf = np.diff(esf)
+    if len(lsf) < 32:
+        return float("nan")
+    win = np.hanning(len(lsf))
+    lsf = lsf * win
+    mtf = np.abs(np.fft.fft(lsf))
+    if mtf[0] <= 0:
+        return float("nan")
+    mtf = mtf / mtf[0]
+    n = len(lsf)
+    freqs = np.arange(n) / (n * bin_size)    # cy per original-image pixel
+    half = n // 2
+    f = freqs[:half]; m = mtf[:half]
+    cap = np.searchsorted(f, 0.5)
+    f = f[:max(cap, 4)]; m = m[:len(f)]
+    below = np.where(m < 0.5)[0]
+    if len(below) == 0:
+        # Edge sharper than the FFT can resolve — cap at the highest
+        # measurable frequency. Rare on real wide-angle JPEGs.
+        return float(f[-1])
+    i = int(below[0])
+    if i == 0:
+        return float("nan")
+    m_prev, m_curr = m[i - 1], m[i]
+    if m_prev == m_curr:
+        result = float(f[i])
+    else:
+        frac = (0.5 - m_prev) / (m_curr - m_prev)
+        result = float(f[i - 1] + frac * (f[i] - f[i - 1]))
+    if result < MTF50_RESULT_FLOOR:
+        return float("nan")
+    return result
+
+
+# ----- IO -----------------------------------------------------------------
+
+def load_luma(path: Path) -> np.ndarray:
+    """Luma plane as float32 in [0, 255]."""
+    return np.asarray(Image.open(path).convert("L"), dtype=np.float32)
+
+
+def load_rgb(path: Path) -> np.ndarray:
+    return np.asarray(Image.open(path).convert("RGB"))
+
+
+def specs_to_json(specs: list[EdgeSpec]) -> str:
+    return json.dumps([s.to_json() for s in specs], indent=2)
+
+
+def specs_from_json(text: str) -> list[EdgeSpec]:
+    return [EdgeSpec.from_json(d) for d in json.loads(text)]
+
+
+# ----- main ---------------------------------------------------------------
+
+def cmd_discover(args: argparse.Namespace) -> int:
+    ref = Path(args.reference)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    luma = load_luma(ref)
+    print(f"[discover] reference {ref.name} shape={luma.shape}", flush=True)
+    if args.debug_all_segments:
+        rgb = load_rgb(ref)
+        canvas = rgb.copy()
+        for x1, y1, x2, y2, length, ang in all_hough_segments_for_debug(luma):
+            cv2.line(canvas, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        debug_path = out_dir / "all_hough_segments.jpg"
+        Image.fromarray(canvas).save(debug_path, quality=85)
+        print(f"[discover] all hough segments → {debug_path}")
+    specs = discover_edges(luma, top_k=args.top_k)
+    print(f"[discover] found {len(specs)} edges (top-{args.top_k})", flush=True)
+    for s in specs:
+        print(f"  #{s.edge_id} mid=({s.mid_x:.0f},{s.mid_y:.0f}) "
+              f"angle={math.degrees(s.angle_rad):+.1f}° len={s.length_px:.0f} "
+              f"grad={s.grad_mean:.1f} contrast={s.contrast:.1f} score={s.score:.0f}")
+    (out_dir / "edges.json").write_text(specs_to_json(specs))
+    # MTF50 sanity check on the reference itself
+    mtfs = [mtf50_known_edge(luma, s) for s in specs]
+    print("[discover] reference MTF50 per edge (cy/px):")
+    for s, m in zip(specs, mtfs):
+        print(f"  #{s.edge_id}: {m if not math.isnan(m) else float('nan'):.3f}")
+    rgb = load_rgb(ref)
+    overlay_path = out_dir / "overlay.jpg"
+    render_overlay(rgb, specs, overlay_path)
+    print(f"[discover] overlay → {overlay_path}")
+    return 0
+
+
+# ----- dataset mode -------------------------------------------------------
+
+# Aperture preference order for picking a "sharp reference" frame per
+# (lens, FL). F8 is the canonical optimum on FX glass; lower-aperture
+# falls back to F5.6 → F11 → F4 etc.
+REF_APERTURE_ORDER = ["F8", "F11", "F5.6", "F4", "F2.8", "F16", "F22"]
+
+
+def _pick_reference_jpeg(configs_for_lens_fl: list["pla.Config"]) -> Optional[Path]:
+    """Pick one sharp-aperture JPEG to discover edges on. Prefer F8;
+    fall back through REF_APERTURE_ORDER. Within the chosen aperture
+    pick the largest-file replicate (sharpest by file-size proxy)."""
+    by_aper = {c.aperture: c for c in configs_for_lens_fl}
+    for aper in REF_APERTURE_ORDER:
+        if aper in by_aper:
+            cfg = by_aper[aper]
+            if not cfg.jpegs:
+                continue
+            return max(cfg.jpegs, key=lambda p: p.stat().st_size)
+    # No preferred aperture found; use whatever's available
+    for c in configs_for_lens_fl:
+        if c.jpegs:
+            return max(c.jpegs, key=lambda p: p.stat().st_size)
+    return None
+
+
+def _safe_slug(s: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in s)
+
+
+def cmd_dataset(args: argparse.Namespace) -> int:
+    """Walk a dataset, per (lens, FL): discover edges on a sharp F8
+    reference, measure MTF50 on every replicate-aperture frame."""
+    key = args.dataset
+    if key not in pla.DATASETS:
+        print(f"unknown dataset {key!r}; choose from {list(pla.DATASETS)}",
+              file=sys.stderr)
+        return 2
+    cfg = pla.DATASETS[key]
+    out_root = Path(__file__).parent / (Path(__file__).stem + "_out")
+    out_dir = out_root / key
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[dataset] {key} → {out_dir}", flush=True)
+
+    configs = pla.discover(cfg["root"], cfg["date"], cfg["lens_filter"])
+    print(f"[dataset] discovered {len(configs)} configs", flush=True)
+
+    # Group by (lens_dir, focal_mm)
+    by_lens_fl: dict[tuple[str, float], list[pla.Config]] = {}
+    for c in configs:
+        by_lens_fl.setdefault((c.lens_dir, c.focal_mm), []).append(c)
+
+    rows: list[dict] = []
+    items = sorted(by_lens_fl.items())
+    if args.limit:
+        items = items[:args.limit]
+    for (lens, fl), group in items:
+        slug = f"{_safe_slug(lens)}__{fl:.1f}mm"
+        sub_out = out_dir / slug
+        sub_out.mkdir(parents=True, exist_ok=True)
+        ref_path = _pick_reference_jpeg(group)
+        if ref_path is None:
+            print(f"[dataset] {slug}: no reference JPEG, skip", flush=True)
+            continue
+        print(f"[dataset] {slug}: reference={ref_path.name}", flush=True)
+
+        ref_luma = load_luma(ref_path)
+        specs = discover_edges(ref_luma, top_k=args.top_k)
+        if not specs:
+            print(f"[dataset] {slug}: no usable edges found, skip", flush=True)
+            continue
+        (sub_out / "edges.json").write_text(specs_to_json(specs))
+        render_overlay(load_rgb(ref_path), specs, sub_out / "overlay.jpg")
+        ref_mtfs = [mtf50_known_edge(ref_luma, s) for s in specs]
+        for s, m in zip(specs, ref_mtfs):
+            rows.append(dict(
+                date=cfg["date"], camera=cfg["camera"], lens_dir=lens,
+                focal_mm=fl, aperture="REF", aperture_f=float("nan"),
+                jpeg=ref_path.name, edge_id=s.edge_id,
+                edge_mid_x=s.mid_x, edge_mid_y=s.mid_y,
+                edge_angle_deg=math.degrees(s.angle_rad),
+                edge_length_px=s.length_px, edge_score=s.score,
+                mtf50=m, role="reference",
+            ))
+
+        # Measure on every replicate at every aperture
+        for c in sorted(group, key=lambda c: c.aperture_f):
+            for jp in c.jpegs:
+                luma = load_luma(jp)
+                for s in specs:
+                    m = mtf50_known_edge(luma, s,
+                                          min_peak=s.ref_peak * MIN_PEAK_RATIO)
+                    rows.append(dict(
+                        date=cfg["date"], camera=cfg["camera"], lens_dir=lens,
+                        focal_mm=fl, aperture=c.aperture, aperture_f=c.aperture_f,
+                        jpeg=jp.name, edge_id=s.edge_id,
+                        edge_mid_x=s.mid_x, edge_mid_y=s.mid_y,
+                        edge_angle_deg=math.degrees(s.angle_rad),
+                        edge_length_px=s.length_px, edge_score=s.score,
+                        mtf50=m, role="test",
+                    ))
+            print(f"[dataset]   {slug} aper {c.aperture}: {len(c.jpegs)} reps",
+                  flush=True)
+
+    csv_path = out_dir / "per_measurement.csv"
+    if rows:
+        import csv as _csv
+        with csv_path.open("w", newline="") as f:
+            w = _csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            w.writeheader()
+            for r in rows:
+                w.writerow(r)
+        print(f"[dataset] wrote {csv_path} ({len(rows)} rows)")
+    else:
+        print("[dataset] no rows to write", file=sys.stderr)
+        return 1
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description=__doc__)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sp = sub.add_parser("discover", help="Find top-K edges on a reference image")
+    sp.add_argument("--reference", required=True)
+    sp.add_argument("--out-dir", required=True)
+    sp.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
+    sp.add_argument("--debug-all-segments", action="store_true",
+                    help="Also dump all surviving Hough segments overlay.")
+    sp.set_defaults(fn=cmd_discover)
+
+    sp = sub.add_parser("dataset", help="Walk a dataset; per (lens, FL) "
+                        "discover edges and measure MTF50 across replicates.")
+    sp.add_argument("dataset", choices=list(pla.DATASETS),
+                    help="Dataset key from poc_longdist_algorithms.py")
+    sp.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
+    sp.add_argument("--limit", type=int, default=0,
+                    help="Process only the first N (lens, FL) groups; 0 = all.")
+    sp.set_defaults(fn=cmd_dataset)
+    return p
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
