@@ -593,6 +593,54 @@ def _trough(prof, min_depth_std=1.0):
     return i + float(np.clip(off, -1, 1))
 
 
+DIST_CENTER = (8256 / 2.0, 5504 / 2.0)   # optical centre ~ image centre
+DIST_NORM = 4000.0                        # radius normalization (k1,k2 ~ O(0.01))
+
+
+def _forward(prm, cl, rl):
+    """Full forward model (cl,rl) -> image (x,y): similarity grid projection then
+    radial distortion (k1,k2) about the image centre. prm = (theta, x0, y0, scale,
+    k1, k2)."""
+    th, x0, y0, s, k1, k2 = prm
+    U = af._cum(D_COL, cl); V = af._cum(D_ROW, rl)
+    c, sn = np.cos(th), np.sin(th)
+    xu = x0 + s * (c * U + sn * V)
+    yu = y0 + s * (sn * U - c * V)
+    dx, dy = xu - DIST_CENTER[0], yu - DIST_CENTER[1]
+    r2 = (dx * dx + dy * dy) / DIST_NORM ** 2
+    f = 1.0 + k1 * r2 + k2 * r2 * r2
+    return DIST_CENTER[0] + dx * f, DIST_CENTER[1] + dy * f
+
+
+def grid_xy_distorted(cl, rl, p):
+    """Predict image (x,y) for grid line-pair (cl,rl). Uses the radial-distortion
+    model if `p` carries k1/k2 (non-macro lens), else the plain similarity."""
+    if "k1" in p:
+        return _forward((p["theta_rad"], p["x0_img"], p["y0_img"], p["scale"],
+                         p["k1"], p["k2"]), cl, rl)
+    return af.grid_xy(cl, rl, p, ATLAS)
+
+
+def fit_affine_distortion(pairs, seed):
+    """Least-squares fit of (theta,x0,y0,scale,k1,k2) to (cl,rl,x,y) pairs."""
+    from scipy.optimize import least_squares
+    s0 = [seed["theta_rad"], seed["x0_img"], seed["y0_img"], seed["scale"], 0.0, 0.0]
+
+    def resid(prm):
+        out = []
+        for cl, rl, x, y in pairs:
+            xp, yp = _forward(prm, cl, rl)
+            out += [xp - x, yp - y]
+        return np.array(out)
+
+    sol = least_squares(resid, s0, method="lm")
+    th, x0, y0, s, k1, k2 = sol.x
+    return {"theta_rad": float(th), "theta_deg": float(np.degrees(th)),
+            "x0_img": float(x0), "y0_img": float(y0), "scale": float(s),
+            "k1": float(k1), "k2": float(k2), "model": "affine+radial",
+            "rmse_px": float(np.sqrt((sol.fun ** 2).mean() * 2))}
+
+
 def refine_full_res(path, p, R=160, band=100):
     """Refine a low-res affine to sub-pixel using FULL-RES data, fast: the prior
     affine `p` already locates every scribe intersection to ~tens of px, so we
@@ -634,13 +682,21 @@ def refine_full_res(path, p, R=160, band=100):
     if len(pairs) < 4:
         return p, 0, []
     pr = af.fit_sweep_affine(pairs, ATLAS, theta_init_deg=theta, scale_init=p["scale"])
+    pr["model"] = "similarity"
+    # Add a radial-distortion term when it meaningfully helps (non-macro lenses).
+    # Guard against overfitting: need enough points and a real (>=20%) RMSE drop.
+    # True macros get k~0 / no drop -> stay similarity; few-point sweeps skip.
+    if len(pairs) >= 12:
+        prd = fit_affine_distortion(pairs, pr)
+        if prd["rmse_px"] <= 0.80 * pr["rmse_px"]:
+            pr = prd
     return pr, len(pairs), pairs
 
 
 def _anchor_rmse(p, anchors):
     if not anchors:
         return float("nan")
-    e = [np.hypot(*(np.array(af.grid_xy(c, r, p, ATLAS)) - [x, y])) for (c, r, x, y) in anchors]
+    e = [np.hypot(*(np.array(grid_xy_distorted(c, r, p)) - [x, y])) for (c, r, x, y) in anchors]
     return float(np.sqrt(np.mean(np.square(e))))
 
 
