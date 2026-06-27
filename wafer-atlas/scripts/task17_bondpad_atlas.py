@@ -17,6 +17,11 @@ Reports, vs POC C:
   - determinism: per-component focus-curve smoothness + argmax stability across
     shots (POC C flipped wildly between adjacent shots).
 
+REGISTRATION (2026-06-27 follow-up): by default the sweep is registered
+AUTONOMOUSLY via ``reg_auto.register_and_refine`` (no hand-clicked anchors); the
+refined affine's radial term (non-macro lens) is honored via
+``reg_auto.grid_xy_distorted``. Pass ``--manual`` for the hand-clicked anchors.
+
 Output: out/diag_2026_06/task17_bondpad_atlas.{json,png}
 Sweep: sweep1 (NIKKOR Z 100-400 @ 0.385x F11) == POC C's sweep.
 """
@@ -24,6 +29,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import cv2
@@ -38,9 +44,16 @@ A = HERE.parent
 OUT = A / "out" / "diag_2026_06"
 OUT.mkdir(parents=True, exist_ok=True)
 
-af = importlib.util.module_from_spec(
-    importlib.util.spec_from_file_location("af", HERE / "anchor_fit_sweep.py"))
-importlib.util.spec_from_file_location("af", HERE / "anchor_fit_sweep.py").loader.exec_module(af)
+def _load_sibling(name):
+    spec = importlib.util.spec_from_file_location(name, HERE / f"{name}.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+af = _load_sibling("anchor_fit_sweep")
+# Autonomous registration (default); grid_xy_distorted honors the radial term.
+reg_auto = _load_sibling("reg_auto")
 
 ATLAS = json.load(open(A / "atlas.json"))
 ANCHORS = json.load(open(A / "out" / "sweep_anchors" / "anchor_fit_params.json"))
@@ -53,6 +66,8 @@ IMAGE_W, IMAGE_H = 8256, 5504
 
 def die_uv_to_img(col, row, u, v, p):
     """col,row are die indices (0-based). u,v in [0,1] within the die."""
+    if "k1" in p:        # non-macro lens: honor the radial-distortion term
+        return reg_auto.grid_xy_distorted(col + u, row + v, p)
     return af.grid_xy(col + u, row + v, p, ATLAS)
 
 
@@ -121,7 +136,19 @@ def pad_fft_amp(roi, pitch_px, theta_deg, axis):
 
 
 def main():
-    p = ANCHORS[SWEEP]
+    use_manual = "--manual" in sys.argv
+    if use_manual:
+        p = ANCHORS[SWEEP]
+        print(f"registration source: manual anchors")
+    else:
+        p = reg_auto.register_and_refine(SWEEP)
+        if p is None:
+            print(f"reg_auto FAILED for {SWEEP}; cannot proceed")
+            return
+        print(f"registration source: autonomous reg_auto "
+              f"({p.get('reg_method')}, col={p.get('reg_col_first')} row={p.get('reg_row_first')}, "
+              f"fit_rmse={p.get('reg_fit_rmse_px'):.2f}px, "
+              f"{'+radial' if 'k1' in p else 'similarity'})")
     theta_deg = p["theta_deg"]
     regions = enumerate_regions(p)
     shots = sorted(SWEEP_DIR.glob("*.jpg")) + sorted(SWEEP_DIR.glob("*.JPG"))
@@ -193,7 +220,13 @@ def main():
           f"re-detection) => identical output run-to-run, unlike POC C's LSD-ordering flips.")
 
     json.dump(dict(sweep=SWEEP, n_shots=len(shots), n_regions=len(regions),
-                   coverage=coverage, n_valid=n_valid_regions, results=results),
+                   coverage=coverage, n_valid=n_valid_regions,
+                   registration=dict(method=p.get("reg_method", "manual"),
+                                     fit_rmse_px=p.get("reg_fit_rmse_px"),
+                                     col_first=p.get("reg_col_first"),
+                                     row_first=p.get("reg_row_first"),
+                                     has_distortion=("k1" in p)),
+                   results=results),
               open(OUT / "task17_bondpad_atlas.json", "w"), indent=1, default=float)
 
     # plot usable lapvar focus curves + argmax histogram (lapvar is the stronger metric)

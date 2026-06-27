@@ -18,11 +18,19 @@ bugs (see REPORT_2026-06-27.md):
 Per-shot bar tracking removes focus-rail subject drift; measuring every in-frame
 4D instance exposes the field-focus TILT (best-focus shot varies with field x).
 
+REGISTRATION (2026-06-27 follow-up): by default each sweep is registered
+AUTONOMOUSLY via ``reg_auto.register_and_refine`` (detect -> register ->
+full-res refine; ~1-6px) — no hand-clicked anchors needed. The refined affine
+carries a radial-distortion term for non-macro lenses, applied via
+``reg_auto.grid_xy_distorted``. Pass ``--manual`` to fall back to the
+hand-clicked anchor affines for cross-check.
+
 Output: out/task15/all_sweeps_4d_bar_lsf.{png,json} + printed summary.
 """
 from __future__ import annotations
 
 import csv
+import importlib.util
 import json
 import sys
 from collections import defaultdict
@@ -36,6 +44,19 @@ import numpy as np
 from PIL import Image
 
 from tile_sharpness.methods.lsf import Segment, cross_section, lsf_mtf50, lsf_peak_amp
+
+
+def _load_sibling(name):
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).parent / f"{name}.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+# Autonomous registration (default). reg_auto.register_and_refine() runs
+# detect -> register -> full-res refine and returns a distortion-aware affine;
+# grid_xy_distorted() honors the radial term for non-macro lenses.
+reg_auto = _load_sibling("reg_auto")
 
 
 ATLAS_PATH = Path(__file__).parent.parent / "atlas.json"
@@ -97,6 +118,8 @@ def _cum(d4, k):
 
 
 def die_uv_to_sweep_image(col_label, row_label, u, v, sweep_affine, atlas):
+    if "k1" in sweep_affine:        # non-macro lens: honor the radial-distortion term
+        return reg_auto.grid_xy_distorted(col_label + u, row_label + v, sweep_affine)
     d_col = atlas["die_pitch_px_in_0129"]["d_col"]
     d_row = atlas["die_pitch_px_in_0129"]["d_row"]
     theta = sweep_affine["theta_rad"]
@@ -263,12 +286,39 @@ def run_sweep(cfg, atlas, aff):
               f"(gap vs LSF {gap:+d})" if gap is not None else
               f"  {col}D (x={geo['cx']:.0f}): focus_shot(lapvar)={focus} (no CSV ref)", end="")
         print(f"  [mtf50 argmax(saturating)={mtf_sat}, mtf50@focus={instances[-1]['mtf50_at_focus']}]")
-    return dict(name=name, n_shots=len(shots), ref=ref, instances=instances)
+    return dict(name=name, n_shots=len(shots), ref=ref, instances=instances,
+                registration=dict(
+                    method=aff.get("reg_method", "manual"),
+                    fit_rmse_px=aff.get("reg_fit_rmse_px"),
+                    col_first=aff.get("reg_col_first"), row_first=aff.get("reg_row_first"),
+                    has_distortion=("k1" in aff)))
+
+
+def load_affines(use_manual):
+    """Per-sweep affine dict. Default: autonomous registration (reg_auto). With
+    --manual: the hand-clicked anchor affines (kept for cross-check)."""
+    if use_manual:
+        return json.load(open(ANCHORS_PATH)), "manual anchors"
+    affines = {}
+    for cfg in SWEEPS:
+        p = reg_auto.register_and_refine(cfg["name"])
+        if p is None:
+            print(f"  reg_auto FAILED for {cfg['name']}")
+            continue
+        affines[cfg["name"]] = p
+        print(f"  reg_auto {cfg['name']}: {p.get('reg_method')} "
+              f"col={p.get('reg_col_first')}({p.get('reg_col_method','').split('(')[0]}) "
+              f"row={p.get('reg_row_first')}({p.get('reg_row_method')}) "
+              f"fit_rmse={p.get('reg_fit_rmse_px'):.2f}px "
+              f"{'+radial' if 'k1' in p else 'similarity'}")
+    return affines, "autonomous reg_auto"
 
 
 def main():
+    use_manual = "--manual" in sys.argv
     atlas = json.load(open(ATLAS_PATH))
-    anchors = json.load(open(ANCHORS_PATH))
+    print(f"registration source: {'manual anchors' if use_manual else 'autonomous reg_auto'}")
+    anchors, src = load_affines(use_manual)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     results = []

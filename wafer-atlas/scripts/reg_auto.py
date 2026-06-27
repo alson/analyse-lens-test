@@ -693,6 +693,41 @@ def refine_full_res(path, p, R=160, band=100):
     return pr, len(pairs), pairs
 
 
+def register_and_refine(name, path=None, anchors=None, refine=True, verbose=False):
+    """End-to-end autonomous registration for ONE sweep, for downstream consumers
+    (task15 / task17). detect -> register (absolute labelling) -> full-res
+    refinement. Returns the refined affine dict, which carries the radial term
+    (k1/k2) for non-macro lenses so callers should project through
+    ``grid_xy_distorted``. Returns ``None`` if registration fails.
+
+    ``path``/``anchors`` default to the built-in ``SWEEPS`` entry; ``anchors`` is
+    used only for the optional cross-check RMSE inside ``register`` and is NOT
+    required for autonomy. Extra provenance keys are attached:
+    ``reg_method`` ('refined'/'low-res'), ``reg_col_first``/``reg_row_first`` and
+    their methods, ``reg_fit_rmse_px``, and (refined) ``n_refine_intersections``.
+    """
+    if path is None:
+        if name not in SWEEPS:
+            return None
+        path, anchors = SWEEPS[name]
+    det = detect(path)
+    r = register(name, det, anchors=anchors, verbose=verbose)
+    if not r.get("success"):
+        return None
+    if refine:
+        pr, n_int, _ = refine_full_res(path, r["affine"])
+        p = dict(pr)
+        p["reg_method"] = "refined"
+        p["n_refine_intersections"] = int(n_int)
+    else:
+        p = dict(r["affine"])
+        p["reg_method"] = "low-res"
+    p["reg_fit_rmse_px"] = p.get("rmse_px")
+    p["reg_col_first"], p["reg_col_method"] = r["col_first"], r["col_method"]
+    p["reg_row_first"], p["reg_row_method"] = r["row_first"], r["row_method"]
+    return p
+
+
 def _anchor_rmse(p, anchors):
     if not anchors:
         return float("nan")
