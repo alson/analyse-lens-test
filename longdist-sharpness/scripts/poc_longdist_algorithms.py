@@ -95,59 +95,68 @@ def radial_spectrum(tile: np.ndarray) -> np.ndarray:
     return radial / counts
 
 
+def find_cutoff_from_spec(spec: np.ndarray, freq: np.ndarray,
+                          ref_band: tuple[float, float] = REF_BAND,
+                          threshold: float = CUTOFF_THRESHOLD,
+                          smooth_sigma: float = RADIAL_SMOOTH_SIGMA,
+                          ) -> tuple[float, float]:
+    """Locate the normalised-spectrum cutoff frequency.
+
+    Shared logic for §5.3 sensor-space (cy/sensor-px) and subject-space
+    (cy/mm-subject) cutoff metrics. Caller passes the precomputed
+    radial spectrum ``spec`` and its frequency axis ``freq`` (same
+    length). Returns ``(cutoff_freq, ref_band_mean)``. The reference
+    mean is exposed so the caller can report ``ref_amp`` for diagnostic
+    columns; pass-through for legacy CSV schemas.
+
+    Algorithm (matches the inline ``alg_radial_cutoff`` doc):
+    - Normalise ``spec`` by the mean over ``ref_band``.
+    - Gaussian-smooth in radial-bin units.
+    - Find the highest-frequency bin where the smoothed normalised
+      spectrum is still above ``threshold``; linearly interpolate
+      between that bin and the next (which is below) for sub-bin
+      precision.
+
+    NaN if the entire post-ref-band region is already below threshold.
+    """
+    band = (freq >= ref_band[0]) & (freq <= ref_band[1])
+    if band.sum() == 0:
+        return float("nan"), 0.0
+    ref = float(spec[band].mean())
+    if ref <= 0:
+        return float("nan"), 0.0
+    norm = spec / ref
+    if smooth_sigma > 0:
+        norm = ndi.gaussian_filter1d(norm, sigma=smooth_sigma)
+    start = int(np.argmax(freq > ref_band[1]))
+    if start == 0:
+        start = 1
+    above = np.where(norm[start:] > threshold)[0]
+    if len(above) == 0:
+        return float("nan"), ref
+    i = start + int(above[-1])
+    if i + 1 >= len(norm):
+        return float(freq[i]), ref
+    v_prev = float(norm[i])
+    v_curr = float(norm[i + 1])
+    if v_prev != v_curr and v_prev > threshold:
+        frac = (v_prev - threshold) / (v_prev - v_curr)
+        return float(freq[i] + frac * (freq[i + 1] - freq[i])), ref
+    return float(freq[i]), ref
+
+
 def alg_radial_cutoff(tile: np.ndarray) -> float:
-    """Normalised radial-spectrum cutoff in cy/sensor-pixel.
+    """Normalised radial-spectrum cutoff in cy/sensor-pixel (§5.3).
 
-    Three layers of robustness compared to the original implementation:
-
-    1. **Lower ref band** (§5.3): ``REF_BAND = (0.01, 0.10)`` instead
-       of the original (0.01, 0.20). On softer datasets (D7200
-       wide-angle, Z7 wide with soft corners) the spectrum drops below
-       the threshold inside the old ref band, so the metric saturated
-       at 0.2031 cy/px. Lowering REF_BAND[1] gives those datasets
-       headroom while still capturing the low-frequency reference.
-    2. **Gaussian smoothing** (§5.3): the radial spectrum has
-       bin-to-bin oscillations (visible at sigma=0). Smoothing with
-       sigma=2 bins removes spurious noise dips that would otherwise
-       cause the first-crossing logic to fire at the wrong frequency.
-    3. **Last-crossing + linear sub-bin interp** (§5.2 + §5.3):
-       finds the highest frequency where the smoothed spectrum is
-       still above ``CUTOFF_THRESHOLD = 0.05``, then linearly
-       interpolates to where it would cross. More robust than
-       first-crossing on noisy spectra and gives sub-bin precision.
-
-    Returns NaN if the entire post-ref-band spectrum is already
-    below threshold (extremely soft tile — usually means no usable
-    sharpness signal at all).
+    Thin wrapper around ``find_cutoff_from_spec`` — see that function
+    for the full algorithm description. The sensor-space frequency
+    axis is ``arange(n//2+1) / n`` cy per sensor pixel.
     """
     spec = radial_spectrum(tile)
     n = tile.shape[0]
     freq = np.arange(n // 2 + 1) / n
-    band = (freq >= REF_BAND[0]) & (freq <= REF_BAND[1])
-    if band.sum() == 0:
-        return float("nan")
-    ref = spec[band].mean()
-    if ref <= 0:
-        return float("nan")
-    norm = spec / ref
-    if RADIAL_SMOOTH_SIGMA > 0:
-        norm = ndi.gaussian_filter1d(norm, sigma=RADIAL_SMOOTH_SIGMA)
-    start = int(np.argmax(freq > REF_BAND[1]))
-    if start == 0:
-        start = 1
-    above = np.where(norm[start:] > CUTOFF_THRESHOLD)[0]
-    if len(above) == 0:
-        return float("nan")
-    i = start + int(above[-1])
-    # Crossing is between bin i (above) and bin i+1 (below)
-    if i + 1 >= len(norm):
-        return float(freq[i])
-    v_prev = float(norm[i])
-    v_curr = float(norm[i + 1])
-    if v_prev != v_curr and v_prev > CUTOFF_THRESHOLD:
-        frac = (v_prev - CUTOFF_THRESHOLD) / (v_prev - v_curr)
-        return float(freq[i] + frac * (freq[i + 1] - freq[i]))
-    return float(freq[i])
+    cutoff, _ = find_cutoff_from_spec(spec, freq)
+    return cutoff
 
 
 def alg_vol(tile: np.ndarray) -> float:

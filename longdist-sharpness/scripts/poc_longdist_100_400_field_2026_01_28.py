@@ -22,6 +22,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from poc_longdist_algorithms import find_cutoff_from_spec  # noqa: E402
+
 DATA_ROOT = Path("/home/alson/shared/files/pics/digikam/test-raw-data/2026-01-28")
 OUT = Path(__file__).parent / (Path(__file__).stem + "_out")
 OUT.mkdir(exist_ok=True)
@@ -32,7 +35,10 @@ LAMBDA_MM = 550e-6
 
 TILE = 256
 SEARCH_STEP = 64
-REF_BAND_SUBJ = (0.01, 0.20)
+# §5.3: lowered REF_BAND_SUBJ from (0.01, 0.20) to (0.01, 0.10) so soft
+# tiles whose cutoff falls inside the old ref band are now measurable.
+# Smoothing + last-crossing live inside find_cutoff_from_spec.
+REF_BAND_SUBJ = (0.01, 0.10)
 CUTOFF_THRESHOLD = 0.05
 
 FIELD_POSITIONS = [0.18, 0.34, 0.50, 0.66, 0.82]
@@ -82,20 +88,8 @@ def best_tile_in_box(luma: np.ndarray, y0: int, x0: int, h: int, w: int) -> tupl
 
 
 def normalised_cutoff(spec: np.ndarray, subject_freq: np.ndarray, threshold: float = CUTOFF_THRESHOLD) -> tuple[float, float]:
-    band = (subject_freq >= REF_BAND_SUBJ[0]) & (subject_freq <= REF_BAND_SUBJ[1])
-    if band.sum() == 0:
-        return float("nan"), 0.0
-    ref = spec[band].mean()
-    if ref <= 0:
-        return float("nan"), 0.0
-    norm = spec / ref
-    start = int(np.argmax(subject_freq > REF_BAND_SUBJ[1]))
-    if start == 0:
-        start = 1
-    below = np.where(norm[start:] < threshold)[0]
-    if len(below) == 0:
-        return float("nan"), ref
-    return float(subject_freq[start + below[0]]), ref
+    return find_cutoff_from_spec(spec, subject_freq, ref_band=REF_BAND_SUBJ,
+                                  threshold=threshold)
 
 
 @dataclass

@@ -51,6 +51,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from poc_longdist_algorithms import find_cutoff_from_spec  # noqa: E402
+
 OUT = Path(__file__).parent / (Path(__file__).stem + "_out")
 OUT.mkdir(exist_ok=True)
 
@@ -70,7 +73,9 @@ FIELD_POSITIONS = [0.18, 0.34, 0.50, 0.66, 0.82]
 FIELD_BOX_W_FRAC = 0.15
 FIELD_BOX_H_FRAC = 0.20
 
-REF_BAND_SUBJ = (0.01, 0.20)
+# §5.3: lowered REF_BAND_SUBJ from (0.01, 0.20) to (0.01, 0.10) plus
+# smoothing + last-crossing inside find_cutoff_from_spec.
+REF_BAND_SUBJ = (0.01, 0.10)
 CUTOFF_THRESHOLD = 0.05
 
 
@@ -226,20 +231,10 @@ def normalised_cutoff_from_tile(tile: np.ndarray, M: float) -> float:
     n = tile.shape[0]
     sensor_cy_per_px = np.arange(n // 2 + 1) / n
     subject_cy_per_mm = sensor_cy_per_px / Z7_PIXEL_PITCH_MM * M
-    band = (subject_cy_per_mm >= REF_BAND_SUBJ[0]) & (subject_cy_per_mm <= REF_BAND_SUBJ[1])
-    if band.sum() == 0:
-        return float("nan")
-    ref = spec[band].mean()
-    if ref <= 0:
-        return float("nan")
-    norm = spec / ref
-    start = int(np.argmax(subject_cy_per_mm > REF_BAND_SUBJ[1]))
-    if start == 0:
-        start = 1
-    below = np.where(norm[start:] < CUTOFF_THRESHOLD)[0]
-    if len(below) == 0:
-        return float("nan")
-    return float(subject_cy_per_mm[start + below[0]])
+    cutoff, _ = find_cutoff_from_spec(spec, subject_cy_per_mm,
+                                       ref_band=REF_BAND_SUBJ,
+                                       threshold=CUTOFF_THRESHOLD)
+    return cutoff
 
 
 # --------------------------------------------------------------------- per-config measurement
