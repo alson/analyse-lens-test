@@ -21,9 +21,14 @@ The atlas knows:
 2. **What each die type looks like** — user-provided descriptions
    + CV-derived bounding boxes of bond-pad regions, isolated bars,
    and "experimental" structures.
-3. **Per-feature FFT pitch signatures** for the pad-grid features
-   (so a sharpness measurement at low M can target a known pad
-   periodicity instead of guessing).
+3. **Per-feature FFT pitch signatures** (`pad_pitch_px`) for the
+   pad-grid features — a **geometry record**, used for registration /
+   feature identification. NOTE: bond-pad pitch is *not* a usable focus
+   signal — pad-FFT at the known pitch was tested and rejected at both
+   low M (task17) and high M (`task18_highM_maze_vs_atlas.py`): the pad
+   grid is too coarse (low spatial frequency → depth-of-field-broad,
+   ~0% usable focus). For focus use gradient energy (Laplacian-variance)
+   on atlas-anchored ROIs, or the ~13 µm maze fundamental at M ≥ 0.7.
 4. **The fragment outline** (`fragment_outline`, schema v3) — per
    physical die cell (col 0..10 × row A..F) wafer coverage: 1 = whole,
    0 = absent (off-wafer), in between = jagged/partial. This is the
