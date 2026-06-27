@@ -41,13 +41,21 @@ morphological path fail (anchor RMSE ~6000px):
   _drop_edge_peaks removes them; left in, sweep2's fit RMSE was 141 px (one bad
   line at 280 px residual dragging the whole affine), vs 56 px once dropped.
 
+  REFINEMENT (refine_full_res). The low-res affine locates every scribe
+  intersection to within tens of px, so a fast FULL-RES pass re-measures each in a
+  small ROI (one full decode + a few dozen tiny de-rotated windows; no global
+  full-res detection) and re-fits. Each ROI is de-rotated by the tilt so scribes
+  are axis-aligned (sharp troughs); the column-mean trough gives x, the row-mean
+  trough gives y, their crossing is the intersection. De-rotation is essential at
+  low M (sweep1), where the tilt otherwise smears the trough below threshold.
+
   RESULT (reg_auto.py, vs known anchors): ALL FOUR sweeps register FULLY
-  AUTONOMOUSLY at downsample-precision accuracy — sweep1 col2/row2 27 px, sweep2
-  col5/row2 56 px, sweep3 col5/row2 46 px, sweep4 col4/row2 37 px (all were
-  6,000-10,000 px or, for sweep1, total detection failure). Accuracy is limited
-  by the 1024-px detection downsample, not by magnification. Includes the nicked-
-  corner (sweep2) and deep-interior (sweep3: "absence of a nick is information")
-  cases.
+  AUTONOMOUSLY. Low-res -> refined RMSE: sweep1 27->6 px (43 intersections),
+  sweep2 56->10 px (24), sweep3 46->15 px (7), sweep4 37->9 px (15) — all were
+  6,000-10,000 px, or total detection failure for sweep1. The refined 6-15 px
+  matches the manual 3-anchor method (2-8 px), fully autonomously. Includes the
+  nicked-corner (sweep2) and deep-interior (sweep3: "absence of a nick is
+  information") cases.
 
 Run:  reg_auto.py            # autonomous registration of all sweeps + validation
       reg_auto.py --validate # just the mapping/label sanity probe
@@ -554,22 +562,94 @@ def register(name, det, anchors=None, verbose=True):
     return res
 
 
+def _trough(prof, min_depth_std=1.0):
+    """Sub-pixel position of a dark trough in a 1-D profile, or None if there
+    isn't a clear one. Smooth, take the global min, require it to be meaningfully
+    below the profile mean, then parabolic-interpolate."""
+    if prof.size < 7:
+        return None
+    s = np.convolve(prof, np.ones(3) / 3.0, mode="same")
+    i = int(np.argmin(s))
+    if i < 2 or i > s.size - 3:
+        return None
+    if s[i] > s.mean() - min_depth_std * s.std():
+        return None
+    y0, y1, y2 = float(s[i - 1]), float(s[i]), float(s[i + 1])
+    denom = y0 - 2 * y1 + y2
+    off = 0.5 * (y0 - y2) / denom if abs(denom) > 1e-6 else 0.0
+    return i + float(np.clip(off, -1, 1))
+
+
+def refine_full_res(path, p, R=140, band=100):
+    """Refine a low-res affine to sub-pixel using FULL-RES data, fast: the prior
+    affine `p` already locates every scribe intersection to ~tens of px, so we
+    only re-measure each in a small ROI (one full decode, then tiny windows) and
+    re-fit. A vertical scribe shows as the column-mean trough, a horizontal scribe
+    as the row-mean trough; their crossing is the intersection. The ~theta tilt
+    broadens each trough symmetrically, so its centre stays unbiased.
+
+    Each ROI is de-rotated by the affine tilt so the scribes become axis-aligned
+    (sharp deep troughs); essential at low M where the tilt otherwise smears the
+    column/row-mean trough below the detection threshold (sweep1).
+
+    Returns (refined_affine, n_intersections_used) or (p, 0) if too few found."""
+    from PIL import Image
+    img = np.asarray(Image.open(path).convert("L")).astype(np.float32)
+    H, W = img.shape
+    theta = p["theta_deg"]
+    M = cv2.getRotationMatrix2D((R, R), theta, 1.0)        # de-rotate about ROI centre
+    Minv = cv2.invertAffineTransform(M)
+    pairs = []
+    for cl in range(N_COL_LINES):
+        for rl in range(N_ROW_LINES):
+            xp, yp = af.grid_xy(cl, rl, p, ATLAS)
+            xi, yi = int(round(xp)), int(round(yp))
+            if not (R < xi < W - R and R < yi < H - R):
+                continue
+            roi = img[yi - R:yi + R, xi - R:xi + R]
+            der = cv2.warpAffine(roi, M, (2 * R, 2 * R), flags=cv2.INTER_LINEAR,
+                                 borderMode=cv2.BORDER_REFLECT)
+            cb = der[R - band:R + band, R - band:R + band]
+            xt = _trough(cb.mean(axis=0))      # vertical scribe -> x (de-rotated)
+            yt = _trough(cb.mean(axis=1))      # horizontal scribe -> y (de-rotated)
+            if xt is None or yt is None:
+                continue
+            xd, yd = (R - band) + xt, (R - band) + yt           # in de-rotated ROI
+            xr = Minv[0, 0] * xd + Minv[0, 1] * yd + Minv[0, 2]  # -> original ROI
+            yr = Minv[1, 0] * xd + Minv[1, 1] * yd + Minv[1, 2]
+            pairs.append((cl, rl, (xi - R) + xr, (yi - R) + yr))
+    if len(pairs) < 4:
+        return p, 0
+    pr = af.fit_sweep_affine(pairs, ATLAS, theta_init_deg=theta, scale_init=p["scale"])
+    return pr, len(pairs)
+
+
+def _anchor_rmse(p, anchors):
+    if not anchors:
+        return float("nan")
+    e = [np.hypot(*(np.array(af.grid_xy(c, r, p, ATLAS)) - [x, y])) for (c, r, x, y) in anchors]
+    return float(np.sqrt(np.mean(np.square(e))))
+
+
 def main():
     results = {}
-    print(f"{'sweep':<18} {'tilt':>6} {'cols':>5} {'rows':>5} {'col_off':>16} "
-          f"{'row_off':>16} {'fit_rmse':>9} {'anchor_rmse':>11}")
+    print(f"{'sweep':<18} {'col_off':>16} {'row_off':>14} "
+          f"{'lowres_rmse':>12} {'refined_rmse':>13} {'n_int':>6}")
     for name, (path, anchors) in SWEEPS.items():
         det = detect(path)
         r = register(name, det, anchors=anchors)
         results[name] = r
-        if r.get("success"):
-            print(f"{name:<18} {r['tilt']:>+5.1f}° {r['n_col']:>5} {r['n_row']:>5} "
-                  f"{str(r['col_first'])+'('+r['col_method']+')':>16} "
-                  f"{str(r['row_first'])+'('+r['row_method']+')':>16} "
-                  f"{r['fit_rmse_px']:>8.1f}p {r.get('anchor_rmse_px', float('nan')):>10.1f}p")
-        else:
-            print(f"{name:<18} {r.get('tilt', 0):>+5.1f}° {r.get('n_col','?'):>5} "
-                  f"{r.get('n_row','?'):>5}   FAIL: {r.get('reason')}")
+        if not r.get("success"):
+            print(f"{name:<18}   FAIL: {r.get('reason')}")
+            continue
+        pr, n_int = refine_full_res(path, r["affine"])
+        r["affine_refined"] = pr
+        r["n_refine_intersections"] = n_int
+        r["anchor_rmse_refined_px"] = _anchor_rmse(pr, anchors)
+        print(f"{name:<18} {str(r['col_first'])+'('+r['col_method'].split('(')[0]+')':>16} "
+              f"{str(r['row_first'])+'('+r['row_method']+')':>14} "
+              f"{r.get('anchor_rmse_px', float('nan')):>11.1f}p "
+              f"{r['anchor_rmse_refined_px']:>12.1f}p {n_int:>6}")
     json.dump(results, open(OUT / "reg_auto_results.json", "w"), indent=1, default=float)
     print(f"\nsaved {OUT/'reg_auto_results.json'}")
 
