@@ -34,6 +34,20 @@ v3, `grid_calibration` block). POC C bond-pad measurement works (`task17`).
 > the **field-tilt map** (rig-squareness: e.g. sweep2 = 2.9 shots/1000px).
 > Possible future work: re-acquire sweep4 (rail started in focus; its field is
 > axially clipped, not tilted), or extend `test_reg_auto.py` into CI.
+>
+> **`reg_auto` now used cross-project** by tile-sharpness's cross-config
+> resolution work (`tile-sharpness/scripts/atlas_corner_mtf.py` +
+> `raw_vs_jpg_mtf.py` import it for deterministic scribe placement). That work
+> surfaced a **`reg_auto` caveat worth knowing here**: on accessory configs
+> (100-400 + diopters) the atlas-measured M (scale/AF200-anchor) disagreed with
+> the nominal magnification labels by 8-29% *even at a clean ~1.6px fit residual*
+> — a wrong absolute (col,row) **labelling** scales the whole grid (hence M) while
+> the detected scribes still fit. **Low fit residual does NOT validate the
+> labelling/scale.** Also register focus stacks on the LOWEST-residual frame over
+> several candidates (a single defocused frame can give n_int=0 / huge residual).
+> Full detail in `tile-sharpness/HANDOVER.md` (2026-06-27) and the memory note
+> `reg_auto_label_scale_uncertainty`. Highest-leverage `reg_auto` follow-up:
+> validate/fix absolute labelling (cross-check M vs nominal).
 
 1. ~~**Re-run `task15` + `task17` under the v3 grid (hygiene).**~~ **DONE**
    (`336f4c0`). Re-ran both with the manual anchors under the v3 atlas: every

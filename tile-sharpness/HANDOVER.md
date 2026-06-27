@@ -1,6 +1,70 @@
 # Sharpness assessment POC — session handover
 
-State as of 2026-05-18.
+State as of 2026-05-18 (extended 2026-06-27).
+
+> **2026-06-27 — cross-config resolution ranking: diffraction ceiling +
+> the MTF50 over-read finding.** Goal: rank lens/accessory configs by
+> subject-space resolution at centre/corner (e.g. best route to 2:1; is an
+> extension/TC/diopter worth it; keep-or-cut). Existing-data only (no new
+> acquisition). Key outcomes:
+>
+> 1. **The centre/corner ranking framework already exists** —
+>    `characterise.py` (Phase 3) emits subject-space MTF50 at centre / DX-ring /
+>    FX-ring + uniformity + decentering + field-curvature; `compare.py` does
+>    cross-lens ranking + corner asymmetry. The **bare lenses are characterised**
+>    (`out*/lens_characteristics*.csv`); the **accessory/2:1 configs
+>    (extension/TC/diopter, 2026-05-xx + 100-400 combos) are NOT yet** — they need
+>    an `analyse --no-legacy` → `characterise` run on existing JPGs.
+> 2. **Diffraction ceiling overlay** — new `optics.py` (effective f-number
+>    `N·(1+M/p)`; diffraction-limited subject-space MTF50 ceiling) +
+>    `scripts/diffraction_ranking.py`. Separates real resolving power from empty
+>    magnification (tubes/TCs push N_eff to f/20+ where the ceiling collapses).
+>    Centre/corner glass-limited breakdown: median headroom (measured/ceiling)
+>    centre 0.71, DX-corner 0.62, FX-corner 0.56 — **corners are systematically
+>    glass-limited** (field-dependent lens/diopter quality), not
+>    diffraction-limited. So effective aperture is NOT the only relevant metric;
+>    corner resolution discriminates real glass.
+> 3. **⚠ MTF50 OVER-READS the diffraction ceiling** — 12/29 configs report a
+>    *physically impossible* centre MTF50 above the ceiling (worst stopped down; a
+>    55mm reads higher at f/16 than f/8). **It is a MEASUREMENT-METHODOLOGY
+>    artifact, NOT a JPEG one** — the RAW-vs-JPEG diagnostic
+>    (`scripts/raw_vs_jpg_mtf.py`, atlas-anchored deterministic scribes) shows
+>    8-bit JPEG, linearised JPEG, and linear/unsharpened RAW (dcraw) ALL over-read
+>    at f/11-f/16; RAW is not lower. Cause: the slanted-edge LSF (derivative of the
+>    ESF) inflates on low-contrast / diffraction-blurred edges (noise floor in the
+>    differentiated LSF holds |FFT| up past the true 0.5 crossing), compounded by
+>    `_mtf50_from_lsf` normalising to the spectral PEAK (DC dropped) and large
+>    scribe-to-scribe variance (±~5 lp/mm). **So the absolute lp/mm ranking is not
+>    physically calibrated; trust measured MTF50 only where it sits comfortably
+>    below the ceiling (glass-limited — corners, wider apertures).** For
+>    diffraction-limited configs use the physics ceiling (depends only on M +
+>    effective aperture, both reliable; M from the atlas registration scale).
+> 4. **Atlas-anchored corner measurement** (`scripts/atlas_corner_mtf.py`, uses
+>    wafer-atlas `reg_auto`) closes the coverage gap the blind per-tile detector
+>    leaves at high M: on 100-400 + MCON-35/6T/5T @ F8 the blind pipeline gave 6T
+>    only 1 tile (centre); the atlas covers all 5 field positions for all three at
+>    1.6-1.9px registration. **Result: MCON-35 > 6T** (centre 28.9 vs 23.8 lp/mm
+>    ~21%, corner-mean 19.4 vs 17.9) — confirms the user's recollection; centre is
+>    the clean signal. MCON-35 ≫ 5T at corners (blind pipeline, 23-29 vs 17).
+>    **Caveats:** per-corner scribe noise ±~5 lp/mm (corner gap within noise); 5T
+>    looks best, contradicting the blind pipeline (don't trust); **reg_auto
+>    label/scale uncertainty** — atlas-M disagreed with nominal labels by 8-29%
+>    even at clean ~1.6px residual (a wrong col/row LABELLING scales M while still
+>    fitting), so absolute lp/mm carries scale uncertainty on accessory configs.
+>
+> **Follow-ups (existing data; no new acquisition):**
+> - **Highest leverage: M/label validation** for `reg_auto` on accessory configs
+>   (cross-check atlas-M vs nominal; detect/fix mislabelling) — underpins every
+>   absolute cross-config number.
+> - **Scribe averaging** (several scribes per field position) to beat the ±5 lp/mm
+>   corner noise; and an **LSF over-read fix** (normalise to DC not peak; denoise/
+>   window the differentiated LSF) to make absolute MTF50 ≤ ceiling.
+> - **Run `characterise` on the accessory/2:1 configs** to bring them into the
+>   ranking (extension ladder, Sigma±TC, lens+Kenko, crop-vs-native).
+> - New files: `src/tile_sharpness/optics.py` (+`tests/test_optics.py`),
+>   `scripts/diffraction_ranking.py`, `scripts/raw_vs_jpg_mtf.py`,
+>   `scripts/atlas_corner_mtf.py`. Runs use `direnv exec . uv run …` on nufan
+>   (per-host venv via `.envrc`); dcraw is on nufan for RAW decode.
 
 > **2026-05-18 (atlas track) — wafer-atlas subproject + atlas-anchored
 > 4D-bar slanted-edge demo.** New subproject at

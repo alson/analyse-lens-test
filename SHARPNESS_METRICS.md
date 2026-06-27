@@ -541,6 +541,27 @@ Two complementary metrics, computed per tile from the **native frame**
 
 ### Subject-space MTF50 is the cross-config metric
 
+> **⚠ 2026-06-27 caveat — subject-space MTF50 OVER-READS at low contrast; it is
+> not absolutely calibrated.** A diffraction-ceiling overlay
+> (`tile-sharpness/optics.py` + `scripts/diffraction_ranking.py`) found 12/29
+> characterised configs report a centre MTF50 *above* the diffraction-limited
+> ceiling — physically impossible (a real lens MTF50 ≤ the optical ceiling, since
+> the sensor only degrades it; a 55mm even reads higher at f/16 than f/8). The
+> RAW-vs-JPEG diagnostic (`scripts/raw_vs_jpg_mtf.py`) shows this is a
+> MEASUREMENT artifact, NOT a JPEG one: 8-bit JPEG, linearised JPEG, and
+> linear/unsharpened RAW all over-read at f/11-f/16. Cause: the differentiated
+> ESF→LSF inflates on low-contrast / diffraction-blurred edges (noise floor holds
+> |FFT| up past the true 0.5 crossing), + `_mtf50_from_lsf` normalising to the
+> spectral PEAK (DC dropped), + large scribe-to-scribe variance (±~5 lp/mm).
+> **Practical rule:** trust subject-space MTF50 for cross-config ranking only
+> where it sits comfortably *below* the ceiling (glass-limited — corners, wider
+> apertures), where corner differences between same-strength diopters (e.g.
+> MCON-35 vs 6T) are real and the metric ranks them correctly. For
+> diffraction-limited configs (stopped-down centres) use the physics ceiling
+> directly — it depends only on M and effective aperture `N·(1+M)`. Fixing the
+> absolute calibration needs an LSF over-read fix (normalise to DC; denoise the
+> LSF) + scribe averaging. See `tile-sharpness/HANDOVER.md` (2026-06-27).
+
     MTF50_subject_lp_per_mm = MTF50_sensor_cy_per_px × M × 1000 / pixel_pitch_µm
 
 On Z7 (pitch 4.35 µm):
