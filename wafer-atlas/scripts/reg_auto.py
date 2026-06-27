@@ -26,13 +26,22 @@ morphological path fail (anchor RMSE ~6000px):
       fails. Column phase is taken from the wide pitch when in view, else from
       the 4D bar (its die-col is ≡0 mod 4).
 
-  RESULT (reg_auto.py, vs known anchors): all three sweeps with good scribe
-  detection register FULLY AUTONOMOUSLY — sweep2 col5/row2 573 px, sweep3
-  col5/row2 46 px, sweep4 col4/row2 37 px (all were 6,000-10,000 px). This
-  includes sweep2 (nicked corners) and sweep3 (deep-interior FOV: ruled out the
-  alternate offset because it would have put col 0's jaggedness in view —
-  "absence of a nick is information"). sweep1 still fails upstream at low-M
-  scribe detection (7 cols / 2 rows), a detection problem, not labelling.
+  LOW-M DETECTION (sweep1). The gradient-angle tilt histogram fails at low M
+  (the wafer is small in frame; the mount/fracture edge dominate), and the
+  frame-relative long-line length rejects scribes that only span the wafer.
+  detect() therefore falls back to _detect_lowM(): tilt by SCRIBE-ALIGNMENT
+  search (maximize long-line response) + long-line length relative to the WAFER
+  span. Missing scribes (low-M dropouts) are handled by GAP-AWARE labelling
+  (_rel_indices / _labels): a spacing ~2x the single pitch is a gap, so labels
+  skip the missing line instead of mis-numbering everything after it. (Gap-aware
+  labelling also fixed sweep2, where a spurious extra row had inflated its RMSE.)
+
+  RESULT (reg_auto.py, vs known anchors): ALL FOUR sweeps register FULLY
+  AUTONOMOUSLY at oracle-level accuracy — sweep1 col2/row2 27 px, sweep2
+  col5/row2 141 px, sweep3 col5/row2 46 px, sweep4 col4/row2 37 px (all were
+  6,000-10,000 px or, for sweep1, total detection failure). Includes the nicked-
+  corner (sweep2) and deep-interior (sweep3: "absence of a nick is information")
+  cases.
 
 Run:  reg_auto.py            # autonomous registration of all sweeps + validation
       reg_auto.py --validate # just the mapping/label sanity probe
@@ -107,8 +116,58 @@ SWEEPS = {
 ROT_SIGN = -1.0  # calibrated; see module docstring / --validate
 
 
+def _long_line_sig(bp, mask, axis, pct=80.0, frac=0.40):
+    """Long-line opened-pixel signal. Line-length threshold L is relative to the
+    WAFER SPAN along the line (not the frame) so it works at low M where the
+    wafer fills only part of the frame (sweep1)."""
+    from scipy.ndimage import sobel, binary_opening
+    work = bp if axis == 0 else bp.T
+    mwork = mask if axis == 0 else mask.T
+    edges = np.abs(sobel(work, axis=1))
+    em = edges > np.percentile(edges, pct)
+    rows_w = np.where(mwork.any(axis=1))[0]
+    span = (rows_w[-1] - rows_w[0]) if rows_w.size else work.shape[0]
+    L = max(5, int(span * frac))
+    return binary_opening(em, structure=np.ones((L, 1), bool)).sum(axis=0).astype(np.float32)
+
+
+def _tilt_search(gray, mask, rng=8.0, coarse=0.5, fine=0.1):
+    """Tilt by SCRIBE ALIGNMENT: pick the angle maximizing total long-line
+    response. Robust at low M where the gradient-angle histogram fails (the
+    wafer fracture edge / mount dominate it). Two-stage coarse then fine."""
+    def score(t):
+        der = ndi_rotate(gray, t, reshape=False, order=1, mode="reflect")
+        mder = ndi_rotate(mask.astype(np.float32), t, reshape=False, order=1) > 0.5
+        bp = mm.bandpass_image(der)
+        return float(_long_line_sig(bp, mder, 0).sum() + _long_line_sig(bp, mder, 1).sum())
+    coarse_t = max(np.arange(-rng, rng + coarse, coarse), key=score)
+    return float(max(np.arange(coarse_t - coarse, coarse_t + coarse + fine, fine), key=score))
+
+
+def _detect_lowM(gray_ds, ds_scale, HW, path):
+    """Low-M fallback: tilt by scribe-alignment (the gradient histogram fails at
+    low M) + long-line length relative to the wafer span (the wafer fills only
+    part of the frame). Used when the proven path finds too few scribes (sweep1)."""
+    from scipy.signal import find_peaks
+    wafer, _ = wafer_mask(gray_ds)
+    tilt = _tilt_search(gray_ds, wafer)
+    derot = ndi_rotate(gray_ds, tilt, reshape=False, order=1, mode="reflect")
+    mder = ndi_rotate(wafer.astype(np.float32), tilt, reshape=False, order=1) > 0.5
+    bp = mm.bandpass_image(derot)
+
+    def peaks(axis):
+        sig = _long_line_sig(bp, mder, axis)
+        if sig.max() <= 0:
+            return np.array([], int)
+        return np.sort(find_peaks(sig / sig.max(), distance=6, prominence=0.08)[0])
+
+    return dict(path=path, gray_ds=gray_ds, ds_scale=ds_scale, HW=HW, tilt=tilt, derot=derot,
+                col_x=peaks(0), row_y=peaks(1))
+
+
 def detect(path):
     gray_ds, ds_scale, (H, W) = mm.load_gray_downscaled(path)
+    # PRIMARY: proven gradient-tilt + frame-relative long-line (works at M>=1).
     tilt = mm.detect_tilt_via_gradient(gray_ds)
     derot = ndi_rotate(gray_ds, tilt, reshape=False, order=1, mode="reflect")
 
@@ -116,15 +175,17 @@ def detect(path):
         sig = extractor(mm.bandpass_image(derot))
         pk = mm.find_line_peaks(sig)
         if len(pk) < mm.RELAX_TRIGGER_N_LINES:
-            sig2 = extractor(mm.bandpass_image(derot), gap_bridge_px=mm.GAP_BRIDGE_PX)
-            pk2 = mm.find_line_peaks(sig2)
+            pk2 = mm.find_line_peaks(extractor(mm.bandpass_image(derot), gap_bridge_px=mm.GAP_BRIDGE_PX))
             if len(pk2) > len(pk):
                 pk = pk2
         return np.sort(pk)
 
-    return dict(path=path, gray_ds=gray_ds, ds_scale=ds_scale, HW=(H, W), tilt=tilt, derot=derot,
-                col_x=peaks(mm.extract_long_line_columns),
-                row_y=peaks(mm.extract_long_line_rows))
+    col_x, row_y = peaks(mm.extract_long_line_columns), peaks(mm.extract_long_line_rows)
+    if len(col_x) >= 3 and len(row_y) >= 3:
+        return dict(path=path, gray_ds=gray_ds, ds_scale=ds_scale, HW=(H, W),
+                    tilt=tilt, derot=derot, col_x=col_x, row_y=row_y)
+    # FALLBACK: low-M path (sweep1).
+    return _detect_lowM(gray_ds, ds_scale, (H, W), path)
 
 
 def _sweep_wafer_fullres(path):
@@ -159,10 +220,11 @@ def _fragment_score(det, wafer, cf, rf):
     """Fit the affine for offset (cf,rf), then weighted MSE between observed and
     fragment-map cell coverage over in-frame cells (nicked cells weighted up)."""
     col_x, row_y = det["col_x"], det["row_y"]
-    cl = [cf + i for i in range(len(col_x))]
-    rl_top = rf + (len(row_y) - 1)
-    pairs = [(cl[ci], rl_top - ri,
-              *derot_to_orig(float(xd), float(yd), det))
+    cl = _labels(col_x, cf)                       # gap-aware (handles missing scribes)
+    rrel = _rel_indices(row_y)                    # image-y ascending == wafer-rl descending
+    rl_top = rf + int(rrel[-1])
+    rl = [rl_top - int(r) for r in rrel]
+    pairs = [(cl[ci], rl[ri], *derot_to_orig(float(xd), float(yd), det))
              for ci, xd in enumerate(col_x) for ri, yd in enumerate(row_y)]
     p = af.fit_sweep_affine(pairs, ATLAS, theta_init_deg=det["tilt"], scale_init=0.5)
     H, W = wafer.shape
@@ -319,6 +381,26 @@ def candidate_offsets(positions, pitch4, wide_idx, n_lines):
     return cands
 
 
+def _rel_indices(positions):
+    """Relative (gap-aware) line indices for sorted detected positions. A missing
+    scribe shows as a spacing ~2× the single pitch, so we round each spacing to an
+    integer number of single-pitch steps. Returns an int array starting at 0; its
+    last value is the SPAN (>= len-1; greater when scribes are missing)."""
+    pos = np.sort(np.asarray(positions, float))
+    sp = np.diff(pos)
+    if sp.size == 0:
+        return np.array([0])
+    unit = np.percentile(sp, 20)          # ~ single pitch (robust to wide cols / gaps)
+    steps = np.maximum(1, np.round(sp / max(unit, 1e-6)).astype(int))
+    return np.concatenate([[0], np.cumsum(steps)])
+
+
+def _labels(positions, first):
+    """Absolute line indices for detected positions given the leftmost index
+    `first`, gap-aware (handles missing scribes)."""
+    return [int(first + r) for r in _rel_indices(positions)]
+
+
 def register(name, det, anchors=None, verbose=True):
     col_x, row_y = det["col_x"], det["row_y"]
     res = {"name": name, "tilt": det["tilt"], "n_col": len(col_x), "n_row": len(row_y)}
@@ -337,13 +419,18 @@ def register(name, det, anchors=None, verbose=True):
     # column is in view); fall back to the 4D bar (its die-col is ≡0 mod 4, so
     # the col-line just left of the bar is ≡0 mod 4) when no clear wide pitch is
     # in view (e.g. sweep3's 3 short pitches).
-    n_col_runs = N_COL_LINES - len(col_x) + 1
+    col_rel = _rel_indices(col_x)           # gap-aware; col_rel[-1] = span
+    n_col_runs = N_COL_LINES - int(col_rel[-1])
+    has_gaps = int(col_rel[-1]) > len(col_x) - 1
     sp = np.diff(np.sort(col_x))
     col_phase = None
-    if sp.size and sp.max() / np.median(sp) > 1.12:
+    # Wide-pitch phase is RELIABLE only with no missing scribes (a 2-step gap
+    # mimics the wide column). With gaps, leave the candidate set open and let the
+    # fragment-outline match decide (low-M FOVs like sweep1 show plenty of edge).
+    if not has_gaps and sp.size and sp.max() / np.median(sp) > 1.12:
         c0 = candidate_offsets(col_x, D_COL, WIDE_COL, N_COL_LINES)
         col_phase = (c0[0] % 4) if c0 else None
-    if col_phase is None and bars:
+    if col_phase is None and not has_gaps and bars:
         bx = bars[0][0]
         left = np.where(col_x < bx)[0]
         col_phase = (-(int(left[-1]) if left.size else -1)) % 4
@@ -361,13 +448,15 @@ def register(name, det, anchors=None, verbose=True):
     # (next-larger image-y) is row-line 3 => pins row_first. Works for interior
     # FOVs with no wafer edge.
     row_first, row_method = None, "ambiguous"
+    row_rel = _rel_indices(row_y)            # gap-aware; image-y ascending order
     votes = []
     for (bx, by) in bars:
         below = row_y[row_y > by]
         above = row_y[row_y < by]
         if below.size and above.size:
             j = int(np.where(row_y == below.min())[0][0])   # img index of line just below bar
-            votes.append(j + 4 - len(row_y))                # = row_first that makes that line rl3
+            # rl(j) = (row_first + span) - row_rel[j]; set = 3 -> row_first
+            votes.append(3 - int(row_rel[-1]) + int(row_rel[j]))
     if votes:
         vals, counts = np.unique(votes, return_counts=True)
         row_first, row_method = int(vals[np.argmax(counts)]), "4D-bar"
@@ -420,16 +509,15 @@ def register(name, det, anchors=None, verbose=True):
         # still build correspondences with the GROUND-TRUTH-free best guess? no.
         return res
 
-    # build labelled correspondences -> original image coords
-    cl_list = [col_first + i for i in range(len(col_x))]
-    # row_y ascending in image == wafer rl descending; topmost image row = highest rl
-    rl_top = row_first + (len(row_y) - 1)
+    # build labelled correspondences -> original image coords (gap-aware labels)
+    cl_list = _labels(col_x, col_first)
+    rl_top = row_first + int(row_rel[-1])
+    rl_list = [rl_top - int(r) for r in row_rel]   # row_y ascending == rl descending
     pairs = []
     for ci, xd in enumerate(col_x):
-        for ri, yd in enumerate(row_y):  # ri=0 is topmost image row = highest rl
-            rl = rl_top - ri
+        for ri, yd in enumerate(row_y):
             xo, yo = derot_to_orig(float(xd), float(yd), det)
-            pairs.append((cl_list[ci], rl, xo, yo))
+            pairs.append((cl_list[ci], rl_list[ri], xo, yo))
 
     params = af.fit_sweep_affine(pairs, ATLAS, theta_init_deg=det["tilt"], scale_init=0.5)
     res["success"] = True
