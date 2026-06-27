@@ -93,7 +93,9 @@ def load():
             rows.append(dict(src=src, lens=lens, mag=mag_label, N=n, M=M,
                              N_eff=(effective_fnumber(n, M) if (n and M == M) else float("nan")),
                              centre=cen, dx=dx, fx=fx, ceiling=ceil,
-                             headroom=(cen / ceil if (ceil == ceil and ceil > 0) else float("nan"))))
+                             headroom=(cen / ceil if (ceil == ceil and ceil > 0) else float("nan")),
+                             headroom_dx=(dx / ceil if (ceil == ceil and ceil > 0) else float("nan")),
+                             headroom_fx=(fx / ceil if (ceil == ceil and ceil > 0) else float("nan"))))
     df = pd.DataFrame(rows)
     # dedup identical slugs across overlapping output dirs (keep first valid centre)
     df = df.sort_values("centre", ascending=False, na_position="last")
@@ -120,12 +122,30 @@ def main():
           f"calibrated and over-rewards stopped-down configs. Use resolution_capped /\n"
           f"fix the metric (atlas-anchored, ceiling-validated) before ranking accessories.\n")
 
-    print(f"{'centre':>7}{'ceil':>7}{'hdrm':>6}{'N':>5}{'Neff':>6}{'M':>6}  "
-          f"{'regime':<16} lens [mag]")
+    # Center vs corner: how many configs are diffraction-limited vs glass-limited?
+    # Caveat: MTF50 over-reads, so headroom is OVERSTATED -> a config flagged
+    # glass-limited (headroom<0.7) is ROBUSTLY so (true value even lower); a config
+    # near/over 1.0 is ambiguous (could be over-read, not truly at the wall).
+    def frac(col, lo, hi=None):
+        v = ranked[col].dropna()
+        m = (v >= lo) if hi is None else ((v >= lo) & (v < hi))
+        return int(m.sum()), len(v)
+    print("DIFFRACTION-LIMITED vs GLASS-LIMITED (headroom = measured/ceiling):")
+    for lbl, col in (("centre", "headroom"), ("DX-corner", "headroom_dx"),
+                     ("FX-corner", "headroom_fx")):
+        med = ranked[col].median()
+        gl, n = frac(col, -1, 0.7)        # robustly glass-limited
+        print(f"  {lbl:<10} median headroom {med:4.2f}   glass-limited (<0.7): {gl}/{n}")
+    print("  => corners far below the ceiling = glass-limited (real lens/diopter quality,\n"
+          "     field-dependent — exactly where same-strength diopters differ). Centre\n"
+          "     near the wall is ambiguous given the over-read.\n")
+
+    print(f"{'centre':>7}{'DXcor':>7}{'FXcor':>7}{'ceil':>7}{'hdC':>5}{'hdDX':>6}{'hdFX':>6}"
+          f"{'Neff':>6}{'M':>6}  lens [mag]")
     for _, r in ranked.iterrows():
-        print(f"{r['centre']:7.1f}{r['ceiling']:7.1f}{r['headroom']:6.2f}"
-              f"{(r['N'] or 0):5.1f}{r['N_eff']:6.1f}{r['M']:6.2f}  {r['regime']:<16} "
-              f"{r['lens'][:34]} [{r['mag']}]")
+        print(f"{r['centre']:7.1f}{r['dx']:7.1f}{r['fx']:7.1f}{r['ceiling']:7.1f}"
+              f"{r['headroom']:5.2f}{r['headroom_dx']:6.2f}{r['headroom_fx']:6.2f}"
+              f"{r['N_eff']:6.1f}{r['M']:6.2f}  {r['lens'][:30]} [{r['mag']}]")
 
     # scatter: measured centre vs diffraction ceiling; y=x line = the wall.
     fig, ax = plt.subplots(figsize=(9, 8))
