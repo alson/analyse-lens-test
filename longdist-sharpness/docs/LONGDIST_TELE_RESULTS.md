@@ -33,6 +33,53 @@ here use EXIF-effective focal length consistently.
 > reads from the original metric and is annotated where the change
 > mattered).
 
+## §5.3 — what conclusions changed
+
+Five places where the new metric materially shifted what the data
+says (rather than just rescaling everything proportionally):
+
+1. **Z TCs are dramatically more effective than previously claimed.**
+   In §6a "TC vs cropping the bare 400 mm frame": TC-1.4× gain went
+   from +10 % to **+24 %**; TC-2.0× gain went from +15 % to **+65 %**.
+   The old metric capped the bare 400 mm reading at the 0.20 cy/mm-
+   subj floor (real value is 0.17), masking the bare-vs-TC gap. The
+   TCs were always this good; the metric was understating it.
+2. **Z 100-400 bare is genuinely flatter and slightly softer than
+   "around 0.20" suggested.** Cross-date cutoff sits in 0.14–0.19
+   cy/mm-subj across the full FL × aperture sweep (was reported as a
+   blanket 0.20 because the metric saturated). The "all apertures
+   look the same" finding holds — the lens really is aperture-
+   invariant in this range — but the absolute level was overstated.
+3. **300 PF bare's "best centre aperture" is f/5.6, not f/8.**
+   Cross-family-edges F5.6 = 0.44 centre, F8 = 0.43 — within noise.
+   The old f/8 recommendation isn't wrong, just unnecessarily
+   specific; either is fine.
+4. **300 PF + TC-20e III shows an unexpected off-axis-up-centre-down
+   field on 2026-01-28** (edge/centre 1.24 in the new metric, was
+   1.02). Could be a 3D-scene focal-plane artefact (centre and edge
+   branches at different depths) or a centre-tile-placement issue.
+   **Worth visual inspection** before drawing TC field-uniformity
+   conclusions for this combo.
+5. **D7200 long-FL TC ordering is now quantified.** Pre-§5.3 every
+   300 PF + TC chain on D7200 2025-09-06 read 0.20 floor; under §5.3
+   they resolve to bare 300 PF (E) 0.183, Kenko 1.4× 0.158, 300/4D +
+   TC-20e III 0.140. The "F-mount TCs aren't net-positive at distance"
+   pattern, previously inferred from a shared floor on Z7, is now
+   genuinely measured on D7200 with clear lens-MTF-penalty ordering.
+
+What did NOT change:
+
+- Cross-family FOM ordering: Z 100-400 + Z TC combos still beat
+  300 PF + F-mount TC combos at every FL (ranks preserved; FOM
+  magnitudes lower — e.g. Z TC-2.0× 800 mm FOM 103, was 84).
+- F-mount TCs on the 300 PF are still net-negative vs bare 300 PF
+  for centre subjects (FOM 46–56 vs bare 61).
+- Edge/centre ratios for the Z 100-400 family stay flat (1.05–1.12).
+- 300 PF bare is still a centre-only lens at its centre-best stop
+  (edge/centre 0.60).
+- Kenko Pro 300 1.4× is still the only F-mount 1.4× class TC that
+  is competitive with bare 300 PF (cf. §6a).
+
 ## 1. Setup
 
 Three independent sessions, same physical setup at the same vantage,
@@ -373,60 +420,73 @@ field-position cutoffs on 2026-01-28.
 
 ## 7. Per-lens prose
 
-**Z 100-400 bare.** Highly consistent across dates and across the
-field. Centre cutoff ~0.20 cy/mm-subject from f/5.6 through f/16; the
-metric does not discriminate between apertures here because the lens
-is sharp enough across the band that the cutoff hits the same
-quantized FFT bin. Stopping past f/16 starts to drop the cutoff
-(f/22 = 0.20, f/32 = 0.20 — diffraction-limited apertures hold the
-same value because the metric saturates at the JPEG processing's
-sharpening edge). Edge/centre ≥ 1.00 everywhere. **Best aperture
-range: f/5.6 through f/11; flat.**
+_All numbers in this section are §5.3-metric cross-date ranges from
+`poc_longdist_cross_date_v2_2026_01_out/overlap.md` (consensus tile
+across 2026-01-18 / 28 / 30; top = max across replicates and ISO
+variants, stdev computed on the per-date top vector)._
+
+**Z 100-400 bare.** Cross-date cutoff sits in a tight 0.14–0.19
+cy/mm-subject band across the full FL × aperture sweep (200 mm = 0.14,
+300 mm = 0.16, 350–400 mm = 0.17). The "all apertures look the same"
+finding holds: cross-date stdev per (FL, aperture) is 2–9 %. The
+absolute number is **lower than the pre-§5.3 0.20 reading because
+the old metric was at floor**, not because the lens improved — the
+field is fundamentally flat for this lens (edge/centre ≥ 1.0 in §6c).
+**Best aperture range: f/5.6 through f/11; flat.**
 
 **Z 100-400 + Z TC-1.4× (lens-at-400 → 560 mm effective).** Cutoff
-0.21–0.25 at f/11–f/16; centre tracks edges. Cross-date stdev
-6–9 %, well within "trust single-session readings" range. Net +10 %
-subject-resolution gain over cropping the bare 400 mm frame to the
-same framing — the TC adds real subject detail, just less than the
-nominal 1.4× would suggest. **Best aperture: f/11 or f/16.**
+0.18–0.21 cy/mm-subj at 560 mm f/11–f/16; cross-date stdev 4–8 %.
+At 560 mm framing the TC delivers 0.21 cy/mm-subj vs the bare's
+0.17 = **+24 % subject-resolution gain** over cropping (was claimed
+as +10 % under the old metric; the cap on the bare was hiding the
+real gap). **Best aperture: f/11 or f/16.**
 
 **Z 100-400 + Z TC-2.0× (lens-at-400 → 800 mm effective).** Cutoff
-0.21–0.27 across positions at f/11; cross-date stdev ~5 %. Net +15 %
-subject-resolution gain over cropping the bare 400 mm frame to the
-same 800 mm framing — the most reach you can extract from the
-Z 100-400 system. **Best aperture: f/11.**
+0.18–0.20 cy/mm-subj at 800 mm f/11; cross-date stdev ~6 %. At the
+2026-01-28 cross-family-edges measurement the centre reads 0.28 (the
+best-tile-in-box methodology picks higher; cross-date overlap is
+consensus-tile). Either way, the **+65 % gain over bare-cropped to
+800 mm** (cross-family-edges) is dramatically larger than the
+pre-§5.3 +15 % — once the bare-400 floor is removed, the TC-2.0× is
+seen to be highly effective for distant subjects. **Best aperture:
+f/11.**
 
-**300 PF bare.** The sharpest centre reading in the dataset
-(0.40–0.53 cy/mm-subject at f/8). Stable across dates at f/11–f/16
-(stdev 5 %); more variable at f/5.6–f/8 (stdev 14–15 %) because the
-centre is sharp enough that scene-content variation (different
-in-focus branches across dates) shifts the cutoff measurably. Edges
-collapse off-axis at f/8 (edge/centre 0.60). **Best aperture for
-centre: f/8. Best aperture for full-frame use: f/11 or f/16.**
+**300 PF bare.** Sharpest centre reading in the dataset (0.34–0.44
+cy/mm-subj at f/5.6 / f/8). Cross-date stdev tightens with aperture:
+14 % at f/5.6 → 12 % at f/8 → 6 % at f/11 → 6 % at f/16. F5.6 / F8
+are within stdev of each other — the §5.2-era "best at f/8" claim is
+soft; cross-date max is at F5.6 (0.44) but F8 hits 0.43 on the same
+date. **Edges collapse off-axis at f/5.6 / f/8 (edge/centre 0.60).**
+**Best aperture for centre: f/5.6 or f/8 (within noise). Best for
+full-frame use: f/11.**
 
-**300 PF + TC-14e I.** Centre cutoff 0.43–0.48 at f/11. Cross-date
-stdev 7 %. Field is flat at f/11 (edge/centre 0.85). Subject
-resolution is ~80 % of bare 300 PF, despite the 1.4× mag claim —
-the TC's lens-MTF penalty eats most of the magnification benefit.
-**Best aperture: f/11. Best aperture for centre alone: still f/11.**
+**300 PF + TC-14e I.** Centre cutoff 0.33–0.42 at f/11. Cross-date
+stdev 13–18 %. At the cross-family-edges best aperture (f/16) the
+centre reads 0.34, edge 0.28 (edge/centre 0.83). Subject resolution
+sits at ~78 % of bare 300 PF at the same FL; the 1.4× mag claim
+yields less than 1.4× cy/mm-subj — TC penalty is real. **Best
+aperture: f/11 (or f/16 for slightly flatter field).**
 
-**300 PF + TC-14e III.** Similar to TC-14e I in centre cutoff
-(0.43–0.44 at f/11) but with more cross-date scatter at f/16
-(stdev 34 % — confirmed shake-corrupted on 2026-01-18). On
-2026-01-30 (ISO 1600) it reaches 0.47 centre at f/16. **Best aperture:
-f/11 unless you can shoot fast enough to use f/16 without shake.**
+**300 PF + TC-14e III.** Centre 0.34–0.39 at f/11; cross-date stdev
+8 %. F16 cross-date stdev is 44 % (2026-01-18 was shake-corrupted at
+0.16); ignoring 2026-01-18 the F16 top is 0.41 (2026-01-30 ISO 1600).
+**Best aperture: f/11 unless you can shoot fast enough to use f/16
+without shake.**
 
-**300 PF + TC-17e II.** Weakest of the four Nikon F-mount TCs at
-its centre-best aperture: 0.37–0.47 at f/11. Cross-date stdev 12 %.
-Field is the closest to flat among the F-mount TCs (edge/centre
-0.94 at f/11). **Best aperture: f/11.**
+**300 PF + TC-17e II.** Centre 0.39–0.41 at f/11 — **the tightest
+cross-date stdev of any combo (2.3 %)**, which means the metric is
+truly tracking the optics here. At cross-family edge (F11) reads
+0.41 centre / 0.28 edge / 0.33 right edge — edge/centre 0.74,
+markedly off-axis even at f/11. **Best aperture: f/11.**
 
-**300 PF + TC-20e III.** Centre 0.32–0.48 at f/11 (high cross-date
-variation, 27 % stdev). Field actually exceeds centre on 2026-01-28
-(edge/centre 1.02 — the 3D scene's focal-plane hit edge branches
-more sharply than centre branches that day). Subject-detail FOM 45–66,
-mostly worse than bare 300 PF. **Best aperture: f/11. Honestly: skip
-the TC and crop the bare 300 PF for distant subjects.**
+**300 PF + TC-20e III.** Centre 0.29–0.38 at f/11; cross-date stdev
+19 %. F16 narrows to 6 % stdev (0.30–0.33). At cross-family-edges f/11
+the field actually peaks at the edges (0.44 / 0.49 vs 0.38 centre,
+edge/centre 1.24) — a striking off-axis reversal on 2026-01-28 that
+warrants visual inspection (could be centre-tile-placement artefact
+on the 3D scene's depth surface). FOM 52 puts it below bare 300 PF
+(FOM 61) at the centre — **bare-300-PF-cropped wins for distant
+subjects.**
 
 **300 PF + Kenko Pro 300 1.4× (new on 2026-01-30).** Centre 0.50 at
 f/11 — **best of any 300 PF + 1.4× combo on that day** (better than

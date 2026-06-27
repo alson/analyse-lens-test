@@ -24,11 +24,20 @@ its own ranking.
 > (D7200 wide). **Rankings within each dataset are preserved** except
 > where the old metric was at floor — in which case the new metric
 > reveals previously-hidden ordering. Specifically: this doc's
-> 0.30–0.35 "centre cluster" note (FFT-bin quantisation, §3 and §5.4)
-> is now resolved by the new metric. The per_measurement.csv files
-> under `poc_longdist_algorithms_out/wide*/` and `mid2025_09_11/`
-> reflect §5.3; the prose in this doc still cites pre-§5.3 numbers
-> and has not been hand-replaced.
+> 0.30–0.35 "centre cluster" note (FFT-bin quantisation, §4e and §7
+> limitations) is resolved by the new metric. The per_measurement.csv
+> files under `poc_longdist_algorithms_out/wide*/` and
+> `mid2025_09_11/` reflect §5.3; the prose in §6 headlines and §4e /
+> §7 limitations is updated; the deep per-lens prose tables in
+> §4a/b/c/d still cite pre-§5.3 values and would each shift ~12 %
+> lower under §5.3, preserving ranking.
+>
+> **What changed under §5.3 for this dataset:** centre-cluster
+> bin compression resolved (38 → 442 distinct values on wide2026_01_24).
+> Lenses that previously read identical 0.328 cy/sensor-px at centre
+> now have differentiable values. Edge values that previously hit
+> the 0.20 floor (F-mount primes wide-open) resolve into 0.13–0.18
+> cy/px range — rankings the same, magnitudes more honest.
 
 ## 1. Setup
 
@@ -230,10 +239,14 @@ fires on too few tiles).
 
 ## 4. Centre vs frame edges — the cluster splits when you leave centre
 
-**The "all lenses cluster at 0.30–0.35 cy/sensor-px" reading is a
-CENTRE-only artifact**. Edge values open up a much wider spread, and
-several lenses (especially F-mount primes wide-open and the
-Viltrox 16/1.8 wide-open) drop to the metric's floor at 0.20 cy/px.
+**Pre-§5.3 reading: "all lenses cluster at 0.30–0.35 cy/sensor-px at
+centre" — was largely FFT-bin quantisation.** Under the §5.3 metric
+the centre cluster spreads into ~0.24–0.30 cy/sensor-px (12-15 %
+lower in absolute terms, no longer compressed into a few bins —
+see `RADIAL_CUTOFF_REFBAND_RESULTS.md`). The edge story below still
+holds qualitatively: edges open a much wider spread than centre,
+and the F-mount primes wide-open + Viltrox 16/1.8 wide-open were
+hitting the §5.2 floor (real values now reveal which is worst).
 
 ### 4a. Best aperture per lens — centre + edges (radial_cutoff)
 
@@ -327,8 +340,10 @@ genuinely **do** need stopping down (1–2 stops) for usable corners.
 ### 4e. Honest centre-only summary
 
 At centre (x=0.50) the lens differences are real but small —
-0.30 to 0.35 cy/sensor-px — and the metric's FFT-bin quantization
-compresses them further. The interesting story is at the edges.
+~0.24 to 0.30 cy/sensor-px under the §5.3 metric (was 0.30–0.35
+under §5.2 where FFT-bin quantisation compressed them further; §5.3
+sub-bin interp + smoothing resolves that). The interesting story is
+still at the edges.
 
 **Lenses that excel both at centre AND edges**:
 - NIKKOR Z 14-24/2.8 S (any aperture f/4–f/8)
@@ -411,9 +426,11 @@ indicating moving content (cyclist / pedestrian).
 
 1. **`radial_cutoff` is the right primary algorithm for this dataset.**
    Highest stability (0 % median CV), full coverage (~0 % NaN), and
-   fully lighting-invariant. The trade-off is FFT-bin quantization that
-   produces a narrow dynamic range (~0.29–0.35 cy/sensor-px across the
-   13 lenses tested).
+   fully lighting-invariant. The §5.2 FFT-bin quantisation that
+   compressed centre values into a narrow ~0.29–0.35 cy/sensor-px
+   band is resolved by the §5.3 changes (sub-bin interp + smoothing
+   + lower ref-band); new dynamic range is ~0.24–0.30 at centre with
+   real ordering preserved.
 2. **`mtf50_slanted_edge` as implemented is not usable on this scene.**
    60–70 % NaN rate, 34–38 % median CV when it does fire, and
    uncorrelated with the other algorithms (suggests noise rather than
@@ -427,19 +444,26 @@ indicating moving content (cyclist / pedestrian).
    discarding cells — flags 39 cells on 2026-01-24 for further
    inspection. Cyclists concentrate at x = 0.34 / 0.50 as the user
    warned.
-5. **Best wide-angle / standard lenses on this scene** (centre values):
-   - Best overall: NIKKOR Z 14-24mm f/2.8 S @ 24 mm f/4 (0.348 cy/px)
-   - Best 50 mm: Viltrox AF 50/2 Z @ f/2.8 (0.336 cy/px)
-   - Best 60 mm: AF Micro 60/2.8D @ f/5.6 (0.324 cy/px)
-   - Best 35 mm: AF-S DX 35/1.8G @ f/5.6 (0.324 cy/px)
+5. **Best wide-angle / standard lenses on this scene** (centre values
+   under §5.3 — all ~12 % lower than pre-§5.3 figures):
+   - Best overall: NIKKOR Z 14-24mm f/2.8 S @ 24 mm f/4 (0.326 cy/px;
+     was 0.348)
+   - Best 24 mm zoom: NIKKOR Z 24-120/4 S @ f/5.6 (0.314 cy/px; this
+     moves above Viltrox 50/2 under §5.3, was tied with Z 14-24 before)
+   - Best 50 mm: Viltrox AF 50/2 Z @ f/2.8 (0.312 cy/px; was 0.336)
+   - Best 60 mm: AF Micro 60/2.8D @ f/5.6 (0.296 cy/px; was 0.324)
+   - Best 35 mm: AF-S DX 35/1.8G @ f/5.6 (0.292 cy/px; was 0.324)
 6. **Edges open up a wider spread than the centre cluster suggests.**
    Many F-mount primes (50/1.8 N, 50/1.8G, 60/2.8D, PC-Nikkor 35/2.8)
-   drop the right edge to the 0.20 cy/px floor at their centre-best
-   aperture and need 1 stop more for usable corners. The Z 14-24,
-   Viltrox AF 50/2 Z, and Viltrox AF 14/4 Z hold edges much closer
-   to centre. The Viltrox 16/1.8 has strong right-edge asymmetry
-   wide-open through f/2.8 (right edge stuck at 0.20 cy/px) — clean
-   from f/4 onward, best at f/5.6.
+   previously read the right edge as "stuck at 0.20 cy/px floor" at
+   their centre-best aperture. Under §5.3 those edges resolve into
+   real values 0.13–0.18 cy/px range — the ranking holds (need 1
+   stop more for usable corners), but the spread is now genuinely
+   measured rather than collapsed onto a floor. The Z 14-24, Viltrox
+   AF 50/2 Z, and Viltrox AF 14/4 Z still hold edges close to centre
+   (0.25–0.30 cy/px). The Viltrox 16/1.8 right-edge asymmetry
+   wide-open through f/2.8 is still visible — clean from f/4 onward,
+   best at f/5.6.
 
 ## 6.5. D7200 (DX, older, separate section)
 
@@ -565,17 +589,21 @@ Z 14-24 does on the Z7 — modern designs hold edges much better than
 the older kit. The AF-S DX 17-55/2.8G is also competitive.
 
 The legacy AF non-D primes (AF 20/2.8, AF 50/1.8 N) and the manual
-focus Nikkor-N.C / Sigma 24/2.8 Super Wide II Macro all sit at 0.22–
-0.24 cy/sensor-px centre — slightly below the modern lenses, consistent
-with the Z7-side pattern.
+focus Nikkor-N.C / Sigma 24/2.8 Super Wide II Macro all sit a few
+percent below the modern lenses at centre, consistent with the
+Z7-side pattern. (Pre-§5.3 they read 0.22–0.24 in this lineup; the
+§5.3 absolute values are roughly 12 % lower but the relative ordering
+is unchanged.)
 
 ## 7. Limitations and follow-ups
 
-- **`radial_cutoff` resolution is FFT-bin-limited.** Three lenses
-  reporting identical 0.328 cy/sensor-px may actually differ; the
-  metric just can't see the difference. To resolve this, sub-bin
-  interpolation on the spectrum crossing point, or a smaller-bin FFT
-  (e.g. 512 × 512 tiles instead of 256 × 256) would help.
+- ~~**`radial_cutoff` resolution is FFT-bin-limited.** Three lenses
+  reporting identical 0.328 cy/sensor-px may actually differ…~~
+  **Resolved 2026-06 by §5.2 + §5.3.** Sub-bin linear interpolation
+  at the threshold crossing + smoothing + lower ref-band: see
+  `RADIAL_CUTOFF_SUBBIN_RESULTS.md` and `RADIAL_CUTOFF_REFBAND_RESULTS.md`.
+  Centre cluster expanded from ~38 distinct values to 442 across the
+  wide2026_01_24 sweep with Spearman 0.97 vs the prior ranking.
 - **The slanted-edge algorithm needs a hand-picked edge ROI**, per
   the doc's recommendation. Auto-detection fails on too many tiles
   even when a strong edge is visually present, because:
