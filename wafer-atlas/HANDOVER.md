@@ -1,6 +1,74 @@
 # wafer-atlas — session handover
 
-State as of 2026-05-18.
+State as of 2026-05-18 (original), extended 2026-06-27.
+
+---
+
+## Next session — START HERE (2026-06-27)
+
+**Read first:** `REPORT_2026-06-27.md` (full detail of the 2026-06-27 work) and
+the two memory files `wafer_atlas_lsf_ref_is_filesize.md` +
+`wafer_atlas_autoreg_and_grid_v3.md`. The "Pending" section further down is the
+ORIGINAL 2026-05-18 list — items #1, #2, #4 there are now DONE; #3 is untouched.
+
+**What now works (2026-06-27):** autonomous per-sweep registration end-to-end
+(`scripts/reg_auto.py`) at ~1–6px true accuracy (better than the manual 3-anchor
+method) — tilt-by-scribe-alignment, 4D-bar row anchor, fragment-outline column
+disambiguation, gap-aware labelling, full-res refinement with a radial-distortion
+term for non-macro lenses. The atlas grid was recalibrated (`atlas.json` schema
+v3, `grid_calibration` block). POC C bond-pad measurement works (`task17`).
+
+### Next steps (priority order)
+
+1. **Re-run `task15` + `task17` under the v3 grid (hygiene).** I recalibrated the
+   atlas pitches ~1% and regenerated the anchor affines + `fragment_outline`, but
+   the committed `out/task15/*` and `out/diag_2026_06/task17_*` measurement
+   outputs still reflect the OLD geometry. Re-run both, confirm nothing regressed,
+   commit refreshed results. *(low effort)*
+
+2. **Close the loop: make `task15`/`task17` use autonomous registration.** They
+   currently consume MANUAL anchor affines (`out/sweep_anchors/anchor_fit_params.json`).
+   Switch them to `reg_auto.register(...)["affine_refined"]` (and
+   `reg_auto.grid_xy_distorted` for non-macro lenses) so a NEW sweep needs zero
+   manual anchoring. This is the highest-leverage payoff of the 2026-06-27 work.
+   *(medium effort)*
+
+3. **Validate `reg_auto` on a genuinely unseen sweep.** All four test sweeps were
+   used in development (two in the grid recal). Pick an untouched sweep (other
+   aperture/lens under `…/test-raw-data/`), run `reg_auto`, confirm it registers.
+   *(low–medium)*
+
+4. **Item #3 (deferred): atlas + maze-FFT at high M** — see Pending §3 below.
+   Still untouched.
+
+5. **Consolidation.** `reg_auto.py` has grown; ~12 `diag_*.py` are dev artifacts.
+   A `/code-review` pass and a small regression test for `reg_auto` (assert the 4
+   sweeps' col/row offsets + refined RMSE) would lock behaviour in.
+
+### How to run (both hosts share ~/shared over NFS)
+
+```sh
+# Heavy decode/measurement -> run on nufan (Ryzen 5800X, faster). Per-host venv:
+ssh nufan
+export PATH="$HOME/.local/bin:$PATH"
+cd /home/alson/shared/projects/personal/fotografie/analyse-lens-test/wafer-atlas
+export UV_PROJECT_ENVIRONMENT="$HOME/.cache/uv-venvs/wafer-atlas"   # NOT the NFS .venv
+uv run --no-sync python scripts/reg_auto.py          # autonomous registration, all sweeps
+#   reg_auto.py --oracle    # proves geometry with optimal labels
+#   reg_auto.py --validate  # mapping/label sanity probe
+```
+
+### Gotchas
+- **venv is per-host** at `~/.cache/uv-venvs/wafer-atlas` (outside ~/shared); set
+  `UV_PROJECT_ENVIRONMENT` or the build fails. `pyproject.toml` is `package=false`.
+- **`atlas.json` is schema v3** — pitches recalibrated; old ratios in
+  `grid_calibration`. Anything cached against the old grid is stale (that's why
+  step 1 exists).
+- The old `task15` "lsf_ref_shot" values (137/41/47) were **JPEG-filesize
+  argmaxes, not LSF** — already fixed in task15; don't reintroduce.
+- MTF50 saturates at M≥1 → use a non-saturating metric (lapvar) for focus argmax.
+
+---
 
 ## What landed this session
 
