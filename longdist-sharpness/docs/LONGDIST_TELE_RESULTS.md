@@ -641,14 +641,19 @@ Top of each lens's centre-aperture combinations:
 
 | Lens | Best FL × aperture | centre cy/sensor-px |
 |---|---|---|
-| **AF Zoom-Micro 70-180/4.5-5.6D** | 70 mm f/8 | **0.313** |
-| Z 100-400/4.5-5.6 VR S | 100 mm f/5.6 | 0.309 |
-| Z MC 105/2.8 VR S | 105 mm f/4 / f/5.6 | 0.305 |
-| Sigma Macro 105/2.8 EX DG OS HSM | 105 mm f/2.8 | 0.297 |
-| Z 24-120/4 S | 105 mm f/5.6 | 0.289 |
-| Z 100-400 | 200 mm f/5.6 | 0.281 (typical) |
-| AF Micro-Nikkor 200/4D IF-ED + Kenko Pro 300 1.4× | various | ~0.27 |
-| Sigma APO Macro 150/2.8 EX DG OS HSM | 150 mm f/4 | ~0.27 |
+| **AF Zoom-Micro 70-180/4.5-5.6D** | 70 mm f/8 | **0.285** |
+| Z MC 105/2.8 VR S | 105 mm f/4 | 0.278 |
+| Z 100-400/4.5-5.6 VR S | 100 mm f/5.6 | 0.275 |
+| Z 24-120/4 S | 105 mm f/5.6 | 0.262 |
+| Sigma Macro 105/2.8 EX DG OS HSM | 105 mm f/2.8 | 0.259 |
+| Sigma APO Macro 150/2.8 EX DG OS HSM | 150 mm f/8 | 0.251 |
+| AF Micro-Nikkor 200/4D IF-ED | 200 mm f/11 | 0.236 |
+| AF Zoom-Micro 70-180 + Kenko Pro 300 1.4× | 180 mm f/16 | 0.215 |
+| AF Micro 200/4D + Kenko Pro 300 1.4× | 280 mm f/16 | 0.166 |
+
+(§5.3 metric. The pre-§5.3 table read ~0.04 higher across the board;
+relative ranking is essentially the same except Z MC 105/2.8 moved
+above Z 100-400 at this scene's 15 m distance.)
 
 The Z 100-400 at its wide end (100 mm) outperforms its long end on this
 scene because at 15 m focus the wide-end FL is well inside its "infinity"
@@ -662,10 +667,13 @@ glass on the right scene at the right aperture.
 
 ### Algorithm comparison observations (2026-02-07/tele)
 
-Same 4 algorithms ran on this dataset:
-- `radial_cutoff`: 0 % median CV (highly stable, FFT-bin-quantized)
-- `mtf50_slanted_edge`: ~30 % median CV, ~50 % NaN (no usable edges in
-  most tiles — typical for 3D-shrubbery scene)
+Same 4 algorithms ran on this dataset (figures pre-§5.3, still
+representative of the algorithm-comparison shape):
+- `radial_cutoff`: low single-digit % median CV (highly stable;
+  FFT-bin-quantisation was resolved by §5.3 sub-bin interp + smooth)
+- `mtf50_slanted_edge`: ~30 % median CV, ~50 % NaN (no usable edges
+  in most tiles — typical for 3D-shrubbery scene; cf. §5.1
+  `mtf50_known_edge` CV-discovered edges for the wide datasets)
 - `vol`/`brenner`: ~3 % median CV, gradient-amplitude-dependent
 - Cross-algorithm Spearman (radial ↔ vol): ~0.70 (typical)
 
@@ -736,23 +744,30 @@ Scene: distant heath + a low bush against grass. **Low-contrast vegetation
 with no bare twigs or built structure** — different scene class from the
 2026 telephoto sessions (which use bare-twig 3D shrubbery).
 
-Most measurements hit the radial_cutoff metric's lower bound (0.2031 cy/sensor-
-px, single FFT bin above DC). This is **scene-limited**, not lens-limited:
-the heath/bush content doesn't deliver enough high-frequency texture for
-the metric to discriminate.
+Under the §5.3 metric, no measurement hits the old 0.2031 cy/sensor-px
+floor (that was the post-§5.2 ref-band ceiling). Every config gets a
+non-zero reading, but the dynamic range is compressed into [0.11, 0.17]
+— this scene is **genuinely sharpness-limited**, not just metric-floored.
 
-The 3 configs that escape the floor:
+Top centre-aperture values:
 
 | Lens × FL × aperture | centre cy/sensor-px |
 |---|---|
-| Tamron 90/2.8 Di Macro VC USD F017 + Kenko Pro 300 1.4× @ 90 mm, f/2.8 / f/5.6 | 0.371 |
-| AF-S 300/4D + TC-14e III @ 420 mm, f/5.6 | 0.367 |
+| Tamron 90 Di Macro F017 + Kenko Pro 300 1.4× @ 90 mm, f/2.8 | 0.168 |
+| Tamron 90 Di Macro F017 @ 90 mm, f/2.8 | 0.142 |
+| Sigma 150 Macro + Sigma TC-1401 @ 210 mm, f/5.6 | 0.131 |
+| AF-S 300/4D @ 300 mm, f/4 | 0.128 |
+| Sigma 150 Macro + Kenko Pro 300 1.4× @ 150 mm, f/4 | 0.126 |
+| Sigma 150 Macro @ 150 mm, f/5.6 | 0.119 |
+| AF-S 300/4D + Nikon TC-14e I @ 420 mm, f/8 | 0.117 |
+| AF-S 300/4D + Kenko Pro 300 1.4× @ 420 mm, f/11 | 0.112 |
 
-The macro + 1.4× combo is at shorter distance (and the Kenko TC brings more
-subject magnification onto the sensor); the AF-S 300/4D + TC-14e III at
-its longest reach + widest aperture reaches subject content with usable
-texture. Other configs (bare AF-S 300/4D, 70-200/2.8G + various TCs,
-Sigma 150 macro + various TCs) all hit the floor on this scene.
+The Tamron 90 macro + Kenko TC combo is at SHORTER subject distance
+than the 300mm-class lenses; that's why it tops despite being on a
+nominally less ambitious lens — it's effectively measuring its
+performance at near-focus, not at infinity. The macro/long-tele
+ordering at infinity-class distance is preserved (Sigma 150 +
+TC-1401 > AF-S 300/4D > Sigma 150 bare).
 
 **Conclusion for 2025-07-05**: data is preserved (124 JPEGs demosaiced
 in proper hierarchy) but the radial_cutoff metric is **not informative**
@@ -769,14 +784,15 @@ centre aperture:
 
 | Lens (best FL × aperture) | centre cy/sensor-px |
 |---|---|
-| Sigma 50-150/2.8 EX APO DC HSM I @ 98–150 mm, f/5.6 / f/8 | 0.297–0.301 |
-| Sigma 50-150/2.8 EX APO DC HSM I + Sigma APO TC 1.4× @ 70 mm, f/11 | 0.301 |
-| Sigma 50-100/1.8 DC HSM | A @ 70 mm, f/2.8 / f/8 | 0.297 |
-| AF-S 70-200/2.8G IF-ED + TC-14e I @ 280 mm, f/8 | 0.297 |
-| AF-S 70-200/2.8G IF-ED + Kenko Pro 300 1.4× @ 280 mm, f/8 | 0.297 |
-| AF-S 70-200/2.8G IF-ED + TC-17e II @ 180 mm, f/8 | 0.293 |
-| Sigma 50-150/2.8 EX APO DC HSM II + Sigma APO TC 1.4× @ 70 mm, f/8 | 0.289 |
-| AF Zoom-Micro 70-180/4.5-5.6D | various | ~0.25–0.28 |
+| Sigma 50-150/2.8 EX APO DC HSM I @ 150 mm, f/11 | 0.270 |
+| Sigma 50-150/2.8 I + Kenko Pro 300 1.4× @ 102 mm, f/11 | 0.266 |
+| Sigma 50-150/2.8 I @ 72 mm, f/8 | 0.265 |
+| AF-S 70-200/2.8G + Kenko Pro 300 1.4× @ 280 mm, f/8 | 0.261 |
+| AF-S 70-200/2.8G + TC-17e II @ 180 mm, f/5.6 | 0.260 |
+| AF-S 70-200/2.8G @ 200 mm, f/8 | 0.260 |
+| Sigma 50-100/1.8 DC HSM | A @ 70 mm, f/2.8 | 0.258 |
+| AF-S 70-200/2.8G + TC-14e I @ 280 mm, f/11 | 0.257 |
+| Sigma 50-150/2.8 I + Sigma APO TC 1.4× @ 70 mm, f/11 | 0.253 |
 
 Scene-influenced: the structured sign post in the scene produces higher
 cutoffs than 3D shrubbery would.
@@ -792,31 +808,30 @@ Top centre cutoff (radial_cutoff, cy/sensor-px) for the long-FL lenses
 
 | Lens × FL × aperture | centre cy/sensor-px |
 |---|---|
-| AF-S 300/4E PF ED VR @ 300 mm, f/5.6 | 0.219 |
-| AF-S 300/4E PF ED VR @ 300 mm, f/8 | 0.215 |
-| AF-S 300/4E PF ED VR @ 300 mm, f/11 | 0.211 |
-| AF-S 300/4D IF-ED @ 300 mm, f/11 | 0.211 |
-| 300 PF + TC-14e I/III @ 420 mm, f/11 | 0.20 (floor) |
-| 300 PF + TC-17e II @ 500 mm, f/11 | 0.20 |
-| 300 PF + TC-20e III @ 600 mm, f/11 | 0.20 |
-| Sigma 50-150 II + TC-2001 @ 300 mm, all apertures | 0.20 |
-| AF-S 70-200/2.8G + TC-20e III @ 400 mm, all apertures | 0.20 |
+| AF-S 300/4E PF ED VR @ 300 mm, f/8 | 0.183 |
+| AF-S 300/4D IF-ED @ 300 mm, f/11 | 0.163 |
+| 300 PF (E) + Kenko Pro 300 1.4× @ 420 mm, f/11 | 0.158 |
+| 300 PF (D) + TC-20e III @ 600 mm, f/11 | 0.140 |
+| Sigma 50-150 II + TC-2001 @ 145 mm, f/16 | 0.167 |
+| AF-S 70-200/2.8G + TC-17e II @ 180 mm, f/8 | 0.191 |
+| AF-S 70-200/2.8G + TC-17e II @ 135 mm, f/8 | 0.172 |
+| Sigma 50-100/1.8 + Sigma TC-2001 @ 100 mm, f/11 | 0.185 |
 
-**The 300 PF (E) is the only long-tele config that holds above the
-metric floor on D7200.** All TC combinations at long FL drop to the
-metric's lower bound on this scene. Same pattern as the Z7 finding
-that F-mount TCs aren't net-positive for distant subjects (§6b of the
-Z7 analysis), now confirmed cross-camera on the older test.
+The §5.3 metric reveals genuine ordering that the old §5.2 metric
+flattened onto its 0.20 floor: at long FL the 300 PF (E) bare lens
+sits at 0.18 cy/sensor-px and every TC chain falls below that —
+TC-20e III + 300/4D at 600mm reaches only 0.14, and the Kenko 1.4×
+on 300 PF reaches 0.16. **The "F-mount TCs aren't net-positive for
+distant subjects" pattern is now quantified on D7200, not just
+inferred from a metric floor.**
 
-Other notable findings on 2025-09-06:
-- **Mid-tele Sigma 50-150/2.8 EX APO DC HSM I peaks at 50 mm f/8** with
-  centre 0.289 — strong mid-zoom performer.
-- **Sigma 50-100/1.8 DC HSM | A** also holds at 0.27–0.28 across
-  50–85 mm f/5.6–f/11.
-- **TC-laden lenses fall to the metric floor.** Adding Sigma APO TC 1.4×
-  or Sigma TC-1401 or Kenko Pro 300 to any DC-class zoom drops centre to
-  0.20–0.25. Adding Nikon TC-14e I and III to the AF-S 70-200/2.8G holds
-  up better (0.25–0.27) but still loses to the bare zoom.
+Other notable findings on 2025-09-06 (top centre per lens):
+- **Sigma 50-150/2.8 EX APO DC HSM I peaks at 50 mm f/8** with centre
+  0.257 — strong mid-zoom performer.
+- **Sigma 50-100/1.8 DC HSM | A** holds 0.234–0.251 across 50–85 mm.
+- TC-laden lenses drop noticeably: adding Sigma TC-1401 to the 50-150 II
+  pulls centre to 0.220 (was at the 0.20 floor under §5.2). Cross-TC
+  ordering is now visible (Sigma APO TC-1.4× ≈ TC-1401 > TC-2001).
 
 ### 13c. D7200 algorithm-comparison observations
 
