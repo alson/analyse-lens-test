@@ -73,8 +73,6 @@ def die_uv_to_img(col, row, u, v, p):
 
 def enumerate_regions(p):
     """All (die_col, die_row, comp_idx, bbox_img, pitch_uv_img) in-FOV."""
-    d_col = ATLAS["die_pitch_px_in_0129"]["d_col"]
-    d_row = ATLAS["die_pitch_px_in_0129"]["d_row"]
     scale = p["scale"]
     regions = []
     for col in range(0, 11):          # die columns 0..10
@@ -139,7 +137,7 @@ def main():
     use_manual = "--manual" in sys.argv
     if use_manual:
         p = ANCHORS[SWEEP]
-        print(f"registration source: manual anchors")
+        print("registration source: manual anchors")
     else:
         p = reg_auto.register_and_refine(SWEEP)
         if p is None:
@@ -216,8 +214,8 @@ def main():
             line += (f"  argmax median {int(np.median(am))} IQR "
                      f"[{int(np.percentile(am,25))},{int(np.percentile(am,75))}]")
         print(line)
-    print(f"DETERMINISM: method has NO stochastic step (fixed atlas locations, no "
-          f"re-detection) => identical output run-to-run, unlike POC C's LSD-ordering flips.")
+    print("DETERMINISM: method has NO stochastic step (fixed atlas locations, no "
+          "re-detection) => identical output run-to-run, unlike POC C's LSD-ordering flips.")
 
     json.dump(dict(sweep=SWEEP, n_shots=len(shots), n_regions=len(regions),
                    coverage=coverage, n_valid=n_valid_regions,

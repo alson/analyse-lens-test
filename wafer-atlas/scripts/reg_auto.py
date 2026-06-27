@@ -441,7 +441,7 @@ def _labels(positions, first):
     return [int(first + r) for r in _rel_indices(positions)]
 
 
-def register(name, det, anchors=None, verbose=True):
+def register(name, det, anchors=None):
     col_x, row_y = det["col_x"], det["row_y"]
     res = {"name": name, "tilt": det["tilt"], "n_col": len(col_x), "n_row": len(row_y)}
     if len(col_x) < 3 or len(row_y) < 3:
@@ -693,7 +693,7 @@ def refine_full_res(path, p, R=160, band=100):
     return pr, len(pairs), pairs
 
 
-def register_and_refine(name, path=None, anchors=None, refine=True, verbose=False):
+def register_and_refine(name, path=None, anchors=None, refine=True):
     """End-to-end autonomous registration for ONE sweep, for downstream consumers
     (task15 / task17). detect -> register (absolute labelling) -> full-res
     refinement. Returns the refined affine dict, which carries the radial term
@@ -711,13 +711,15 @@ def register_and_refine(name, path=None, anchors=None, refine=True, verbose=Fals
             return None
         path, anchors = SWEEPS[name]
     det = detect(path)
-    r = register(name, det, anchors=anchors, verbose=verbose)
+    r = register(name, det, anchors=anchors)
     if not r.get("success"):
         return None
     if refine:
         pr, n_int, _ = refine_full_res(path, r["affine"])
         p = dict(pr)
-        p["reg_method"] = "refined"
+        # refine_full_res falls back to the low-res affine if it finds <4
+        # intersections; report that honestly rather than claiming "refined".
+        p["reg_method"] = "refined" if n_int else "low-res(refine-fallback)"
         p["n_refine_intersections"] = int(n_int)
     else:
         p = dict(r["affine"])

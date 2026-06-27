@@ -43,7 +43,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
-from tile_sharpness.methods.lsf import Segment, cross_section, lsf_mtf50, lsf_peak_amp
+from tile_sharpness.methods.lsf import Segment, cross_section, lsf_mtf50
 
 
 def _load_sibling(name):
