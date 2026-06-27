@@ -16,6 +16,23 @@ Earlier note on the FL-labelling fix: the `400.0 mm` subdirectory of
 (`lens-at-(400/TC-factor)` + TC), not "lens-at-400 + TC". All numbers
 here use EXIF-effective focal length consistently.
 
+> **2026-06 — `radial_cutoff` metric definition changed (§5.3).**
+> All `cy/mm-subject` and `cy/sensor-px` numbers in this doc were
+> recorded under the original metric: `REF_BAND = (0.01, 0.20)`,
+> first-crossing, no smoothing. The metric now uses
+> `REF_BAND = (0.01, 0.10)`, last-crossing on a Gaussian-smoothed
+> normalised spectrum (σ=2 bins). See
+> [`RADIAL_CUTOFF_REFBAND_RESULTS.md`](RADIAL_CUTOFF_REFBAND_RESULTS.md).
+> Absolute values typically read **12–15 % lower** for sharp Z7
+> measurements under the new metric and **higher** for previously-
+> floored soft cases. **Rankings within each comparison are
+> preserved** except where the old metric was at floor — in which
+> case the new metric reveals previously-hidden ordering (the
+> headline §6a/b/c tables below have been re-generated from the new
+> cross-family-edges output; the deeper per-date prose below still
+> reads from the original metric and is annotated where the change
+> mattered).
+
 ## 1. Setup
 
 Three independent sessions, same physical setup at the same vantage,
@@ -254,16 +271,22 @@ the data is still in §3 for the curious.)
 At the TC's longer effective FL (lens at the long end + TC mounted),
 does the TC beat what you can get from cropping the bare 400 mm shot?
 
-| Comparison (84 m, F11) | bare-cropped ceiling | TC chain | cutoff cy/mm-subj |
+| Comparison (84 m) | bare-cropped ceiling | TC chain | cutoff cy/mm-subj |
 |---|---|---|---|
-| 560 mm effective framing | 0.20 (bare 400, cropped) | lens-400 + Z TC-1.4× | TC 0.22 → **+10 %** |
-| 800 mm effective framing | 0.20 (bare 400, cropped) | lens-400 + Z TC-2.0× | TC 0.23 → **+15 %** |
+| 560 mm effective framing | 0.17 (bare 400 F11, cropped) | lens-400 + Z TC-1.4× F16 | TC 0.21 → **+24 %** |
+| 800 mm effective framing | 0.17 (bare 400 F11, cropped) | lens-400 + Z TC-2.0× F11 | TC 0.28 → **+65 %** |
 
-Cropping the bare frame preserves the bare lens's 0.20 cy/mm-subj
-(crop + upsample adds no information). Both Z TCs **beat that ceiling**
-modestly. Ideal mag-gain would be 1.4 / 2.0×; actual subject-resolution
-gain is 1.10 / 1.15× — the TC pays an ~85 % optical penalty for the
-nominal 40–100 % mag boost.
+Cropping the bare frame preserves the bare lens's 0.17 cy/mm-subj
+(crop + upsample adds no information). Both Z TCs **beat that ceiling
+substantially**. Compared to the ideal mag gain (1.4× / 2.0×), the
+actual subject-resolution gain is 1.24× / 1.65× — about 60–65 %
+optical efficiency of the nominal magnification.
+
+_§5.3 note — the previous version of this table reported the bare
+ceiling at 0.20 and TC gains of +10/+15 %. That was the old metric
+floor; the bare lens was always below 0.20, and the §5.3 metric
+correctly captures the bare-vs-TC gap, which is larger than first
+read._
 
 **Question B — distant fixed subject, longer lens helps.**
 For a bird across an inlet you cannot approach, which combo delivers
@@ -272,25 +295,33 @@ the most subject detail per real-world millimetre?
 FOM = sensor cy/px × f_eff (proportional to subject cy/mm at any fixed
 distance):
 
-| Combo | f_eff | F# | FOM |
+| Combo (2026-01-28 centre, best aperture per combo) | f_eff | F# | FOM |
 |---|---|---|---|
-| Z 100-400 + Z TC-1.4× | 560 | f/16 | **86** (best on 2026-01-30) |
-| Z 100-400 + Z TC-2.0× | 800 | f/11 | **84** |
-| Z 100-400 + Z TC-1.4× | 560 | f/11 | **77–85** |
-| Z 100-400 bare | 400 | f/11 | 73 |
-| 300 PF bare | 300 | f/8 | 55–73 (cross-date) |
-| 300 PF + Kenko Pro 300 1.4× | 420 | f/11 | 69 (2026-01-30 only) |
-| 300 PF + TC-14e I | 420 | f/11 | 59–66 |
-| 300 PF + TC-14e III | 420 | f/11 | 56–61 |
-| 300 PF + TC-17e II | 500 | f/11 | 51–64 |
-| 300 PF + TC-20e III | 600 | f/11 | 45–66 |
+| Z 100-400 + Z TC-2.0× | 800 | f/11 | **103** |
+| Z 100-400 + Z TC-1.4× | 560 | f/16 | **76** |
+| Z 100-400 bare | 400 | f/11 | **63** |
+| 300 PF bare | 300 | f/5.6 | **61** |
+| 300 PF + TC-17e II | 500 | f/11 | 56 |
+| 300 PF + TC-20e III | 600 | f/11 | 52 |
+| 300 PF + TC-14e I | 420 | f/16 | 46 |
+| 300 PF + TC-14e III | 420 | f/11 | 46 |
 
-**Both Z TCs are net-positive over bare** for the bird-on-cliff use
-case: TC-1.4× is +18 %, TC-2.0× is +15 %. **Every Nikon F-mount TC
-on the 300 PF is net-negative** vs bare 300 PF (best aperture each):
-the lens-MTF penalty eats the magnification gain. The **Kenko Pro 300
-1.4× is competitive** with bare 300 PF (69 vs 55–73) and outperforms
-the Nikon TC-14e III at the same FL on 2026-01-30 (0.50 vs 0.44 centre).
+**Z TCs remain strongly net-positive over bare** for the bird-on-cliff
+use case: TC-1.4× is +21 % FOM (76/63), TC-2.0× is +63 % FOM (103/63).
+The §5.3 metric makes the Z TC-2.0× gain more dramatic than the §5.2
+metric did — see §6a above for the reason.
+
+**Every Nikon F-mount TC on the 300 PF is still net-negative** vs the
+bare 300 PF (61 FOM at f/5.6, was f/8 under the old metric) — the
+lens-MTF penalty eats the magnification gain. Best F-mount TC is
+TC-17e II at FOM 56 (8 % below bare). The §5.3 metric shifts the
+"best centre aperture" for bare 300 PF from f/8 to f/5.6; cross-date
+v2 data shows f/5.6 and f/8 are within noise of each other on this
+combo, see `poc_longdist_cross_date_v2_2026_01_out/overlap.md`.
+
+(Cross-date FOM ranges for the 300 PF family are now in the regenerated
+`overlap.md`; old prose values like "55–73", "59–66", "Kenko 69" are
+the §5.2-metric numbers and have not been hand-replaced.)
 
 ### 6b. Z TCs vs F-mount TCs — sensor MTF retention
 
@@ -313,22 +344,26 @@ penalty eats most of that headroom.
 
 Edge / centre ratio at each combo's best-centre aperture:
 
-| Combo | Best F# | edge/centre |
+| Combo (2026-01-28 best-centre aperture) | Best F# | edge/centre |
 |---|---|---|
 | Z 100-400 bare | f/11 | 1.06 |
-| Z 100-400 + Z TC-1.4× | f/11–f/16 | 1.05–1.08 |
-| Z 100-400 + Z TC-2.0× | f/11 | 1.08 |
-| 300 PF bare | f/8 | **0.60** |
-| 300 PF + TC-14e I | f/11 | 0.85 |
-| 300 PF + TC-14e III | f/11 | 0.86 |
-| 300 PF + TC-17e II | f/11 | 0.94 |
-| 300 PF + TC-20e III | f/11 | 1.02 |
-| 300 PF + Kenko Pro 300 1.4× | f/11 | 0.74 |
+| Z 100-400 + Z TC-1.4× | f/16 | 1.12 |
+| Z 100-400 + Z TC-2.0× | f/11 | 1.05 |
+| 300 PF bare | f/5.6 | **0.60** |
+| 300 PF + TC-14e I | f/16 | 0.83 |
+| 300 PF + TC-14e III | f/11 | 0.96 |
+| 300 PF + TC-17e II | f/11 | 0.74 |
+| 300 PF + TC-20e III | f/11 | 1.24 |
 
-**Z 100-400 family is flat across the field** — no off-axis penalty.
-**300 PF bare is centre-only** at its centre-best aperture — drops to
-60 % at the field edges. Mounting a TC flattens the field at the cost
-of centre value.
+**Z 100-400 family is still flat across the field** — no off-axis
+penalty (edge/centre 1.05–1.12). **300 PF bare is still centre-only**
+at its centre-best aperture (now f/5.6, was f/8 under the old metric)
+— drops to 60 % at the field edges. Mounting a TC mostly flattens
+the field; the 300 PF + TC-20e III actually shows edge > centre
+(1.24) on this date with the §5.3 metric, suggesting either a TC
+non-uniformity or a centre-tile placement artefact worth visual
+inspection. Kenko Pro 300 1.4× isn't in the 2026-01-28 cross-family
+table (it was shot only on 2026-01-30) and isn't re-tabulated here.
 
 For "1–2 stops down from max for decent frame-edge sharpness on the
 300 PF + F-mount TC" (the user's manual finding), see the earlier
@@ -433,14 +468,13 @@ TC-14e III is the weakest at f/16 (large shake-sensitivity).**
   post-aggregation pass; doesn't require re-running the heavy FFT step.
   Interpretation for 3D scenes: high spread → multiple AF positions
   landed on different focal planes; low spread → static feature.
-- **Z 100-400 cutoff appears saturated** around 0.20 cy/mm-subject in
-  many cells (especially the bare lens across FL settings). The metric
-  may be hitting an FFT-bin quantization or JPEG-pipeline ceiling.
-  Cross-validation with a second algorithm (slanted-edge MTF50 on real
-  edges in the scene, or radial-spectrum cutoff at a different
-  threshold) would tell whether this is real lens behaviour or a
-  metric artifact. The 300 PF family operates in a clearly
-  discriminating range so the metric works for ranking there.
+- ~~**Z 100-400 cutoff appears saturated** around 0.20 cy/mm-subject…~~
+  **Resolved 2026-06 by §5.3.** The saturation was the cutoff falling
+  inside the old `REF_BAND = (0.01, 0.20)`. The metric now uses
+  `REF_BAND = (0.01, 0.10)` with smoothing and last-crossing; the
+  Z 100-400 family cutoffs spread out cleanly (bare 0.17, TC-1.4×
+  0.21, TC-2.0× 0.28 — see §6a). See
+  [`RADIAL_CUTOFF_REFBAND_RESULTS.md`](RADIAL_CUTOFF_REFBAND_RESULTS.md).
 - **F-mount-TC interpretation depends on EXIF FL reporting.** I
   confirmed the camera reports effective FL (`LensInfo: 200-800mm f/9-11`
   for the Z TC-2.0× system; `420 mm` for the TC-14e III at 300×1.4 lens
@@ -578,14 +612,12 @@ replicate counts (eg. the 2026-01-30 deep sampling vs the 2026-01-18
 
 ### 11e. Where v2 doesn't help
 
-- **Z 100-400 family cutoff still appears quantized** at 0.20–0.25 cy/mm-subj
-  across most cells. The v2 sharpest-of-ISO and replicate-pool didn't
-  push the values out of that range. Either the lens really delivers in
-  that narrow band, or my radial-cutoff metric saturates against the
-  JPEG-pipeline sharpening edge for this lens. The cross-algorithm
-  comparison (running on the wide-angle dataset) will indirectly check
-  this — if slanted-edge MTF50 shows wider dynamic range on a similar
-  lens-quality range, the radial-cutoff is the bottleneck.
+- ~~**Z 100-400 family cutoff still appears quantized** at 0.20–0.25 cy/mm-subj…~~
+  **Resolved 2026-06 by §5.3.** Was the cutoff falling inside the old
+  ref band (cf. §9 above). Under the new metric the Z 100-400 family
+  spreads cleanly across [0.17, 0.28] cy/mm-subj depending on TC,
+  and the cross-algorithm comparison with `mtf50_known_edge` (§5.1)
+  confirms the radial-cutoff rankings.
 - **Single-session readings remain trustworthy only for low-spread cells.**
   Anything with `range_pct` > 30 % or `tvm` > 1.20 should be read as
   "top is a flier, prefer cross-date median".

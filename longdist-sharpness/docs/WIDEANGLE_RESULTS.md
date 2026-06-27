@@ -13,6 +13,23 @@ Cross-camera cy/sensor-px values are not directly comparable (D7200 has
 3.91 µm pixel pitch vs Z7's 4.35 µm); the D7200 data lives in §6 with
 its own ranking.
 
+> **2026-06 — `radial_cutoff` metric definition changed (§5.3).**
+> All `cy/sensor-px` numbers in this doc were recorded under the
+> original metric: `REF_BAND = (0.01, 0.20)`, first-crossing, no
+> smoothing. The metric now uses `REF_BAND = (0.01, 0.10)`,
+> last-crossing on a Gaussian-smoothed normalised spectrum (σ=2
+> bins). See [`RADIAL_CUTOFF_REFBAND_RESULTS.md`](RADIAL_CUTOFF_REFBAND_RESULTS.md).
+> Absolute values are typically **12–15 % lower** for sharp Z7
+> measurements and **higher** for previously-floored soft cases
+> (D7200 wide). **Rankings within each dataset are preserved** except
+> where the old metric was at floor — in which case the new metric
+> reveals previously-hidden ordering. Specifically: this doc's
+> 0.30–0.35 "centre cluster" note (FFT-bin quantisation, §3 and §5.4)
+> is now resolved by the new metric. The per_measurement.csv files
+> under `poc_longdist_algorithms_out/wide*/` and `mid2025_09_11/`
+> reflect §5.3; the prose in this doc still cites pre-§5.3 numbers
+> and has not been hand-replaced.
+
 ## 1. Setup
 
 ### Z7 datasets (FX, 4.35 µm pixel pitch)
