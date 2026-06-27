@@ -26,8 +26,14 @@ v3, `grid_calibration` block). POC C bond-pad measurement works (`task17`).
 > validation, `b1eda63` + `2c911bb` consolidation (cleanups + regression test +
 > 14 dead scripts removed), `6406955` atlas-vs-maze-FFT at high M. **No open items
 > from this list remain** — see the closed Pending §3 in REPORT_2026-06-27.md.
-> Possible future work: re-acquire sweep4 (rail started in focus), quantify the
-> field tilt as a deliverable, or extend the regression test into CI.
+>
+> **#4-integration follow-ups (also done):** removed the dead pad-FFT script +
+> documented `pad_pitch_px` is geometry-not-focus (`0b89b18`); added the unified
+> all-M focus tool `scripts/task_atlas_focus.py` (`f12f04c`) — per-die
+> Laplacian-variance focus for ANY sweep/M (maze-FFT cross-check at M≥0.7) plus
+> the **field-tilt map** (rig-squareness: e.g. sweep2 = 2.9 shots/1000px).
+> Possible future work: re-acquire sweep4 (rail started in focus; its field is
+> axially clipped, not tilted), or extend `test_reg_auto.py` into CI.
 
 1. ~~**Re-run `task15` + `task17` under the v3 grid (hygiene).**~~ **DONE**
    (`336f4c0`). Re-ran both with the manual anchors under the v3 atlas: every
@@ -283,8 +289,10 @@ wafer-atlas/
     ├── anchor_fit_sweep.py        (af: affine solver + grid_xy; used by reg_auto)
     ├── register_method_morphological.py (mm: scribe detection; used by reg_auto)
     ├── build_fragment_map.py      (fragment-outline prior -> atlas.json)
+    ├── task_atlas_focus.py        (UNIFIED all-M per-die focus + field-tilt map)
     ├── task15_4d_bar_lsf_all_sweeps.py  (atlas-anchored 4D-bar focus measurement)
-    ├── task17_bondpad_atlas.py    (atlas-anchored bond-pad measurement)
+    ├── task17_bondpad_atlas.py    (atlas-anchored bond-pad measurement, low-M)
+    ├── task18_highM_maze_vs_atlas.py    (atlas vs maze-FFT at high M)
     ├── test_reg_auto.py           (regression test: 4 sweeps + unseen)
     ├── diag_validate_unseen.py    (validate registration on an unseen sweep)
     ├── diag_*.py                  (2026-06-27 investigation diagnostics; see REPORT)
