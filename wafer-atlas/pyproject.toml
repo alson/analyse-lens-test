@@ -13,9 +13,10 @@ dependencies = [
     "scipy>=1.13",
 ]
 
+[tool.uv]
+# Scripts-only project: nothing imports `wafer_atlas`, so the root is not a
+# build target. Without this, uv tries to build it and fails (no src/ package).
+package = false
+
 [tool.uv.sources]
 tile-sharpness = { path = "../tile-sharpness", editable = true }
-
-[build-system]
-requires = ["uv_build>=0.11.8,<0.12.0"]
-build-backend = "uv_build"

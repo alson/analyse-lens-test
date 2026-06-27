@@ -88,6 +88,17 @@ benefits from the scribe-based ESF→LSF when scribes are usable.
 
 ## Pending
 
+> **Update 2026-06-27:** items #1, #2, #4 below worked in `REPORT_2026-06-27.md`.
+> Summary: the sweep 2/4 "anomalies" were not atlas bugs — the hardcoded
+> `lsf_ref_shot` values (137/41/47) are **JPEG-filesize argmaxes, not LSF focus
+> argmaxes**; corrected, the atlas agrees with the LSF/maze pipeline within ~2
+> shots at all M. Autonomous registration's blocking bug (a rotation-sign error,
+> anchor-RMSE 6000→~40px) is fixed; absolute labelling re-scoped to
+> feature-anchoring (whole-vs-jagged is insufficient for interior FOVs). POC C's
+> coverage (57%→100%) and determinism are solved via atlas-anchored bond-pad
+> ROIs scored by gradient energy (87% usable focus). See the report for detail;
+> item #3 remains untouched.
+
 ### 1. Sweep 2 and Sweep 4 anomalies
 
 - Sweep 2 picks 8D (1472 px from image centre) — col 8's row D may
