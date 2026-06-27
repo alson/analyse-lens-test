@@ -376,25 +376,42 @@ Centre cutoff (radial_cutoff) at f/4, top of each lens / ISO variant:
 | NIKKOR Z 20mm f/1.8 S | 0.301 (f/4, ISO 400) |
 | Nikon AF Nikkor 20/2.8 (F-mount, non-D) | 0.254 (f/4, ISO 100) |
 
-**Caveat — different scene content vs 2026-01-24/26**. The grass-
-dominated centre on 2026-02-07 means the consensus tile picker locks
-onto grass texture instead of the structural stairs/handrail it
-finds on 2026-01-24. The visual finding "Z 20/1.8 best, good even
-in edges; Z 14-24 slightly less sharp" is **not** reproduced by the
-centre-only ranking here, where Z 14-24 leads by a tiny margin
-(0.316 vs 0.301 — within FFT-bin quantization). Field-edge data
-would be more discriminating (the Z 20/1.8's flat-field reputation
-shows in corner sharpness, not centre).
+**Original (§5.2 metric) reading**. The grass-dominated centre on
+2026-02-07 means the §5.2 consensus tile picker locks onto grass
+texture instead of the structural stairs/handrail it finds on
+2026-01-24. The visual finding "Z 20/1.8 best" did **not** reproduce
+in the centre-only `radial_cutoff` ranking, which had Z 14-24 leading
+by a tiny margin (0.316 vs 0.301 — within FFT-bin quantization).
 
-**AF Nikkor 20/2.8 underperforms by 20 %** vs the Z lenses at centre.
-Matches the visual reading "edges very fuzzy until f/5.6" — the older
-non-D AF lens is consistent with the other legacy F-mount primes in
-the 2026-01-24 dataset.
+**§5.1 CV-edge MTF50 (mtf50_known_edge) restores the visual ordering.**
+Re-running the dataset through the CV-discovered edge picker (which
+lands on stair-side diagonals, paver boundaries, and other
+structural content rather than grass) gives this median-across-
+edges ranking per (lens, FL, best aperture):
 
-The mtf50_slanted_edge algorithm produced more usable output on this
-dataset (4 % median CV vs 34–38 % on 2026-01-24/26 and rank-correlation
-with radial_cutoff jumps to 0.55 from 0.10). Even so, the centre
-ranking is too compressed for the metric to discriminate confidently.
+| Lens (best aperture) | mtf50_known_edge |
+|---|---|
+| **NIKKOR Z 20mm f/1.8 S @ f/5.6** | **0.476** |
+| NIKKOR Z 14-24/2.8 S @ 20mm f/8 | 0.427 |
+| Nikon AF Nikkor 20/2.8 @ f/8 | 0.407 |
+| Viltrox AF 20/2.8 Z Air @ f/11 | 0.379 |
+
+The Z 20/1.8 S leads by 12 % MTF50 over the Z 14-24 at the same
+focal length — matching the user's visual judgement that the 1.8
+prime delivered better corners than the zoom at 20 mm on this scene.
+The CV-edge approach works because it doesn't depend on the centre
+tile having structural content; it directly measures the long
+structural edges wherever they happen to be in the frame.
+
+**AF Nikkor 20/2.8 underperforms by 20 %** vs the Z lenses at centre
+under the §5.2 metric. Under the §5.1 CV-edge metric the AF 20/2.8
+sits between the Z 20/1.8 S and the Viltrox 20/2.8 Z. Matches the
+visual reading "edges very fuzzy until f/5.6".
+
+The mtf50_slanted_edge (§4.1 auto-detect) produced more usable
+output on this dataset than on the others (4 % median CV vs 34–38 %
+on 2026-01-24/26) — but the §5.1 CV-edge variant is more
+discriminating still because it picks the edges deliberately.
 
 ## 5. Movement-detection findings
 

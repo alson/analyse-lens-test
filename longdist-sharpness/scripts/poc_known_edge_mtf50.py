@@ -454,36 +454,52 @@ def _refine_edge_position(luma: np.ndarray, spec: EdgeSpec,
             peak_strength)
 
 
-def mtf50_known_edge(luma: np.ndarray, spec: EdgeSpec,
-                     length: int = EDGE_ROI_LEN,
-                     width: int = EDGE_ROI_WID,
-                     refine: bool = True,
-                     min_peak: float = 0.0) -> float:
-    """ESF → LSF → MTF50 on an axis-aligned ROI around a known edge,
-    projecting pixel coords onto the known gradient-normal direction.
+def measure_edge_metrics(luma: np.ndarray, spec: EdgeSpec,
+                         length: int = EDGE_ROI_LEN,
+                         width: int = EDGE_ROI_WID,
+                         refine: bool = True,
+                         min_peak: float = 0.0) -> dict:
+    """Compute three complementary edge-sharpness metrics on a single
+    ROI. Returns a dict with::
 
-    The edge runs along ``(cos(angle), sin(angle))`` so the gradient
-    normal is ``(-sin(angle), cos(angle))``. For every pixel in the
-    ROI we compute its signed distance to the edge midpoint along the
-    normal, then bin into 0.25-px bins to recover an oversampled ESF.
+        {
+            "mtf50":          MTF50 frequency (cy/sensor-pixel),
+            "mtf_at_nyquist": MTF value AT 0.5 cy/sensor-pixel,
+            "mtf10_freq":     MTF10 frequency (cy/sensor-pixel),
+        }
 
-    Pixels too far from the modelled edge (along the edge tangent) are
-    masked out — only the central ``length`` strip parallel to the
-    edge contributes. This rejects the corners of the ROI that don't
-    belong to the edge profile.
+    Why three?
 
-    Returns MTF50 in cycles per ORIGINAL image pixel."""
+    - **MTF50** (frequency where MTF crosses 0.5) is the standard
+      reading. It saturates at Nyquist (≈ 0.49 cy/px) for the sharpest
+      edges; sharper edges all read 0.49 and become indistinguishable.
+    - **MTF@Nyquist** (the actual MTF value AT 0.5 cy/px) keeps
+      discriminating in the saturated regime — a soft edge reads
+      ~0.10, a sharp Z7 wide-angle edge reads 0.5–0.7+.
+    - **MTF10_freq** (frequency where MTF drops to 0.1) captures the
+      high-frequency tail. For very sharp edges it exceeds Nyquist
+      and is clipped at 0.5 (cap); for typical edges it lies past
+      MTF50 and resolves which lens has more aliased-but-real
+      detail.
+
+    All three are reported in the same units (cy per ORIGINAL image
+    pixel) and follow the same NaN policy: NaN when the edge can't be
+    measured (occluded, low-contrast, ROI escapes the image).
+    """
+    nan_result = dict(mtf50=float("nan"),
+                      mtf_at_nyquist=float("nan"),
+                      mtf10_freq=float("nan"))
     if refine:
         mx, my, peak = _refine_edge_position(luma, spec, length=length,
                                               width=width)
         if min_peak > 0 and peak < min_peak:
-            return float("nan")
+            return nan_result
     else:
         mx, my = spec.mid_x, spec.mid_y
     out = _extract_axis_aligned_roi(luma, mx, my, spec.angle_rad,
                                     length=length, width=width)
     if out is None:
-        return float("nan")
+        return nan_result
     roi, (x0, y0) = out
     angle = spec.angle_rad
     cos_a = math.cos(angle); sin_a = math.sin(angle)
@@ -503,7 +519,7 @@ def mtf50_known_edge(luma: np.ndarray, spec: EdgeSpec,
     # Mask: keep pixels within length/2 along edge and width/2 across
     mask = (np.abs(dist_t) <= length / 2) & (np.abs(dist_n) <= width / 2)
     if mask.sum() < length * 4:
-        return float("nan")
+        return nan_result
 
     bin_size = 0.25
     d = dist_n[mask].ravel()
@@ -511,52 +527,133 @@ def mtf50_known_edge(luma: np.ndarray, spec: EdgeSpec,
     d_min = float(d.min()); d_max = float(d.max())
     n_bins = int(math.ceil((d_max - d_min) / bin_size)) + 1
     if n_bins < 32:
-        return float("nan")
+        return nan_result
     bin_idx = np.clip(((d - d_min) / bin_size).astype(np.int32), 0, n_bins - 1)
     esf_sum = np.bincount(bin_idx, v.astype(np.float64), minlength=n_bins)
     esf_count = np.bincount(bin_idx, minlength=n_bins)
     esf = esf_sum / np.maximum(esf_count, 1)
     valid = esf_count > 2
     if valid.sum() < 32:
-        return float("nan")
+        return nan_result
     first = int(np.argmax(valid))
     last = n_bins - 1 - int(np.argmax(valid[::-1]))
     esf = esf[first:last + 1]
     if len(esf) < 32:
-        return float("nan")
+        return nan_result
     esf = ndi.gaussian_filter1d(esf, sigma=1.0)
-    lsf = np.diff(esf)
+    # Normalise the LSF by the ESF endpoint contrast (the brightness
+    # step the edge actually traverses). That makes mtf[0] = 1 by
+    # construction without depending on a window function that can
+    # distort sum(LSF) when the LSF isn't centred.
+    n_endpt = max(4, len(esf) // 10)
+    low = float(np.median(esf[:n_endpt]))
+    high = float(np.median(esf[-n_endpt:]))
+    contrast = abs(high - low)
+    if contrast < 1.0:
+        return nan_result
+    lsf = np.diff(esf) / contrast
     if len(lsf) < 32:
-        return float("nan")
-    win = np.hanning(len(lsf))
-    lsf = lsf * win
-    mtf = np.abs(np.fft.fft(lsf))
-    if mtf[0] <= 0:
-        return float("nan")
-    mtf = mtf / mtf[0]
+        return nan_result
+    # Light Tukey-style taper only at the very ends (5 % each side)
+    # rather than full Hann — full Hann was the source of the
+    # mtf[0]-near-zero pathology.
     n = len(lsf)
+    taper = np.ones(n)
+    n_taper = max(2, n // 20)
+    ramp = 0.5 * (1 - np.cos(np.pi * np.arange(n_taper) / n_taper))
+    taper[:n_taper] = ramp
+    taper[-n_taper:] = ramp[::-1]
+    lsf = lsf * taper
+    mtf = np.abs(np.fft.fft(lsf))
+    # The raw bin-by-bin MTF oscillates because of finite-ROI windowing
+    # and noise. Smooth it with a Gaussian over ~1/100 of the spectrum
+    # so MTF50 / MTF10 readings track the envelope rather than spurious
+    # bin spikes. σ in bin units; with bin_size=0.25 px and n~500 the
+    # smoothing covers ~0.04 cy/px which is below the structural
+    # frequencies we care about (0.05 cy/px steps in the f grid).
+    mtf = ndi.gaussian_filter1d(mtf, sigma=max(2.0, len(mtf) / 200))
     freqs = np.arange(n) / (n * bin_size)    # cy per original-image pixel
     half = n // 2
+    # Cap the search at sensor Nyquist (0.5 cy/sensor-px). Beyond
+    # Nyquist the spectrum contains aliased content from lens
+    # frequencies above 0.5 folded back (and the Z7's lack of OLPF
+    # means there IS such content); separating real lens-MTF from
+    # aliased content inside the slanted-edge supersampled ESF is
+    # not well-defined. Keep the metric inside the unambiguous band.
     f = freqs[:half]; m = mtf[:half]
     cap = np.searchsorted(f, 0.5)
     f = f[:max(cap, 4)]; m = m[:len(f)]
-    below = np.where(m < 0.5)[0]
-    if len(below) == 0:
-        # Edge sharper than the FFT can resolve — cap at the highest
-        # measurable frequency. Rare on real wide-angle JPEGs.
-        return float(f[-1])
-    i = int(below[0])
-    if i == 0:
-        return float("nan")
-    m_prev, m_curr = m[i - 1], m[i]
-    if m_prev == m_curr:
-        result = float(f[i])
+    if len(f) == 0:
+        return nan_result
+    # Sanity: after smoothing mtf[0] should be roughly 1 (ESF contrast-
+    # normalised). Reject the worst pathological LSFs but allow some
+    # slack — Hann-style end-tapering can drop mtf[0] toward ~0.4 even
+    # on a clean edge, and noisy ROIs occasionally bump max past 1.0.
+    if float(m[0]) < 0.3 or float(m.max()) > 2.5:
+        return nan_result
+
+    # MTF50: first below-0.5 crossing with sub-bin linear interp
+    below_50 = np.where(m < 0.5)[0]
+    if len(below_50) == 0:
+        mtf50 = float(f[-1])   # capped at Nyquist
     else:
-        frac = (0.5 - m_prev) / (m_curr - m_prev)
-        result = float(f[i - 1] + frac * (f[i] - f[i - 1]))
-    if result < MTF50_RESULT_FLOOR:
-        return float("nan")
-    return result
+        i = int(below_50[0])
+        if i == 0:
+            mtf50 = float("nan")
+        else:
+            m_prev, m_curr = float(m[i - 1]), float(m[i])
+            if m_prev == m_curr:
+                mtf50 = float(f[i])
+            else:
+                frac = (0.5 - m_prev) / (m_curr - m_prev)
+                mtf50 = float(f[i - 1] + frac * (f[i] - f[i - 1]))
+            if mtf50 < MTF50_RESULT_FLOOR:
+                mtf50 = float("nan")
+
+    # MTF@Nyquist: linear interp the MTF curve to 0.5 cy/px
+    nyq = 0.5
+    if f[-1] >= nyq:
+        idx = int(np.searchsorted(f, nyq))
+        if idx == 0:
+            mtf_at_nyq = float(m[0])
+        elif idx >= len(f):
+            mtf_at_nyq = float(m[-1])
+        else:
+            f0, f1 = float(f[idx - 1]), float(f[idx])
+            m0, m1 = float(m[idx - 1]), float(m[idx])
+            frac = (nyq - f0) / (f1 - f0) if f1 != f0 else 0.0
+            mtf_at_nyq = max(0.0, m0 + frac * (m1 - m0))
+    else:
+        mtf_at_nyq = float(m[-1])
+
+    # MTF10: first below-0.1 crossing (frequency where MTF=0.1). Clip
+    # at Nyquist (0.5) when the curve doesn't drop that low in-band.
+    below_10 = np.where(m < 0.1)[0]
+    if len(below_10) == 0:
+        mtf10 = float(f[-1])    # MTF stays above 0.1 through Nyquist
+    else:
+        i = int(below_10[0])
+        if i == 0:
+            mtf10 = float("nan")
+        else:
+            m_prev, m_curr = float(m[i - 1]), float(m[i])
+            if m_prev == m_curr:
+                mtf10 = float(f[i])
+            else:
+                frac = (m_prev - 0.1) / (m_prev - m_curr)
+                mtf10 = float(f[i - 1] + frac * (f[i] - f[i - 1]))
+
+    return dict(mtf50=mtf50, mtf_at_nyquist=mtf_at_nyq, mtf10_freq=mtf10)
+
+
+def mtf50_known_edge(luma: np.ndarray, spec: EdgeSpec,
+                     length: int = EDGE_ROI_LEN,
+                     width: int = EDGE_ROI_WID,
+                     refine: bool = True,
+                     min_peak: float = 0.0) -> float:
+    """Backward-compatible scalar API returning just MTF50."""
+    return measure_edge_metrics(luma, spec, length=length, width=width,
+                                refine=refine, min_peak=min_peak)["mtf50"]
 
 
 # ----- IO -----------------------------------------------------------------
@@ -686,8 +783,8 @@ def cmd_dataset(args: argparse.Namespace) -> int:
             continue
         (sub_out / "edges.json").write_text(specs_to_json(specs))
         render_overlay(load_rgb(ref_path), specs, sub_out / "overlay.jpg")
-        ref_mtfs = [mtf50_known_edge(ref_luma, s) for s in specs]
-        for s, m in zip(specs, ref_mtfs):
+        for s in specs:
+            metrics = measure_edge_metrics(ref_luma, s)
             rows.append(dict(
                 date=cfg["date"], camera=cfg["camera"], lens_dir=lens,
                 focal_mm=fl, aperture="REF", aperture_f=float("nan"),
@@ -695,7 +792,10 @@ def cmd_dataset(args: argparse.Namespace) -> int:
                 edge_mid_x=s.mid_x, edge_mid_y=s.mid_y,
                 edge_angle_deg=math.degrees(s.angle_rad),
                 edge_length_px=s.length_px, edge_score=s.score,
-                mtf50=m, role="reference",
+                mtf50=metrics["mtf50"],
+                mtf_at_nyquist=metrics["mtf_at_nyquist"],
+                mtf10_freq=metrics["mtf10_freq"],
+                role="reference",
             ))
 
         # Measure on every replicate at every aperture
@@ -703,8 +803,8 @@ def cmd_dataset(args: argparse.Namespace) -> int:
             for jp in c.jpegs:
                 luma = load_luma(jp)
                 for s in specs:
-                    m = mtf50_known_edge(luma, s,
-                                          min_peak=s.ref_peak * MIN_PEAK_RATIO)
+                    metrics = measure_edge_metrics(
+                        luma, s, min_peak=s.ref_peak * MIN_PEAK_RATIO)
                     rows.append(dict(
                         date=cfg["date"], camera=cfg["camera"], lens_dir=lens,
                         focal_mm=fl, aperture=c.aperture, aperture_f=c.aperture_f,
@@ -712,7 +812,10 @@ def cmd_dataset(args: argparse.Namespace) -> int:
                         edge_mid_x=s.mid_x, edge_mid_y=s.mid_y,
                         edge_angle_deg=math.degrees(s.angle_rad),
                         edge_length_px=s.length_px, edge_score=s.score,
-                        mtf50=m, role="test",
+                        mtf50=metrics["mtf50"],
+                        mtf_at_nyquist=metrics["mtf_at_nyquist"],
+                        mtf10_freq=metrics["mtf10_freq"],
+                        role="test",
                     ))
             print(f"[dataset]   {slug} aper {c.aperture}: {len(c.jpegs)} reps",
                   flush=True)

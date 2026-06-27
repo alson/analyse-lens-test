@@ -96,20 +96,66 @@ OLPF-less Z7 advantage. Absolute cy/sensor-px values aren't directly
 comparable to Z7 numbers; the ranking-agreement metric is the only
 cross-camera-meaningful column.
 
+## Additional metrics (2026-06)
+
+The algorithm now reports three complementary numbers per
+measurement, all in cy / original-image-pixel:
+
+- **`mtf50`** — the headline frequency at MTF = 0.5. Capped at sensor
+  Nyquist (0.5 cy/sensor-px) so a sharp edge can saturate at ~0.49.
+- **`mtf_at_nyquist`** — the actual MTF *value* at exactly
+  0.5 cy/sensor-px. Stays in [0, 1] for valid edges and remains
+  differentiating in the regime where MTF50 saturates. A typical
+  Z7 wide-angle sharp edge reads 0.4 – 0.6; a soft edge reads 0.1 – 0.2.
+- **`mtf10_freq`** — frequency where MTF drops to 0.1, capped at
+  Nyquist. For very sharp edges this caps at 0.49 too — those edges
+  retain > 10 % MTF all the way to Nyquist.
+
+Why three? Sensor-Nyquist is a hard ceiling for unambiguous MTF
+readings (the Z7 has no OLPF so above-Nyquist content aliases back
+in-band; we cap there rather than mix aliased content into the
+metric). Within [0, Nyquist], MTF50 is the canonical sharpness
+threshold but it saturates for the best edges. MTF@Nyquist breaks
+the saturation; MTF10 captures the tail when MTF50 doesn't reach
+the Nyquist cap.
+
+ESF contrast-normalisation (rather than `mtf[0]` from Hann-windowed
+LSF) keeps mtf[0] ≈ 1 by construction, so the three metrics share a
+coherent normalisation.
+
 ## Known limitations
 
-- **FFT-bin quantisation at Nyquist**: many edges saturate the
-  algorithm at the ~0.49 cy/px Nyquist cap on sharp Z7 / F8 frames.
-  Cross-aperture discrimination is preserved for edges where the
-  lens degradation actually drops MTF below 0.4. For the very best
-  edges (high-contrast, near-perfect step) the cap is reached at all
-  apertures.
 - **Per-(lens, FL) reference**: different lenses at different FLs
   use different edge sets. Cross-(lens, FL) MTF50 comparison is not
   apples-to-apples in the way `radial_cutoff` is.
 - **Telephoto / 3D-shrubbery scenes** still don't have usable step
   edges. The new algorithm is for wide-angle / mid stairs-scene
   datasets only.
+- **Above sensor Nyquist** the slanted-edge oversampling produces
+  spectrum values but they mix real lens MTF with aliased content
+  (Z7 has no OLPF). The algorithm caps reads at 0.5 cy/sensor-px
+  deliberately.
+
+## 2026-06 — Z 20/1.8 ordering on wide2026_02_07 restored
+
+The 2026-02-07/20 mm dataset was an open question (handover §5.4):
+the user's visual finding "Z 20/1.8 best at corner" was contradicted
+by the §5.2 consensus-tile picker which landed on grass-dominated
+centre tiles.
+
+Under §5.1 CV-discovered edges (which land on stair-side diagonals
+and paver boundaries regardless of the consensus tile picker's
+centre choice), the ranking restores to:
+
+| Lens (best aperture) | mtf50_known_edge |
+|---|---|
+| **NIKKOR Z 20/1.8 S @ f/5.6** | **0.476** |
+| NIKKOR Z 14-24/2.8 S @ 20 mm f/8 | 0.427 |
+| Nikon AF Nikkor 20/2.8 @ f/8 | 0.407 |
+| Viltrox AF 20/2.8 Z Air @ f/11 | 0.379 |
+
+Z 20/1.8 S leads by 12 % over the Z 14-24 at the same focal length,
+matching the user's visual judgement. Closes handover §5.4.
 
 ## Files
 

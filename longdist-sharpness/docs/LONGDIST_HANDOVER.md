@@ -274,18 +274,24 @@ class markers (or filtering to one class per plot) would prevent
 misreading. Low-priority polish — the per-measurement CSVs preserve
 the data; only plots need re-emitting.
 
-### 5.4 2026-02-07/wide scene-content confound
+### 5.4 2026-02-07/wide scene-content confound — RESOLVED 2026-06 by §5.1
 
-The Z 14-24 at 20 mm vs Z 20/1.8 S centre ranking on 2026-02-07 is
-suspicious — the consensus tile picker landed on grass texture
-(different scene content than 2026-01-24's stairs centre). User's
-visual finding "Z 20/1.8 best" contradicts the data, likely due to
-the scene-content issue. Either:
-- (a) Re-frame the analysis to pick a different ROI (the edge of
-  the frame where structural content is) — needs the §5.1 CV work
-  to land first
-- (b) Drop the centre-only comparison for this dataset and report
-  edge values instead
+Followed path (a) — re-ran the dataset through the §5.1 CV-edge
+MTF50 (`mtf50_known_edge`). The CV picker lands on stair-side
+diagonals + paver boundaries spread across the frame (x_frac
+0.29–0.93) rather than the grass-dominated centre. New ranking
+under `mtf50_known_edge` median across edges:
+
+  - **Z 20/1.8 S @ f/5.6: 0.476** (top)
+  - Z 14-24/2.8 S @ 20 mm f/8: 0.427
+  - AF Nikkor 20/2.8 @ f/8: 0.407
+  - Viltrox AF 20/2.8 Z Air @ f/11: 0.379
+
+User's visual finding restored. See
+[`MTF50_KNOWN_EDGE_RESULTS.md`](MTF50_KNOWN_EDGE_RESULTS.md) §
+"2026-06 — Z 20/1.8 ordering on wide2026_02_07 restored" and
+[`WIDEANGLE_RESULTS.md`](WIDEANGLE_RESULTS.md) §4.6a (updated with
+the new ranking).
 
 ### 5.5 D7200 cross-camera bridge factor — LANDED 2026-06
 
