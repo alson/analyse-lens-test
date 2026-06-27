@@ -64,8 +64,13 @@ def _load(modname, fname):
 mm = _load("mm", "register_method_morphological.py")
 af = _load("af", "anchor_fit_sweep.py")
 ATLAS = json.load(open(A / "atlas.json"))
-_FRAG_PATH = A / "out" / "fragment_map.json"
-FRAGMENT_MAP = json.load(open(_FRAG_PATH))["coverage"] if _FRAG_PATH.exists() else None
+# fragment-outline prior: canonical in atlas.json["fragment_outline"]; fall back
+# to the out/ copy if an older atlas is in use.
+if "fragment_outline" in ATLAS:
+    FRAGMENT_MAP = ATLAS["fragment_outline"]["coverage"]
+else:
+    _fp = A / "out" / "fragment_map.json"
+    FRAGMENT_MAP = json.load(open(_fp))["coverage"] if _fp.exists() else None
 D_COL = ATLAS["die_pitch_px_in_0129"]["d_col"]
 D_ROW = ATLAS["die_pitch_px_in_0129"]["d_row"]
 WIDE_COL = int(np.argmax(D_COL))   # 0

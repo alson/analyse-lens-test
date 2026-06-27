@@ -24,6 +24,12 @@ The atlas knows:
 3. **Per-feature FFT pitch signatures** for the pad-grid features
    (so a sharpness measurement at low M can target a known pad
    periodicity instead of guessing).
+4. **The fragment outline** (`fragment_outline`, schema v2) — per
+   physical die cell (col 0..10 × row A..F) wafer coverage: 1 = whole,
+   0 = absent (off-wafer), in between = jagged/partial. This is the
+   "whole-vs-jagged" inventory, used to disambiguate the absolute
+   column offset in autonomous registration. Built by
+   `scripts/build_fragment_map.py` from the whole-fragment sweep1.
 
 The atlas's primary use: **register any test sweep against the wafer
 once** (i.e. solve a per-sweep affine `(θ, x0, y0, scale)`), then
@@ -131,7 +137,7 @@ clean at that pose.
 
 | Path | Content |
 |---|---|
-| `atlas.json` | Canonical atlas data (16 die types + grid + structural metadata). |
+| `atlas.json` | Canonical atlas data (16 die types + grid + structural metadata + `fragment_outline`, schema v2). |
 | `scripts/` | Build pipeline + measurement scripts. Numbered/dated by iteration. |
 | `in/0129_painted2.png` | User-painted feature regions on the 0129 photo (50 MB, not in git). |
 | `out/0129/grid_params.json` | Per-photo grid solve for the atlas-build 0129 photo. |

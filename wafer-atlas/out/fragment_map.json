@@ -1,7 +1,9 @@
 {
- "source": "sweep1_M0.385",
+ "source": "sweep1_M0.385 (whole-fragment, anchor-registered)",
+ "built": "2026-06-27",
  "n_col": 11,
  "n_row": 6,
+ "note": "per physical die cell wafer coverage; 1=whole, 0=absent (off-wafer), mid=jagged/partial. Keys 'col,row' with col 0..10 left->right and row 0..5 = A..F bottom->top. Used to disambiguate the absolute column offset in autonomous registration (reg_auto.fragment_disambiguate).",
  "coverage": {
   "0,0": 0.24,
   "0,1": 0.44,
@@ -69,6 +71,5 @@
   "10,3": 1.0,
   "10,4": 1.0,
   "10,5": 0.8
- },
- "note": "per die cell (col 0..10, row 0..5=A..F); 1=whole, 0=absent, mid=nicked"
+ }
 }

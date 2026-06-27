@@ -79,10 +79,25 @@ def main():
             cov[f"{col},{row}"] = round(c, 3)
             grid[row, col] = c
 
-    json.dump({"source": "sweep1_M0.385", "n_col": N_COL, "n_row": N_ROW,
-               "coverage": cov,
-               "note": "per die cell (col 0..10, row 0..5=A..F); 1=whole, 0=absent, mid=nicked"},
-              open(A / "out" / "fragment_map.json", "w"), indent=1)
+    fragment_outline = {
+        "source": "sweep1_M0.385 (whole-fragment, anchor-registered)",
+        "built": "2026-06-27",
+        "n_col": N_COL, "n_row": N_ROW,
+        "note": ("per physical die cell wafer coverage; 1=whole, 0=absent "
+                 "(off-wafer), mid=jagged/partial. Keys 'col,row' with col 0..10 "
+                 "left->right and row 0..5 = A..F bottom->top. Used to "
+                 "disambiguate the absolute column offset in autonomous "
+                 "registration (reg_auto.fragment_disambiguate)."),
+        "coverage": cov,
+    }
+    # CANONICAL store: write into atlas.json (promotes the old whole-vs-jagged
+    # follow-up into the atlas). Keep a copy under out/ for convenience.
+    atlas_path = A / "atlas.json"
+    atlas = json.load(open(atlas_path))
+    atlas["fragment_outline"] = fragment_outline
+    atlas["schema_version"] = max(atlas.get("schema_version", 1), 2)
+    json.dump(atlas, open(atlas_path, "w"), indent=2)
+    json.dump(fragment_outline, open(A / "out" / "fragment_map.json", "w"), indent=1)
 
     print("Fragment coverage map (rows F..A top..bottom, cols 0..10):")
     print("      " + " ".join(f"c{c:<3}" for c in range(N_COL)))
@@ -109,7 +124,8 @@ def main():
             ax[1].text(col, row, f"{grid[row,col]:.2f}", ha="center", va="center", fontsize=8)
     fig.colorbar(im, ax=ax[1]); fig.tight_layout()
     fig.savefig(OUT / "fragment_map.png", dpi=100)
-    print(f"\nsaved out/fragment_map.json and out/diag_2026_06/fragment_map.png")
+    print(f"\npromoted fragment_outline into atlas.json (schema_version -> 2); "
+          f"copy at out/fragment_map.json; overlay at out/diag_2026_06/fragment_map.png")
 
 
 if __name__ == "__main__":
