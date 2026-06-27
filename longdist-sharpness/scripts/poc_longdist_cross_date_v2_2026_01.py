@@ -67,6 +67,25 @@ Z7_PIXEL_PITCH_MM = 4.35e-3
 LAMBDA_MM = 550e-6
 FOCUS_DISTANCE_BY_LENS_KIND = {"Z100-400": 84_000.0, "PF300": 31_620.0}
 
+
+def distance_class(focal_mm: float, distance_mm: float) -> str:
+    """Per Reikan Focal's two-tier rule
+    (https://blog.reikanfocal.com/faq/ideal-distance-for-afma-auto-focus-calibration/).
+    For FL ≥ 300 mm the at-distance minimum is 20× FL; for FL < 300 mm
+    it is 50× FL. 100× FL is the classic "infinity" threshold; above
+    300× FL is well-past-infinity."""
+    if focal_mm <= 0 or distance_mm <= 0:
+        return "unknown"
+    ratio = distance_mm / focal_mm
+    min_ratio = 20.0 if focal_mm >= 300.0 else 50.0
+    if ratio < min_ratio:
+        return "below Focal min"
+    if ratio < 100.0:
+        return "meets Focal min, <100×FL"
+    if ratio < 300.0:
+        return "infinity-class"
+    return "well past infinity"
+
 TILE = 256
 SEARCH_STEP = 64
 FIELD_POSITIONS = [0.18, 0.34, 0.50, 0.66, 0.82]
@@ -372,8 +391,8 @@ def write_per_date(cells: list[CellStats], date: str, out_csv: Path, out_md: Pat
         "**range_pct** = (top - min) / median × 100; total spread relative to typical.",
         "Columns for 5 positions show the top cutoff; final two columns roll up the worst flier-vs-spread across positions.",
         "",
-        "| Lens | f_eff | F# | top@0.18 | top@0.34 | **top@0.50** | top@0.66 | top@0.82 | worst top_vs_med | worst range_pct | n_repl_total | ISOs | best_iso (centre) |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Lens | f_eff | F# | dist class | top@0.18 | top@0.34 | **top@0.50** | top@0.66 | top@0.82 | worst top_vs_med | worst range_pct | n_repl_total | ISOs | best_iso (centre) |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for (lens, fl, ap, apf), cs in sorted(by_lfa.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][3])):
         by_pos = {c.position_frac: c for c in cs}
@@ -394,8 +413,10 @@ def write_per_date(cells: list[CellStats], date: str, out_csv: Path, out_md: Pat
         n_total = sum(c.n_replicates for c in cs)
         isos = sorted({i for c in cs for i in c.isos_present})
         best_iso_centre = centre.best_iso if centre else "—"
+        dist_mm = FOCUS_DISTANCE_BY_LENS_KIND.get(cs[0].lens_kind, 0)
+        dcls = distance_class(fl, dist_mm)
         lines.append(
-            f"| {lens} | {fl:.0f} | {ap} | " + " | ".join(f"**{s}**" if i == 2 else s for i, s in enumerate(cells_str)) +
+            f"| {lens} | {fl:.0f} | {ap} | {dcls} | " + " | ".join(f"**{s}**" if i == 2 else s for i, s in enumerate(cells_str)) +
             f" | {worst_tvm:.2f} | {worst_range:.0f}% | {n_total} | {','.join(map(str, isos))} | ISO{best_iso_centre} |"
         )
     out_md.write_text("\n".join(lines) + "\n")
@@ -453,11 +474,13 @@ def write_overlap(all_cells_by_date: dict[str, list[CellStats]], dates: list[str
         "cross-date stdev of those tops as a percent of the mean.",
         "**top_vs_median** per-date column flags whether each day's top was a",
         "flier (≥1.10) or consistent (≈1.00).",
+        "**dist class** is the Reikan two-tier distance bucket "
+        "(20×FL min for FL≥300mm, 50×FL otherwise; 100×FL = infinity-class).",
         "",
-        "| Lens | f_eff | F# | "
+        "| Lens | f_eff | F# | dist class | "
         + " | ".join(f"{d} top (med, n, tvm, ISO)" for d in dates)
         + " | mean | **stdev%** | min..max |",
-        "|---|---|---|" + "|".join(["---"] * len(dates)) + "|---|---|---|",
+        "|---|---|---|---|" + "|".join(["---"] * len(dates)) + "|---|---|---|",
     ]
     for k, by_date, centres in rows:
         cells = []
@@ -471,8 +494,12 @@ def write_overlap(all_cells_by_date: dict[str, list[CellStats]], dates: list[str
         mean = float(np.mean(vals))
         std = float(np.std(vals, ddof=1)) if len(vals) >= 2 else float("nan")
         std_pct = std / mean * 100 if mean and not np.isnan(std) else float("nan")
+        # Distance class — derived from lens_kind on any cell of this row
+        any_cell = next(iter(centres.values()))
+        dist_mm = FOCUS_DISTANCE_BY_LENS_KIND.get(any_cell.lens_kind, 0)
+        dcls = distance_class(k[1], dist_mm)
         md.append(
-            f"| {k[0]} | {k[1]:.0f} | {k[2]} | " + " | ".join(cells) +
+            f"| {k[0]} | {k[1]:.0f} | {k[2]} | {dcls} | " + " | ".join(cells) +
             f" | {mean:.2f} | **{std_pct:.1f}%** | {min(vals):.2f}..{max(vals):.2f} |"
         )
     out_md.write_text("\n".join(md) + "\n")
