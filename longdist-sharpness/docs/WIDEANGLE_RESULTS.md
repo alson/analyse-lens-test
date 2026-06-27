@@ -253,31 +253,33 @@ hitting the §5.2 floor (real values now reveal which is worst).
 At each lens' centre-best aperture, the corresponding edge cutoffs at
 x=0.18 (left) and x=0.82 (right). 2026-01-24 dataset.
 
+Table refreshed under §5.3 metric.
+
 | Lens (FL, best-centre aperture) | centre | x=0.18 (L) | x=0.82 (R) | min edge / centre |
 |---|---|---|---|---|
-| NIKKOR Z 14-24/2.8 S @ 24, f/4 | **0.348** | 0.262 | 0.277 | 0.75 |
-| NIKKOR Z 14-24/2.8 S @ 24, f/5.6 | 0.344 | 0.273 | 0.285 | 0.79 |
-| Viltrox AF 50/2 Z @ 50, f/2.8 | 0.336 | 0.273 | **0.320** | 0.81 |
-| NIKKOR Z 14-24/2.8 S @ 24, f/8 | 0.336 | 0.258 | 0.266 | 0.77 |
-| Sigma 24/2.8 Super Wide II Macro @ 24, f/5.6 | 0.328 | 0.223 | 0.254 | **0.68** |
-| Viltrox AF 50/2 Z @ 50, f/4 | 0.324 | 0.305 | 0.309 | 0.94 |
-| Nikon AF-S DX 35/1.8G @ 35, f/5.6 | 0.324 | 0.281 | **0.203** ⚠ | **0.63** |
-| Nikon AF Micro 60/2.8D @ 60, f/5.6 | 0.324 | 0.273 | **0.215** ⚠ | **0.66** |
-| Nikon AF Micro 60/2.8D @ 60, f/2.8 | 0.324 | 0.230 | **0.203** ⚠ | **0.63** |
-| Nikon AF-S DX 35/1.8G @ 35, f/8 | 0.316 | 0.285 | 0.270 | 0.85 |
-| Nikon AF Micro 60/2.8D @ 60, f/4 | 0.316 | 0.238 | **0.203** ⚠ | **0.64** |
-| Viltrox AF 50/2 Z @ 50, f/5.6 | 0.313 | 0.289 | 0.316 | 0.93 |
-| Nikon AF-S Nikkor 50/1.8G @ 50, f/2 | 0.313 | 0.242 | **0.203** ⚠ | **0.65** |
-| Nikon PC-Nikkor 35/2.8 @ 35, f/4 | 0.313 | 0.230 | **0.203** ⚠ | **0.65** |
-| Nikon AF Nikkor 50/1.8 N @ 50, f/2.8 | 0.313 | **0.203** | **0.203** | **0.65** |
+| NIKKOR Z 14-24/2.8 S @ 24, f/4 | **0.326** | 0.220 | 0.251 | 0.67 |
+| NIKKOR Z 14-24/2.8 S @ 24, f/5.6 | 0.318 | 0.231 | 0.253 | 0.73 |
+| NIKKOR Z 24-120/4 S @ 24, f/4 | 0.314 | 0.256 | 0.249 | 0.79 |
+| NIKKOR Z 24-120/4 S @ 24, f/5.6 | 0.314 | 0.251 | 0.197 | 0.63 |
+| Viltrox AF 50/2 Z @ 50, f/2.8 | 0.312 | 0.226 | 0.288 | 0.72 |
+| NIKKOR Z 14-24/2.8 S @ 24, f/8 | 0.301 | 0.214 | 0.232 | 0.71 |
+| Nikon AF Micro 60/2.8D @ 60, f/5.6 | 0.296 | 0.233 | 0.179 | **0.60** |
+| Nikon AF Micro 60/2.8D @ 60, f/2.8 | 0.296 | 0.172 | 0.149 | **0.51** |
+| Nikon AF-S DX 35/1.8G @ 35, f/5.6 | 0.292 | 0.235 | (NaN) | n/a |
+| Nikon AF Micro 60/2.8D @ 60, f/4 | 0.290 | 0.205 | 0.165 | **0.57** |
+| Nikon AF Nikkor 50/1.8 N @ 50, f/2.8 | 0.290 | 0.164 | 0.160 | **0.55** |
+| NIKKOR Z 24-120/4 S @ 24, f/8 | 0.289 | 0.238 | 0.197 | 0.68 |
+| NIKKOR Z 14-24/2.8 S @ 14, f/5.6 | 0.288 | 0.297 | 0.288 | **1.00** |
+| Nikon AF-S Nikkor 50/1.8G @ 50, f/2 | 0.288 | 0.212 | 0.136 | **0.47** |
+| NIKKOR Z 14-24/2.8 S @ 14, f/4 | 0.287 | 0.296 | 0.257 | 0.90 |
 
-⚠ = right edge at the metric's floor (0.20 cy/px) — visibly soft at
-100 % view.
-
-**The pattern: F-mount primes (AF/AF-S Nikkor 35/2, 50/1.8 N, 50/1.8G,
-AF Micro 60/2.8D, PC-Nikkor 35/2.8) all drop the right edge to 0.20**
-at the centre-best aperture. Z lenses and the Viltrox primes hold the
-edges much closer to centre (ratio ≥ 0.75).
+**The pattern still holds under §5.3**: F-mount primes (AF Micro 60/2.8D,
+50/1.8 N, AF-S 50/1.8G) drop one edge to 0.13–0.18 — used to read as
+the §5.2 metric floor (0.20), now resolves to real values, revealing
+which prime corner-collapses worst (50/1.8G at 50 mm f/2 hits 0.136,
+min edge / centre ratio 0.47). Z and Viltrox AF lenses hold edges
+much closer to centre (ratio ≥ 0.67); Z 14-24 at 14 mm even has
+edge ≥ centre, an exceptional flat-field result.
 
 ### 4b. Best edge aperture per lens (not the same as centre-best)
 
@@ -302,36 +304,56 @@ optimum** — confirming the photographer's rule of thumb.
 The 2026-01-26 dataset includes the Viltrox 16/1.8 in both `AF for every
 pic` and `AF once` variants. Edge cutoffs at 16 mm:
 
+Table refreshed under §5.3 metric:
+
 | Aperture | x=0.18 (L) | x=0.82 (R) | L − R asymmetry |
 |---|---|---|---|
-| f/1.8 | 0.281 | **0.203** ⚠ | 0.08 |
-| f/2 | 0.281 | **0.203** ⚠ | 0.08 |
-| f/2.8 | 0.313 | **0.203** ⚠ | 0.11 |
-| f/4 | 0.313 | 0.273 | 0.04 |
-| **f/5.6** | **0.320** | **0.301** | 0.02 |
-| f/8 | 0.301 | 0.285 | 0.02 |
-| f/11 | 0.277 | 0.258 | 0.02 |
+| f/1.8  | 0.259 | 0.130 | 0.13 |
+| f/2    | 0.262 | 0.134 | 0.13 |
+| f/2.8  | 0.288 | 0.155 | 0.13 |
+| f/4    | 0.290 | 0.243 | 0.05 |
+| **f/5.6** | **0.281** | **0.262** | **0.02** |
+| f/8    | 0.264 | 0.247 | 0.02 |
+| f/11   | 0.244 | 0.245 | 0.00 |
 
-**At f/1.8–f/2.8 the right edge is stuck at the 0.20 floor**; the left
-edge already works at f/1.8. The asymmetry vanishes by f/4 and the
-edges are best at f/5.6 (consistent across both `AF every pic` and
-`AF once` variants — so this isn't an AF issue, it's optical).
-Confirms your visual impression that the Viltrox 16 needs stopping
-down for clean corners.
+**At f/1.8–f/2.8 the right edge is roughly HALF the left edge
+sharpness** — the §5.2 metric showed the right edge stuck at the
+0.20 floor; §5.3 reveals it's truly at 0.13–0.16, much worse than
+"just below floor" suggested. The asymmetry collapses by f/4 and
+the edges are best at f/5.6 (consistent across both `AF every pic`
+and `AF once` variants — optical, not an AF issue). Stopping down
+the Viltrox 16 for clean corners is a stronger recommendation
+under §5.3 than under §5.2.
 
 ### 4d. Whose corners hold up wide-open
 
 Wide-open corner cutoff (best of x=0.18 and x=0.82), 2026-01-24:
 
+Table refreshed under §5.3 metric (best of L/R corner per lens at
+its widest aperture):
+
 | Lens | Wide-open | Best wide-open corner | Read |
 |---|---|---|---|
-| Viltrox AF 50/2 Z @ 50, f/2 | f/2 | 0.290 | Best wide-open corners |
-| NIKKOR Z 14-24/2.8 S @ 24, f/2.8 | f/2.8 | 0.262 | Decent |
-| Viltrox AF 14/4 Z @ 14, f/4 | f/4 (wide) | 0.305 | Decent (wide is f/4 anyway) |
-| Nikon AF Nikkor 50/1.8 N @ 50, f/1.8 | f/1.8 | 0.203 ⚠ | Floor — useless corners wide-open |
-| Nikon AF-S Nikkor 50/1.8G @ 50, f/1.8 | f/1.8 | 0.226 ⚠ | Near floor |
-| Nikon AF Nikkor 35/2 @ 35, f/2 | f/2 | 0.203 ⚠ | Floor |
-| Nikon AF Micro 60/2.8D @ 60, f/2.8 | f/2.8 | 0.230 | Near floor (right edge at 0.20) |
+| Viltrox AF 50/2 Z @ 50 | f/2.8 | 0.288 | **Best wide-open corners** |
+| NIKKOR Z 24-120/4 S @ 35–50 | f/4 (wide) | 0.276–0.280 | Solid (wide is f/4 anyway) |
+| NIKKOR Z 14-24/2.8 S @ 24 | f/2.8 | 0.265 | Strong, given the f/2.8 wide-open |
+| Viltrox AF 14/4 Z @ 14 | f/4 (wide) | 0.257 | Solid (wide is f/4 anyway) |
+| Sigma 24/2.8 SWII @ 24 | f/2.8 | 0.238 | Decent |
+| NIKKOR Z 14-24/2.8 S @ 14 | f/2.8 | 0.234 | Decent at the wider end |
+| AF-S Nikkor 50/1.8G @ 50 | f/1.8 | 0.210 | Useable corners wide-open |
+| AF Nikkor 35/2 @ 35 | f/2 | 0.184 | Soft — stop down for corners |
+| AF Micro-Nikkor 60/2.8D @ 60 | f/2.8 | 0.172 | Soft — corners need f/5.6 |
+| AF Nikkor 50/1.8 N @ 50 | f/1.8 | 0.155 | Very soft corners wide-open |
+| PC-Nikkor 35/2.8 @ 35 | f/2.8 | 0.154 | Same, manual prime |
+| Nikkor-N.C Auto 24/2.8 @ 24 | f/2.8 | 0.152 | Same, manual prime |
+| AF-S DX 35/1.8G @ 35 | f/1.8 | 0.133 | Worst corners wide-open in this group |
+
+Under §5.3 the previously-floored corners (0.20 reading) resolve
+into the real 0.13–0.21 range, revealing the ordering: the Z lenses
++ Viltrox 50/2 stay in the 0.25–0.29 range wide-open, the F-mount
+AF-D primes sit at 0.15–0.21, and the manual primes are at 0.15.
+The "stop down 1 stop for usable corners" rule of thumb holds; the
+required stop-down depends on which group your lens is in.
 
 The Z and Viltrox autofocus lenses have noticeably better wide-open
 corners than the legacy F-mount Nikon primes. The F-mount primes
