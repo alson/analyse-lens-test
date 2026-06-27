@@ -266,15 +266,21 @@ wafer-atlas/
 │   └── registration/      (autonomous registration experiments,
 │                           regenerable, gitignored)
 └── scripts/               (all committed)
-    ├── grid_supercell_refined.py  (overview-photo grid solve)
-    ├── register_0129.py           (atlas-build photo grid solve)
-    ├── parse_painted.py           (extract painted feature regions)
-    ├── consolidate_atlas.py       (build atlas.json)
-    ├── anchor_fit_sweep.py        (per-sweep registration from anchors)
-    ├── task15_4d_bar_lsf_all_sweeps.py  (atlas-anchored measurement)
-    ├── register_method_template.py     (autonomous attempt, partial)
-    ├── register_method_morphological.py (autonomous attempt, partial)
-    └── (iteration history: recon_grid_v*.py, extract_top3*.py, etc.)
+    ├── reg_auto.py                (AUTONOMOUS registration — the production path;
+    │                               register_and_refine() is the entry point)
+    ├── anchor_fit_sweep.py        (af: affine solver + grid_xy; used by reg_auto)
+    ├── register_method_morphological.py (mm: scribe detection; used by reg_auto)
+    ├── build_fragment_map.py      (fragment-outline prior -> atlas.json)
+    ├── task15_4d_bar_lsf_all_sweeps.py  (atlas-anchored 4D-bar focus measurement)
+    ├── task17_bondpad_atlas.py    (atlas-anchored bond-pad measurement)
+    ├── test_reg_auto.py           (regression test: 4 sweeps + unseen)
+    ├── diag_validate_unseen.py    (validate registration on an unseen sweep)
+    ├── diag_*.py                  (2026-06-27 investigation diagnostics; see REPORT)
+    ├── grid_supercell_refined.py / register_0129.py / parse_painted.py /
+    │                               consolidate_atlas.py  (atlas-build pipeline)
+    └── register_method_template.py (early autonomous attempt, partial; kept for ref)
+        (earlier iteration history — recon_grid_v*, extract_top3*, grid_supercell[_dense],
+         register_method_scribelines/method3, old single-sweep task15 — removed; in git log)
 ```
 
 ## How to resume
