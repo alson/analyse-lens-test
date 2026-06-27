@@ -9,7 +9,8 @@ State as of 2026-05-18 (original), extended 2026-06-27.
 **Read first:** `REPORT_2026-06-27.md` (full detail of the 2026-06-27 work) and
 the two memory files `wafer_atlas_lsf_ref_is_filesize.md` +
 `wafer_atlas_autoreg_and_grid_v3.md`. The "Pending" section further down is the
-ORIGINAL 2026-05-18 list — items #1, #2, #4 there are now DONE; #3 is untouched.
+ORIGINAL 2026-05-18 list — all of items #1–#4 there are now DONE (§3 closed in the
+REPORT's "Pending §3 — resolved" section).
 
 **What now works (2026-06-27):** autonomous per-sweep registration end-to-end
 (`scripts/reg_auto.py`) at ~1–6px true accuracy (better than the manual 3-anchor
@@ -20,10 +21,13 @@ v3, `grid_calibration` block). POC C bond-pad measurement works (`task17`).
 
 ### Next steps (priority order)
 
-> **Update (2026-06-27, follow-up): steps 1, 2 & 3 below are DONE** (commits
-> `336f4c0` hygiene re-run, `ffe8d3f` autonomous switch, plus the unseen-sweep
-> validation). Top remaining items are now **#4 (atlas + maze-FFT, deferred)** and
-> **#5 (consolidation / regression test)**.
+> **Update (2026-06-27, follow-up): steps 1–5 below are ALL DONE.** Commits:
+> `336f4c0` hygiene re-run, `ffe8d3f` autonomous switch, `5796912` unseen-sweep
+> validation, `b1eda63` + `2c911bb` consolidation (cleanups + regression test +
+> 14 dead scripts removed), `6406955` atlas-vs-maze-FFT at high M. **No open items
+> from this list remain** — see the closed Pending §3 in REPORT_2026-06-27.md.
+> Possible future work: re-acquire sweep4 (rail started in focus), quantify the
+> field tilt as a deliverable, or extend the regression test into CI.
 
 1. ~~**Re-run `task15` + `task17` under the v3 grid (hygiene).**~~ **DONE**
    (`336f4c0`). Re-ran both with the manual anchors under the v3 atlas: every
@@ -55,12 +59,20 @@ v3, `grid_calibration` block). POC C bond-pad measurement works (`task17`).
    full-frame stacks directly under the aperture dir, e.g. `…/1_1/F11/*.jpg`;
    only `cropped/` subdirs hold per-region tiles.)*
 
-4. **Item #3 (deferred): atlas + maze-FFT at high M** — see Pending §3 below.
-   Still untouched.
+4. ~~**Item #3 (deferred): atlas + maze-FFT at high M.**~~ **DONE** (`6406955`,
+   `scripts/task18_highM_maze_vs_atlas.py`). §3's "per-die pad-pitch FFT" idea is
+   rejected — pad-FFT is a poor focus discriminator at high M (coarse grid, 0%
+   usable). The atlas helps the maze-FFT via deterministic ROI PLACEMENT (100%
+   die coverage, argmax within 1–2 shots of LSF, per-die tilt map), not a new
+   target frequency; lapvar ≡ maze-FFT on the same ROI. Keep maze-FFT as the
+   high-M metric. Full detail in REPORT_2026-06-27.md "Pending §3 — resolved".
 
-5. **Consolidation.** `reg_auto.py` has grown; ~12 `diag_*.py` are dev artifacts.
-   A `/code-review` pass and a small regression test for `reg_auto` (assert the 4
-   sweeps' col/row offsets + refined RMSE) would lock behaviour in.
+5. ~~**Consolidation.**~~ **DONE** (`b1eda63`, `2c911bb`). `/code-review`-style
+   cleanups on `reg_auto.py` (dropped dead `verbose` param, honest refine-fallback
+   labelling) + the task15/17 changes (pyflakes-clean); added
+   `scripts/test_reg_auto.py` (regression test asserting the 4 sweeps' + unseen
+   sweep's col/row offsets, distortion-model selection, fit-RMSE ceilings, tilt —
+   all pass); removed 14 superseded iteration-history scripts (scripts/ 47→33).
 
 ### How to run (both hosts share ~/shared over NFS)
 
