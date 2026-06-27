@@ -13,10 +13,10 @@
   "n_col": 6,
   "n_row": 4,
   "edge_visibility": {
-   "left": 0.06043543543543543,
-   "right": 0.03340840840840841,
-   "top": 0.007936507936507936,
-   "bottom": 0.003968253968253968
+   "left": 0.021430182720505342,
+   "right": 0.0,
+   "top": 0.05776742788461542,
+   "bottom": 0.0
   },
   "n_bars_detected": 4,
   "col_candidates": [
@@ -68,10 +68,10 @@
   "n_col": 3,
   "n_row": 3,
   "edge_visibility": {
-   "left": 0.06794294294294294,
-   "right": 0.09572072072072071,
-   "top": 0.10193452380952381,
-   "bottom": 0.022817460317460316
+   "left": 0.0,
+   "right": 0.0,
+   "top": 0.0,
+   "bottom": 0.0
   },
   "n_bars_detected": 1,
   "col_candidates": [
@@ -124,10 +124,10 @@
   "n_col": 5,
   "n_row": 3,
   "edge_visibility": {
-   "left": 0.16441441441441443,
-   "right": 0.22597597597597596,
-   "top": 0.006696428571428571,
-   "bottom": 0.13368055555555555
+   "left": 0.038461538461538436,
+   "right": 0.0,
+   "top": 0.033804086538461564,
+   "bottom": 0.0
   },
   "n_bars_detected": 4,
   "col_candidates": [
@@ -138,7 +138,7 @@
    1
   ],
   "col_first": 4,
-  "col_method": "right-edge",
+  "col_method": "interior-default?",
   "row_first": 2,
   "row_method": "4D-bar",
   "success": true,

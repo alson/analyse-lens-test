@@ -17,16 +17,24 @@ morphological path fail (anchor RMSE ~6000px):
       sweeps 2/3/4 (all row_first=2).
     - COL: the two phase-consistent candidates are type-IDENTICAL (same mod-4
       pattern), so the 4D bar cannot pick between them and only the physical
-      wafer edge can. A clean wafer edge on a border line commits that side;
-      otherwise the lone interior candidate is taken at LOW confidence
-      ("interior-default?") and the candidate set is reported.
+      wafer edge can. `wafer_mask()` segments the wafer (textured region) on the
+      full ORIGINAL image and reports which frame side the fracture edge is in
+      view on; a substantial edge commits that side, a confirmed-interior FOV
+      (no edge) takes the lone interior candidate, else low-confidence
+      ("interior-default?") + the candidate set is reported.
 
   RESULT (reg_auto.py, vs known anchors): sweep4 fully autonomous at 37 px
-  (was 6,377 px); rows correct on 2/3/4; sweep2/sweep3 columns remain off
-  because robust wafer-EDGE segmentation at M>=1 is unsolved (corner cuts are
-  small and dark die features mimic background) and sweep3 is detection-degenerate
-  (3 cols / 3 rows, no wide pitch). That edge-segmentation step is the remaining
-  blocker, not the registration math.
+  (was 6,377 px); rows correct on sweeps 2/3/4. The wafer-edge segmenter is now
+  reliable (no false positives: interior sweeps 3/4 report no edge; sweep1's
+  substantial edge is detected) so sweep4 resolves its column principledly as a
+  confirmed-interior FOV. Two columns still don't resolve, for reasons that are
+  NOT the registration math:
+    * sweep2 — the fragment fills the FOV leaving only tiny corner nicks, so no
+      substantial edge is in view (an information limit). Resolving it needs the
+      fragment-shape / whole-vs-jagged PRIOR (match which corners are nicked to
+      the wafer's known outline), not better segmentation.
+    * sweep3 — detection-degenerate (3 cols / 3 rows, no wide pitch in view), so
+      even the phase is under-determined.
 
 Run:  reg_auto.py            # autonomous registration of all sweeps + validation
       reg_auto.py --validate # just the mapping/label sanity probe
@@ -126,35 +134,46 @@ def derot_to_orig(xd, yd, det):
     return (xg / s, yg / s)
 
 
-def background_mask(derot):
-    """Background = low-texture (smooth) region. The wafer is textured
-    everywhere; the dark off-wafer corners are smooth regardless of their exact
-    brightness (so a smoothness test catches dark-but-JPEG-noisy corners that a
-    dark+smooth test misses). Returns uint8 mask."""
-    g = derot.astype(np.float32)
+def wafer_mask(gray_ds):
+    """Segment the WAFER (textured) region on the full ORIGINAL image (no
+    cropping, no de-rotation reflect artefact). The wafer fracture edge is the
+    boundary of this region that sits inside the frame; off-wafer is the
+    border-connected complement. Interior smooth die regions are filled by
+    flood-fill-from-border so they are NOT mistaken for background.
+
+    Returns (wafer_filled uint8, off_wafer uint8)."""
+    g = gray_ds.astype(np.float32)
     k = 13
     mean = cv2.boxFilter(g, -1, (k, k))
     sq = cv2.boxFilter(g * g, -1, (k, k))
     std = np.sqrt(np.maximum(sq - mean * mean, 0))
-    smooth = std < max(3.0, np.percentile(std, 12))
-    dark = g < np.percentile(g, 55)          # off-wafer is also not bright
-    return (smooth & dark).astype(np.uint8)
+    textured = (std > max(4.0, np.percentile(std, 35))).astype(np.uint8)
+    # bridge thin scribe gaps (~5 px), NOT the larger off-wafer gaps
+    textured = cv2.morphologyEx(textured, cv2.MORPH_CLOSE, np.ones((11, 11), np.uint8))
+    textured = cv2.morphologyEx(textured, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    n, lbl, stats, _ = cv2.connectedComponentsWithStats(textured, 8)
+    if n <= 1:
+        return textured, (1 - textured).astype(np.uint8)
+    wafer = (lbl == 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))).astype(np.uint8)
+    h, w = wafer.shape
+    ff = (1 - wafer).astype(np.uint8)
+    cv2.floodFill(ff, np.zeros((h + 2, w + 2), np.uint8), (0, 0), 0)  # border-connected -> 0
+    wafer_filled = (wafer | ff).astype(np.uint8)      # ff now = interior holes
+    return wafer_filled, (1 - wafer_filled).astype(np.uint8)
 
 
 def edge_visibility(det):
-    """Fraction of each frame BORDER LINE that is off-wafer background. A corner
-    cut is small in area but covers a large fraction of the edge *line*, so a
-    thin border measure detects it where a wide-strip average washes it out.
-    Trims the rotation border-reflect seam."""
-    bg = background_mask(det["derot"])
-    h, w = bg.shape
-    t = 8                       # trim reflect seam
-    b = 4                       # border-line thickness
+    """Per-frame-side wafer-edge-in-view signal = 1 - (fraction of that side's
+    border covered by wafer). High => the wafer's fracture edge is in view on
+    that side. Computed on the full original image."""
+    wafer, _ = wafer_mask(det["gray_ds"])
+    h, w = wafer.shape
+    b = max(3, int(0.02 * min(h, w)))
     return {
-        "left": float(bg[t:-t, t:t + b].mean()),
-        "right": float(bg[t:-t, -t - b:-t].mean()),
-        "top": float(bg[t:t + b, t:-t].mean()),
-        "bottom": float(bg[-t - b:-t, t:-t].mean()),
+        "left": 1.0 - float(wafer[:, :b].mean()),
+        "right": 1.0 - float(wafer[:, -b:].mean()),
+        "top": 1.0 - float(wafer[:b, :].mean()),
+        "bottom": 1.0 - float(wafer[-b:, :].mean()),
     }
 
 
