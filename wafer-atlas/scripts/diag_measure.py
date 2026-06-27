@@ -156,7 +156,7 @@ def main():
     cfg = {c["name"]: c for c in task15.SWEEPS}[name]
     aff = anchors[name]
     shot_paths = sorted(cfg["dir"].glob("*.jpg")) + sorted(cfg["dir"].glob("*.JPG"))
-    print(f"{name}: {len(shot_paths)} shots, ref={cfg['lsf_ref_shot']}")
+    print(f"{name}: {len(shot_paths)} shots, ref={cfg.get('lsf_ref_shot')}")
 
     cols = [c for c in (0, 4, 8) if in_frame(instance_geometry(aff, c))]
     print(f"in-frame instances: {[f'{c}D' for c in cols]}")
@@ -168,7 +168,7 @@ def main():
             am_m = argmax_of(r["mtf"]); am_p = argmax_of(r["peak"])
             r["argmax_mtf"] = am_m; r["argmax_peak"] = am_p
             nvalid = sum(x is not None for x in r["mtf"])
-            ref = cfg["lsf_ref_shot"]
+            ref = cfg.get("lsf_ref_shot")
             gap = (am_m[0] - ref) if (am_m[0] is not None and ref is not None) else None
             offs = [o for o in r["det_off"] if o is not None]
             print(f"  col {col}D {mode:8s}: MTF50 argmax shot {am_m[0]} "
@@ -189,9 +189,9 @@ def main():
             if v:
                 xs, ys = zip(*v)
                 ax.plot(xs, ys, lw=1.3, label=f"{r['mode']} (argmax {r['argmax_mtf'][0]})")
-        if cfg["lsf_ref_shot"] is not None:
-            ax.axvline(cfg["lsf_ref_shot"], color="green", ls="--", alpha=0.6,
-                       label=f"LSF ref {cfg['lsf_ref_shot']}")
+        if cfg.get("lsf_ref_shot") is not None:
+            ax.axvline(cfg.get("lsf_ref_shot"), color="green", ls="--", alpha=0.6,
+                       label=f"LSF ref {cfg.get('lsf_ref_shot')}")
         ax.set_title(f"{name} col {col}D — MTF50 sensor per shot")
         ax.set_xlabel("shot"); ax.set_ylabel("MTF50 (cy/px)")
         ax.grid(alpha=0.3); ax.legend(fontsize=8)

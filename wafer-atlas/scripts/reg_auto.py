@@ -10,16 +10,23 @@ morphological path fail (anchor RMSE ~6000px):
   sign=-1, vs ~20-60 with the old +1).
 
   FIX 2 (labelling). Absolute (cl, rl) recovered as:
-    - phase (mod 4) from the wide-column / tall-row pitch,
-    - absolute offset from wafer-EDGE visibility (which physical edge is in the
-      FOV pins the extreme col/row). This is the robust form of the handover's
-      "whole-vs-jagged" idea: a jagged (partial) die only exists where the wafer
-      edge cuts the FOV, so detecting that edge is what disambiguates.
+    - ROW: a detected 4D bar sits in die-row D (the only row ≡3 mod 4 in A-F),
+      so the row-line just below it is row-line 3 => pins row_first. This is a
+      DISTINCTIVE-FEATURE anchor and works for fully-interior FOVs (sweep4),
+      which the handover's "whole-vs-jagged" plan could not. Verified correct on
+      sweeps 2/3/4 (all row_first=2).
+    - COL: the two phase-consistent candidates are type-IDENTICAL (same mod-4
+      pattern), so the 4D bar cannot pick between them and only the physical
+      wafer edge can. A clean wafer edge on a border line commits that side;
+      otherwise the lone interior candidate is taken at LOW confidence
+      ("interior-default?") and the candidate set is reported.
 
-  LIMITATION. When NO wafer edge is in the FOV (fully-interior high-M sweeps,
-  e.g. sweep4), edge/jagged methods cannot disambiguate; a distinctive-feature
-  anchor (e.g. the 4D bar => row D, col mod4==0) is required. We surface the
-  remaining candidate set in that case.
+  RESULT (reg_auto.py, vs known anchors): sweep4 fully autonomous at 37 px
+  (was 6,377 px); rows correct on 2/3/4; sweep2/sweep3 columns remain off
+  because robust wafer-EDGE segmentation at M>=1 is unsolved (corner cuts are
+  small and dark die features mimic background) and sweep3 is detection-degenerate
+  (3 cols / 3 rows, no wide pitch). That edge-segmentation step is the remaining
+  blocker, not the registration math.
 
 Run:  reg_auto.py            # autonomous registration of all sweeps + validation
       reg_auto.py --validate # just the mapping/label sanity probe
@@ -120,31 +127,71 @@ def derot_to_orig(xd, yd, det):
 
 
 def background_mask(derot):
-    """Background = dark AND low-texture (smooth). Returns uint8 mask."""
+    """Background = low-texture (smooth) region. The wafer is textured
+    everywhere; the dark off-wafer corners are smooth regardless of their exact
+    brightness (so a smoothness test catches dark-but-JPEG-noisy corners that a
+    dark+smooth test misses). Returns uint8 mask."""
     g = derot.astype(np.float32)
-    k = 11
+    k = 13
     mean = cv2.boxFilter(g, -1, (k, k))
     sq = cv2.boxFilter(g * g, -1, (k, k))
     std = np.sqrt(np.maximum(sq - mean * mean, 0))
-    dark = g < np.percentile(g, 25)
-    smooth = std < np.percentile(std, 25)
-    return (dark & smooth).astype(np.uint8)
+    smooth = std < max(3.0, np.percentile(std, 12))
+    dark = g < np.percentile(g, 55)          # off-wafer is also not bright
+    return (smooth & dark).astype(np.uint8)
 
 
 def edge_visibility(det):
-    """Fraction of background in each border strip of the de-rotated frame.
-    High => that wafer edge is in the FOV. Strips exclude the rotation
-    border-reflect artefact by trimming the outermost few px."""
+    """Fraction of each frame BORDER LINE that is off-wafer background. A corner
+    cut is small in area but covers a large fraction of the edge *line*, so a
+    thin border measure detects it where a wide-strip average washes it out.
+    Trims the rotation border-reflect seam."""
     bg = background_mask(det["derot"])
     h, w = bg.shape
-    t = 6  # trim reflect seam
-    bw, bh = int(0.12 * w), int(0.12 * h)
+    t = 8                       # trim reflect seam
+    b = 4                       # border-line thickness
     return {
-        "left": float(bg[t:-t, t:t + bw].mean()),
-        "right": float(bg[t:-t, -t - bw:-t].mean()),
-        "top": float(bg[t:t + bh, t:-t].mean()),
-        "bottom": float(bg[-t - bh:-t, t:-t].mean()),
+        "left": float(bg[t:-t, t:t + b].mean()),
+        "right": float(bg[t:-t, -t - b:-t].mean()),
+        "top": float(bg[t:t + b, t:-t].mean()),
+        "bottom": float(bg[-t - b:-t, t:-t].mean()),
     }
+
+
+def detect_4d_bars(det):
+    """Detect isolated dark vertical bars (the 4D-type slanted-edge feature) in
+    the de-rotated frame. The 4D bar uniquely identifies row D (the only row ≡3
+    mod 4 in A–F) and a col ≡0 mod 4, so it pins the absolute offset even for
+    fully-interior FOVs that have no wafer edge. Returns [(cx, cy), ...]."""
+    col_x, row_y = det["col_x"], det["row_y"]
+    if len(col_x) < 2 or len(row_y) < 2:
+        return []
+    col_pitch = float(np.median(np.diff(col_x)))
+    row_pitch = float(np.median(np.diff(row_y)))
+    exp_w = 0.122 * col_pitch    # atlas 4D bbox_uv width  ~0.122 of die
+    exp_h = 0.235 * row_pitch    # atlas 4D bbox_uv height ~0.235 of die
+    g = det["derot"].astype(np.uint8)
+    thr, _ = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    dark = cv2.morphologyEx((g < thr).astype(np.uint8), cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    n, lbl, stats, cent = cv2.connectedComponentsWithStats(dark, 8)
+    bars = []
+    for i in range(1, n):
+        w = stats[i, cv2.CC_STAT_WIDTH]; h = stats[i, cv2.CC_STAT_HEIGHT]
+        area = stats[i, cv2.CC_STAT_AREA]
+        if h <= w:                                   # must be taller than wide
+            continue
+        if not (0.4 * exp_w < w < 2.4 * exp_w and 0.4 * exp_h < h < 2.4 * exp_h):
+            continue
+        if area / (w * h) < 0.55:                     # solid rectangle, not a blob cluster
+            continue
+        bars.append((float(cent[i][0]), float(cent[i][1])))
+    return bars
+
+
+def _touches_edge(first, n, n_lines):
+    """Does a run of n consecutive lines starting at `first` include a wafer
+    edge line (0 or n_lines-1, i.e. the jagged extremes)?"""
+    return first == 0 or (first + n - 1) == (n_lines - 1)
 
 
 def _phase_offset(positions, pitch4, wide_idx):
@@ -190,41 +237,61 @@ def register(name, det, anchors=None, verbose=True):
 
     ev = edge_visibility(det)
     res["edge_visibility"] = ev
-    EV_THR = 0.06  # background fraction needed to trust an edge is in view
+    EV_THR = 0.15          # a CLEAN wafer edge along the border line
+    bars = detect_4d_bars(det)
+    res["n_bars_detected"] = len(bars)
 
-    def _snap(value, cands):
-        """Snap an edge-derived offset to the nearest phase-consistent candidate."""
-        if not cands:
-            return value
-        return min(cands, key=lambda c: abs(c - value))
+    def _interior(cands, n, n_lines):
+        return [c for c in cands if not _touches_edge(c, n, n_lines)]
 
-    # --- absolute COLUMN offset: edge gives it directly (rightmost det = cl10) ---
+    # --- absolute ROW offset ---
+    # PRIMARY: a detected 4D bar sits in die-row D; the row-line just BELOW it
+    # (next-larger image-y) is row-line 3 => pins row_first. Works for interior
+    # FOVs with no wafer edge.
+    row_first, row_method = None, "ambiguous"
+    votes = []
+    for (bx, by) in bars:
+        below = row_y[row_y > by]
+        above = row_y[row_y < by]
+        if below.size and above.size:
+            j = int(np.where(row_y == below.min())[0][0])   # img index of line just below bar
+            votes.append(j + 4 - len(row_y))                # = row_first that makes that line rl3
+    if votes:
+        vals, counts = np.unique(votes, return_counts=True)
+        row_first, row_method = int(vals[np.argmax(counts)]), "4D-bar"
+    elif len(row_cands) == 1:
+        row_first, row_method = row_cands[0], "unique-phase"
+    elif ev["bottom"] >= EV_THR and ev["bottom"] >= ev["top"]:
+        row_first, row_method = (min(row_cands) if row_cands else 0), "bottom-edge"
+    elif ev["top"] >= EV_THR:
+        row_first, row_method = (max(row_cands) if row_cands else N_ROW_LINES - len(row_y)), "top-edge"
+    else:
+        intr = _interior(row_cands, len(row_y), N_ROW_LINES)
+        if len(intr) == 1:
+            row_first, row_method = intr[0], "interior-default"
+        elif row_cands:
+            row_first, row_method = None, f"ambiguous{row_cands}"
+
+    # --- absolute COLUMN offset ---
+    # A 4D bar's left col-line is ≡0 mod 4, but the two phase-consistent
+    # candidate positions have the SAME mod-4 pattern (type-identical), so the
+    # bar can't pick between them. Use the wafer edge; if none is in view the
+    # FOV must be the interior candidate (not touching col 0 / col 10).
     col_first, col_method = None, "ambiguous"
     if len(col_cands) == 1:
         col_first, col_method = col_cands[0], "unique-phase"
     elif ev["right"] >= EV_THR and ev["right"] >= ev["left"]:
-        col_first = _snap((N_COL_LINES - 1) - (len(col_x) - 1), col_cands or [(N_COL_LINES-1)-(len(col_x)-1)])
-        col_method = "right-edge"
+        col_first, col_method = (max(col_cands) if col_cands else N_COL_LINES - len(col_x)), "right-edge"
     elif ev["left"] >= EV_THR:
-        col_first = _snap(0, col_cands or [0])
-        col_method = "left-edge"
-    elif col_cands:
-        col_first, col_method = None, f"ambiguous{col_cands}"
-
-    # --- absolute ROW offset: rl increases UP the wafer (down the image y) ---
-    # bottom edge in view => lowest image row (max y) is rl0/rl1.
-    row_first, row_method = None, "ambiguous"
-    if len(row_cands) == 1:
-        row_first, row_method = row_cands[0], "unique-phase"
-    elif ev["bottom"] >= EV_THR and ev["bottom"] >= ev["top"]:
-        row_first = _snap(0, row_cands or [0])
-        row_method = "bottom-edge"
-    elif ev["top"] >= EV_THR:
-        row_first = _snap((N_ROW_LINES - 1) - (len(row_y) - 1),
-                          row_cands or [(N_ROW_LINES-1)-(len(row_y)-1)])
-        row_method = "top-edge"
-    elif row_cands:
-        row_first, row_method = None, f"ambiguous{row_cands}"
+        col_first, col_method = (min(col_cands) if col_cands else 0), "left-edge"
+    else:
+        intr = _interior(col_cands, len(col_x), N_COL_LINES)
+        if len(intr) == 1:
+            # plausible but UNVERIFIED: a true edge-touching FOV with an
+            # undetected small corner cut would also land here. Low confidence.
+            col_first, col_method = intr[0], "interior-default?"
+        elif col_cands:
+            col_first, col_method = None, f"ambiguous{col_cands}"
 
     res.update(col_candidates=col_cands, row_candidates=row_cands,
                col_first=col_first, col_method=col_method,

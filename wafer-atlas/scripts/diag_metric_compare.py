@@ -93,7 +93,7 @@ def main():
         M["teneng"].append(float((gx * gx + gy * gy).mean()))
         M["lapvar"].append(float(cv2.Laplacian(box, cv2.CV_32F).var()))
 
-    ref = cfg["lsf_ref_shot"]
+    ref = cfg.get("lsf_ref_shot")
     print(f"{name} col {col}D  ref={ref}")
     for k, v in M.items():
         arr = np.array(v, float)

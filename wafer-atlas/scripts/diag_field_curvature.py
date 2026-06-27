@@ -67,7 +67,7 @@ def main():
             _, lv = focus_metrics(box)
             curves[tag].append(lv)
 
-    ref = cfg["lsf_ref_shot"]
+    ref = cfg.get("lsf_ref_shot")
     print(f"{name}  ref(centre)={ref}  n_shots={len(shots)}")
     print(f"{'probe':12s} {'x_px':>7s} {'focus_shot(lapvar)':>18s}")
     rows = []
