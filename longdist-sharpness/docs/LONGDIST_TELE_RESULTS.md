@@ -140,6 +140,12 @@ Each row: cutoff (cy / mm subject) at 5 horizontal positions; **centre**
 in bold. Best replicate per position. f_eff = EXIF FocalLength
 (camera-reported effective FL including TC).
 
+_The tables in §3–§5 below are the pre-§5.3-metric values (Z 100-400
+family floored at ~0.20). Refreshed §5.3 cross-date ranges are in §7
+and the regenerated `poc_longdist_cross_date_2026_01_out/overlap.md` —
+under §5.3 the bare lens resolves to 0.14–0.19 and the Z TC chains to
+0.17–0.21. Rankings are unchanged; only the absolute magnitudes shift._
+
 ### 2026-01-18 (Z 100-400 only — no Z TCs on this day)
 
 | Lens | f_eff | F# | x=0.18 | x=0.34 | **centre** | x=0.66 | x=0.82 | n_repl | FOM |
@@ -567,6 +573,15 @@ Per-dataset raw outputs:
 - D7200 2025-09-06 tele: `poc_longdist_algorithms_out/tele2025_09_06/`
 
 ## 11. v2 update: sharpest-of-ISO + replicate spread
+
+_The cutoff values in the §11a/§11b tables are pre-§5.3-metric (Z 100-400
+family floored at ~0.20). The regenerated §5.3 v2 data is in
+`poc_longdist_cross_date_v2_2026_01_out/overlap.md`: under §5.3 the bare
+400 mm median sits at ~0.17 and the Z TC chains at 0.18–0.19 median, so
+the §11b "median advantage is only 5–10 %, a closer call than the top-based
+headline" conclusion still holds on the typical-frame statistic — only the
+absolute magnitudes shift down. The flier / top-vs-median structure (the
+ratios in §11a) is metric-invariant._
 
 The v2 cross-date analysis pools all ISO variants and all replicates
 per (lens, FL, aperture, position) and reports five statistics:

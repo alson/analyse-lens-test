@@ -28,9 +28,8 @@ its own ranking.
 > limitations) is resolved by the new metric. The per_measurement.csv
 > files under `poc_longdist_algorithms_out/wide*/` and
 > `mid2025_09_11/` reflect §5.3; the prose in §6 headlines and §4e /
-> §7 limitations is updated; the deep per-lens prose tables in
-> §4a/b/c/d still cite pre-§5.3 values and would each shift ~12 %
-> lower under §5.3, preserving ranking.
+> §7 limitations is updated, and the §4a/b/c/d tables and per-lens
+> prose have since been refreshed too (see the recap below).
 >
 > **What changed under §5.3 for this dataset:** centre-cluster
 > bin compression resolved (38 → 442 distinct values on wide2026_01_24).
