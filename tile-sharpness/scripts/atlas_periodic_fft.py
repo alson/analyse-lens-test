@@ -38,7 +38,9 @@ import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
-from tile_sharpness.methods.periodic_fft import periodic_contrast, derotate, discover_fundamental
+from tile_sharpness.methods.periodic_fft import (
+    periodic_contrast, derotate, discover_fundamental, discover_fundamental_2d,
+)
 from tile_sharpness import optics
 
 WA = Path("/home/alson/shared/projects/personal/fotografie/analyse-lens-test/wafer-atlas/scripts")
@@ -64,6 +66,15 @@ SE_DIE = "(0, 3)"
 # universal 13um maze line near 0.33 cy/px, below Nyquist.
 BAND = (0.06, 0.30)
 MAZE_EXCLUDE = (0.31, 0.36)
+
+# Opt-in 2-D-lattice-aware per-axis discovery (env PER_AXIS=1). DEFAULT OFF so the
+# committed single-axis output (rank_all.csv → the §L bare-vs-TC verdict) is unchanged.
+# When ON, each region contributes a SEPARATE read for every resolvable axis (u and v)
+# instead of a single auto-picked axis, and carries `true_below_floor` (the dominant real
+# grid line sat below the usable discovery floor → the in-band read is a finer sub-feature,
+# not the dominant grid). This is the recommended go-forward for within-M per-axis MTF /
+# anisotropy; it CHANGES rank_all.csv and so must be regenerated to take effect.
+PER_AXIS = os.environ.get("PER_AXIS", "") not in ("", "0", "false", "False")
 
 
 def die_uv_to_img(col, row, u, v, p):
@@ -180,6 +191,28 @@ def measure_all_regions(jpgs, regions, theta_deg, topk=5, M=None):
                 heapq.heappush(h, (lv, seq, roi.copy()))
             elif lv > h[0][0]:
                 heapq.heapreplace(h, (lv, seq, roi.copy()))
+    def _lock_and_read(frames, pitch, ax, below_floor=None):
+        """Lock ``pitch``/``ax`` from the best-focus frame, then take the peak Michelson
+        contrast over the through-focus stack at that locked pitch (field-tilt-aware).
+        Returns a result dict or ``None`` if no frame yields a valid contrast. The
+        ``true_below_floor`` key is added ONLY in per-axis mode (``below_floor`` not None),
+        so the default single-axis result dict is byte-identical to the pre-fix output."""
+        peak_c, peak_idx, peak_snr, peak_f0 = -1.0, None, 0.0, 1.0 / pitch
+        for lv, seq, roi in frames:
+            der = derotate(roi.astype(np.float64), theta_deg)
+            c = periodic_contrast(der, pitch_px=pitch, axis=ax)
+            if c and c["contrast"] > peak_c:
+                peak_c, peak_idx, peak_snr, peak_f0 = (
+                    c["contrast"], seq, c["snr"], c["f0_cy_per_px"])
+        if peak_idx is None:
+            return None
+        out = dict(pitch_px=pitch, axis=ax, f0_cy_per_px=peak_f0,
+                   contrast=peak_c, snr=peak_snr, focus_idx=peak_idx,
+                   lapvar=frames[0][0])
+        if below_floor is not None:
+            out["true_below_floor"] = bool(below_floor)
+        return out
+
     results = {}
     for i, h in heaps.items():
         if not h:
@@ -189,24 +222,35 @@ def measure_all_regions(jpgs, regions, theta_deg, topk=5, M=None):
         # Pass M (when known from registration) so the discovery band + maze exclusion
         # track magnification; at high M the maze otherwise slides into the static band.
         # M=None falls back to the static BAND/MAZE_EXCLUDE (unchanged low-M behaviour).
+        if PER_AXIS:
+            # 2-D-lattice-aware: lock + read EACH resolvable axis separately, so an
+            # anisotropic pad array contributes both its u and v reads instead of one
+            # auto-picked axis. results[i] is a LIST in this mode (see run()/rank_mode()).
+            d2 = (discover_fundamental_2d(der_bf, band=BAND, exclude=MAZE_EXCLUDE)
+                  if M is None else discover_fundamental_2d(der_bf, M=M))
+            if d2 is None:
+                continue
+            reads = []
+            for ax in ("u", "v"):
+                rec = d2[ax]
+                if rec is None:
+                    continue
+                r = _lock_and_read(frames, rec["pitch_px"], ax,
+                                   below_floor=bool(rec.get("true_below_floor")))
+                if r is not None:
+                    reads.append(r)
+            if reads:
+                results[i] = reads
+            continue
         if M is None:
             d = discover_fundamental(der_bf, band=BAND, exclude=MAZE_EXCLUDE)
         else:
             d = discover_fundamental(der_bf, M=M)
         if d is None:
             continue
-        pitch, ax = d["pitch_px"], d["axis"]
-        peak_c, peak_idx, peak_snr, peak_f0 = -1.0, None, 0.0, d["f0_cy_per_px"]
-        for lv, seq, roi in frames:
-            der = derotate(roi.astype(np.float64), theta_deg)
-            c = periodic_contrast(der, pitch_px=pitch, axis=ax)
-            if c and c["contrast"] > peak_c:
-                peak_c, peak_idx, peak_snr, peak_f0 = c["contrast"], seq, c["snr"], c["f0_cy_per_px"]
-        if peak_idx is None:
-            continue
-        results[i] = dict(pitch_px=pitch, axis=ax, f0_cy_per_px=peak_f0,
-                          contrast=peak_c, snr=peak_snr, focus_idx=peak_idx,
-                          lapvar=frames[0][0])
+        r = _lock_and_read(frames, d["pitch_px"], d["axis"])
+        if r is not None:
+            results[i] = r
     return results
 
 
@@ -228,14 +272,20 @@ def run(sweep_dir: Path, n_marked: float, *, verbose=True):
         m = measured.get(ri)
         if m is None:
             continue
-        f_sensor = m["f0_cy_per_px"] * (1000.0 / SENSOR_PITCH_UM)
-        f_subj = f_sensor * M
-        ceil = optics.diffraction_mtf_at(f_sensor, n_eff)
-        rows.append(dict(label=reg["label"], cls=reg["cls"], type=reg["type"],
-                         zone=reg["zone"], axis=m["axis"], pitch_px=m["pitch_px"],
-                         f_subj_lpmm=f_subj, contrast=m["contrast"], ceiling=ceil,
-                         over=m["contrast"] - ceil, snr=m["snr"],
-                         focus_idx=m["focus_idx"]))
+        # PER_AXIS mode yields a LIST of per-axis reads per region; default mode a single
+        # read. Normalise to a list so the row-building loop is shared.
+        for mm in (m if isinstance(m, list) else [m]):
+            f_sensor = mm["f0_cy_per_px"] * (1000.0 / SENSOR_PITCH_UM)
+            f_subj = f_sensor * M
+            ceil = optics.diffraction_mtf_at(f_sensor, n_eff)
+            row = dict(label=reg["label"], cls=reg["cls"], type=reg["type"],
+                       zone=reg["zone"], axis=mm["axis"], pitch_px=mm["pitch_px"],
+                       f_subj_lpmm=f_subj, contrast=mm["contrast"], ceiling=ceil,
+                       over=mm["contrast"] - ceil, snr=mm["snr"],
+                       focus_idx=mm["focus_idx"])
+            if "true_below_floor" in mm:
+                row["true_below_floor"] = mm["true_below_floor"]
+            rows.append(row)
     if verbose:
         print(f"reg rmse={p['reg_fit_rmse_px']:.2f} M={M:.3f} N_eff={n_eff:.1f} "
               f"regions={len(regions)} measured={len(rows)}")
@@ -268,6 +318,8 @@ def rank_mode():
     fields = ["lens", "mag_label", "aperture", "M", "n_eff", "rmse", "cls", "label",
               "type", "zone", "axis", "pitch_px", "f_subj_lpmm", "contrast",
               "ceiling", "over", "snr", "focus_idx"]
+    if PER_AXIS:
+        fields.append("true_below_floor")
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     with out_csv.open("w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=fields)

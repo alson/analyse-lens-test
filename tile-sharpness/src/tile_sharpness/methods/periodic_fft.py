@@ -108,6 +108,61 @@ def derotate(roi: np.ndarray, theta_deg: float, trim_frac: float = 0.08) -> np.n
     return der
 
 
+def _resolve_band_exclude(
+    band: tuple[float, float],
+    exclude: tuple[float, float] | None,
+    M: float | None,
+) -> tuple[tuple[float, float], tuple[float, float] | None]:
+    """Apply the M-aware band/exclude defaults (A5) when ``M`` is given and the caller
+    left ``band``/``exclude`` at their static defaults. Factored out so every entry
+    point (single-axis and 2-D) resolves the band identically — i.e. ``M=None`` always
+    means "use the static defaults exactly as passed"."""
+    if M is None:
+        return band, exclude
+    if band == (0.06, 0.30):
+        band = resolvable_band_cy_per_px(M)
+    if exclude == (0.31, 0.36):
+        mb = maze_band_cy_per_px(M)
+        exclude = (mb[1], mb[2]) if mb is not None else None
+    return band, exclude
+
+
+def _axis_peak(
+    prof: np.ndarray,
+    band: tuple[float, float],
+    exclude: tuple[float, float] | None,
+    *,
+    min_prom: float = 2.0,
+) -> dict | None:
+    """Strongest in-band, non-excluded periodic peak of a 1-D collapsed profile.
+
+    Returns ``dict(pitch_px, f0_cy_per_px, amp, snr)`` or ``None``. ``snr`` is the peak
+    amplitude over the in-band median (a peak-prominence measure); a real peak must
+    exceed ``min_prom × in-band median`` and a tiny absolute floor (else it is just the
+    in-band noise of a flat / pure-noise field). This is the exact selection logic the
+    original ``discover_fundamental`` used inline, lifted verbatim so both the single-axis
+    and the 2-D entry points share one peak finder (byte-identical picks)."""
+    n = prof.size
+    if n < 32:
+        return None
+    prof = prof - prof.mean()
+    amp = np.abs(np.fft.rfft(prof * np.hanning(n)))
+    freqs = np.fft.rfftfreq(n, d=1.0)
+    m = (freqs >= band[0]) & (freqs <= band[1])
+    if exclude is not None:
+        m &= ~((freqs >= exclude[0]) & (freqs <= exclude[1]))
+    idx = np.where(m)[0]
+    if idx.size == 0:
+        return None
+    k = idx[int(np.argmax(amp[idx]))]
+    in_band_med = float(np.median(amp[idx]))
+    if amp[k] <= max(1e-9, min_prom * in_band_med):
+        return None
+    snr = float(amp[k] / in_band_med) if in_band_med > 0 else float("inf")
+    return dict(pitch_px=float(1.0 / freqs[k]), f0_cy_per_px=float(freqs[k]),
+                amp=float(amp[k]), snr=snr)
+
+
 def discover_fundamental(
     roi: np.ndarray,
     *,
@@ -126,6 +181,12 @@ def discover_fundamental(
     — which for MTF is exactly the high-frequency target we want). Returns a dict with
     ``pitch_px``, ``f0_cy_per_px``, ``axis`` and the peak amplitude, or ``None``.
 
+    ``axis="auto"`` collapses a 2-D lattice to a SINGLE axis (the higher-amplitude one)
+    and discards the other — for a genuinely 2-D grating with different u/v pitches this
+    is lossy (it can lock the weaker axis and miss the dominant grid). When you need both
+    axes of a 2-D lattice, call :func:`discover_fundamental_2d` instead; this single-value
+    entry point is preserved unchanged for backward compatibility.
+
     ``M`` (optional magnification): when ``None`` (the default) the static ``band`` and
     ``exclude`` are used exactly as passed — fully backward-compatible. When ``M`` is
     given, the band and maze exclusion become M-aware (``resolvable_band_cy_per_px`` and
@@ -139,42 +200,119 @@ def discover_fundamental(
     them (i.e. M only supplies the defaults)."""
     if roi.ndim != 2 or roi.size == 0:
         return None
-    if M is not None:
-        # M-aware defaults; an explicit override of band/exclude (non-default) wins.
-        if band == (0.06, 0.30):
-            band = resolvable_band_cy_per_px(M)
-        if exclude == (0.31, 0.36):
-            mb = maze_band_cy_per_px(M)
-            exclude = (mb[1], mb[2]) if mb is not None else None
+    band, exclude = _resolve_band_exclude(band, exclude, M)
     if band[0] >= band[1]:
         return None
     axes = ("u", "v") if axis == "auto" else (axis,)
     best = None
     for ax in axes:
         prof = roi.mean(axis=0) if ax == "u" else roi.mean(axis=1)
-        n = prof.size
-        if n < 32:
+        rec = _axis_peak(prof, band, exclude)
+        if rec is None:
             continue
-        prof = prof - prof.mean()
-        amp = np.abs(np.fft.rfft(prof * np.hanning(n)))
-        freqs = np.fft.rfftfreq(n, d=1.0)
-        m = (freqs >= band[0]) & (freqs <= band[1])
-        if exclude is not None:
-            m &= ~((freqs >= exclude[0]) & (freqs <= exclude[1]))
-        idx = np.where(m)[0]
-        if idx.size == 0:
-            continue
-        k = idx[int(np.argmax(amp[idx]))]
-        # require a real peak: above the in-band median and a tiny absolute floor,
-        # else there is no periodicity (flat / pure-noise field).
-        in_band_med = float(np.median(amp[idx]))
-        if amp[k] <= max(1e-9, 2.0 * in_band_med):
-            continue
-        rec = dict(pitch_px=float(1.0 / freqs[k]), f0_cy_per_px=float(freqs[k]),
-                   axis=ax, amp=float(amp[k]))
+        # Preserve the historical output shape exactly: pitch_px/f0_cy_per_px/axis/amp,
+        # and pick across axes by raw amplitude (NOT snr) — byte-identical to the
+        # pre-refactor inline implementation.
+        rec = dict(pitch_px=rec["pitch_px"], f0_cy_per_px=rec["f0_cy_per_px"],
+                   axis=ax, amp=rec["amp"])
         if best is None or rec["amp"] > best["amp"]:
             best = rec
     return best
+
+
+# Diagnostic low floor: period ~250 px (0.004 cy/px). Coarse 2-D pad-grid super-pitches
+# (atlas 11.6-192.5 px → f_px 0.005-0.086) sit AT or BELOW the discovery floor and are
+# clipped by it. discover_fundamental_2d searches each axis down to this floor purely to
+# REPORT the true dominant grid line per axis and FLAG when it lies below the usable
+# discovery band — it never silently changes what the discovery band returns.
+DIAG_FLOOR_CY_PER_PX: float = 0.004
+
+
+def discover_fundamental_2d(
+    roi: np.ndarray,
+    *,
+    band: tuple[float, float] = (0.06, 0.30),
+    exclude: tuple[float, float] | None = (0.31, 0.36),
+    M: float | None = None,
+    diag_floor: float = DIAG_FLOOR_CY_PER_PX,
+    aniso_ratio: float = 1.2,
+) -> dict | None:
+    """2-D-lattice-aware, **per-axis** fundamental discovery.
+
+    A wafer pad array is a 2-D lattice with (often anisotropic) u and v pitches. The
+    single-value :func:`discover_fundamental` ``axis="auto"`` argmax collapses that to one
+    axis and discards the other — so it can lock the weaker axis and miss the dominant
+    grid (audited: 5/6 magenta regions; the dropped axis was a ~30 px v-grid with SNR up
+    to 254). This entry point keeps both axes and never collapses them.
+
+    For each axis (``u`` = vary across columns, ``v`` = vary across rows) it reports:
+
+    * the **in-band fundamental** — the same band-limited / maze-excluded pick the
+      production discovery uses (so the resolvable, MTF-bearing sub-feature is preserved
+      for MTF-probing callers), or ``None`` if no real in-band peak exists on that axis;
+    * the **dominant (true-grid) line** — the strongest periodic peak searched from a very
+      low diagnostic floor (``diag_floor``, period ~250 px), so the coarse pad-grid
+      super-pitch is *visible*. This is the real lattice line a human sees.
+    * ``true_below_floor`` — ``True`` when that dominant line sits below the usable
+      discovery floor (``band[0]``), i.e. the in-band pick is NOT the dominant structure.
+
+    Returns a dict::
+
+        {"u": {<in-band rec> | None, with extra keys
+                  true_pitch_px, true_f0_cy_per_px, true_snr, true_below_floor},
+         "v": {... same ...},
+         "dominant_axis": "u"|"v"|None,   # axis with the higher in-band amplitude
+         "anisotropic": bool,             # true u/v pitches differ by > aniso_ratio
+         "band": band, "exclude": exclude}
+
+    or ``None`` if ``roi`` is not a non-empty 2-D array.
+
+    **No silent mislock.** The dominant grid line is *reported*, not substituted: a caller
+    that wants the resolvable MTF feature still reads the in-band fundamental, but it can
+    now see (via ``true_below_floor`` / the per-axis ``true_*`` fields) when the dominant
+    real structure was below the usable floor and on which axis — so it never silently
+    gets the wrong axis. ``M=None`` keeps the static band/exclude exactly as passed.
+    """
+    if roi.ndim != 2 or roi.size == 0:
+        return None
+    band, exclude = _resolve_band_exclude(band, exclude, M)
+    out: dict = {"band": band, "exclude": exclude}
+    in_band: dict[str, dict | None] = {}
+    true_f: dict[str, float | None] = {}
+    for ax in ("u", "v"):
+        prof = roi.mean(axis=0) if ax == "u" else roi.mean(axis=1)
+        # In-band (resolvable) pick — same logic/selection as discover_fundamental.
+        rec = None
+        if band[0] < band[1]:
+            r = _axis_peak(prof, band, exclude)
+            if r is not None:
+                rec = dict(pitch_px=r["pitch_px"], f0_cy_per_px=r["f0_cy_per_px"],
+                           axis=ax, amp=r["amp"], snr=r["snr"])
+        # Dominant true-grid line — searched from the diagnostic low floor so the coarse
+        # super-pitch is visible. Reuse the same maze exclusion (never lock the maze).
+        lo = max(1e-6, min(diag_floor, 0.8 * band[1]))
+        diag = _axis_peak(prof, (lo, band[1]), exclude)
+        if rec is not None:
+            rec["true_pitch_px"] = diag["pitch_px"] if diag else rec["pitch_px"]
+            rec["true_f0_cy_per_px"] = diag["f0_cy_per_px"] if diag else rec["f0_cy_per_px"]
+            rec["true_snr"] = diag["snr"] if diag else rec["snr"]
+            rec["true_below_floor"] = bool(diag is not None
+                                           and diag["f0_cy_per_px"] < band[0] - 1e-9)
+        in_band[ax] = rec
+        true_f[ax] = diag["f0_cy_per_px"] if diag is not None else None
+    out["u"], out["v"] = in_band["u"], in_band["v"]
+    # Dominant axis = the in-band axis with the larger amplitude (matches the single-value
+    # auto pick), so existing auto-pick callers reading dominant_axis see no change.
+    cand = [(ax, in_band[ax]["amp"]) for ax in ("u", "v") if in_band[ax] is not None]
+    out["dominant_axis"] = max(cand, key=lambda t: t[1])[0] if cand else None
+    # Anisotropy on the TRUE per-axis grid pitch (the lattice property, not the clipped
+    # in-band pick): u/v fundamentals differing by more than aniso_ratio.
+    fu, fv = true_f["u"], true_f["v"]
+    out["anisotropic"] = bool(
+        fu is not None and fv is not None and fu > 0 and fv > 0
+        and max(fu / fv, fv / fu) > aniso_ratio
+    )
+    return out
 
 
 def periodic_contrast(

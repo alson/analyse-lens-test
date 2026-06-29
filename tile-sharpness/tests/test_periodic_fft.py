@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from tile_sharpness.methods.periodic_fft import (
-    periodic_contrast, derotate, discover_fundamental,
+    periodic_contrast, derotate, discover_fundamental, discover_fundamental_2d,
     maze_band_cy_per_px, resolvable_band_cy_per_px, LPMM_PER_CYPX,
 )
 from tile_sharpness.methods.maze_fft import maze_freq_cy_per_px
@@ -203,6 +203,116 @@ def test_M_aware_degenerate_band_returns_none():
     # If a band collapses (lo>=hi) the function must bail rather than raise.
     img = _grating(256, pitch=8.0, contrast=0.5)
     assert discover_fundamental(img, band=(0.30, 0.10)) is None
+
+
+# --- 2-D-lattice-aware per-axis discovery (relock fix) ------------------------
+
+def _lattice(n, pu, pv, Cu=0.4, Cv=0.4, mean=128.0, noise=1.0, seed=3):
+    """n×n anisotropic 2-D dot lattice: a u-axis grating (pitch ``pu``, vary across
+    columns) modulated by a v-axis grating (pitch ``pv``, vary across rows)."""
+    rng = np.random.default_rng(seed)
+    x = np.arange(n)
+    cu = 1.0 + Cu * np.cos(2 * np.pi * x / pu)        # along columns -> u axis
+    cv = 1.0 + Cv * np.cos(2 * np.pi * x / pv)        # along rows    -> v axis
+    img = mean * np.outer(cv, cu)
+    if noise:
+        img = img + rng.normal(0, noise, img.shape)
+    return img.astype(np.float64)
+
+
+def test_2d_reports_both_axes_anisotropic():
+    # The 5C/5D-style anisotropic case: a ~21 px u-grid AND a dominant ~30 px v-grid.
+    # The single-value auto pick collapses to ONE axis; the 2-D entry point must report
+    # BOTH, with the true per-axis pitches ~21 (u) and ~30 (v), and flag anisotropy.
+    img = _lattice(384, pu=21.0, pv=30.0, Cu=0.3, Cv=0.6)
+    d = discover_fundamental_2d(img, band=(0.06, 0.30))
+    assert d is not None
+    assert d["u"] is not None and d["v"] is not None
+    assert d["u"]["axis"] == "u" and d["v"]["axis"] == "v"
+    # Both true per-axis grid pitches recovered (in-band: both ~21/~30 sit above 0.06).
+    assert d["u"]["true_pitch_px"] == pytest.approx(21.0, rel=0.1)
+    assert d["v"]["true_pitch_px"] == pytest.approx(30.0, rel=0.1)
+    assert d["anisotropic"] is True
+    # The single-value auto pick returns exactly ONE of these axes (and may miss the
+    # dominant one) — that is the lossy behaviour the 2-D path fixes.
+    single = discover_fundamental(img, axis="auto", band=(0.06, 0.30))
+    assert single is not None
+    assert single["axis"] in ("u", "v")
+
+
+def test_2d_isotropic_not_flagged():
+    img = _lattice(384, pu=12.0, pv=12.0, Cu=0.5, Cv=0.5)
+    d = discover_fundamental_2d(img, band=(0.06, 0.30))
+    assert d is not None
+    assert d["anisotropic"] is False
+    assert d["u"]["true_pitch_px"] == pytest.approx(12.0, rel=0.12)
+    assert d["v"]["true_pitch_px"] == pytest.approx(12.0, rel=0.12)
+
+
+def test_2d_coarse_grid_below_floor_is_flagged_not_substituted():
+    # A coarse pad super-pitch (~120 px -> f≈0.0083 cy/px) below the 0.06 floor, with a
+    # finer in-band harmonic at ~15 px on the SAME axis. The in-band pick must stay the
+    # resolvable ~15 px feature (MTF-bearing) — NOT silently replaced by the coarse line —
+    # while true_below_floor flags that the dominant real structure is below the floor.
+    n = 512
+    x = np.arange(n)
+    line = 128.0 * (1.0 + 0.7 * np.cos(2 * np.pi * x / 120.0)
+                    + 0.3 * np.cos(2 * np.pi * x / 15.0))
+    img = np.tile(line[None, :], (n, 1))
+    img = img + np.random.default_rng(5).normal(0, 1.0, img.shape)
+    d = discover_fundamental_2d(img, band=(0.06, 0.30))
+    assert d is not None and d["u"] is not None
+    u = d["u"]
+    # in-band pick is the resolvable fine harmonic, not the coarse super-pitch
+    assert u["pitch_px"] == pytest.approx(15.0, rel=0.1)
+    assert u["f0_cy_per_px"] >= 0.06
+    # the true dominant line is the coarse ~120 px grid, flagged below the usable floor
+    assert u["true_pitch_px"] == pytest.approx(120.0, rel=0.15)
+    assert u["true_below_floor"] is True
+
+
+def test_2d_dominant_axis_matches_single_auto_amp():
+    # dominant_axis (higher in-band amplitude) must equal the single-value auto pick's axis
+    # so existing auto-pick callers reading dominant_axis observe no change.
+    for pu, pv, Cu, Cv in [(21.0, 30.0, 0.6, 0.2), (18.0, 26.0, 0.2, 0.6)]:
+        img = _lattice(384, pu=pu, pv=pv, Cu=Cu, Cv=Cv)
+        d2 = discover_fundamental_2d(img, band=(0.06, 0.30))
+        single = discover_fundamental(img, axis="auto", band=(0.06, 0.30))
+        assert d2 is not None and single is not None
+        assert d2["dominant_axis"] == single["axis"]
+
+
+def test_2d_M_none_in_band_equals_single_axis():
+    # Per-axis in-band pick (M=None) must equal the single-axis discover_fundamental pick
+    # on that axis exactly — the 2-D path reuses the identical in-band peak finder.
+    img = _lattice(384, pu=21.0, pv=30.0)
+    d2 = discover_fundamental_2d(img, band=(0.06, 0.30), exclude=(0.31, 0.36))
+    for ax in ("u", "v"):
+        single = discover_fundamental(img, axis=ax, band=(0.06, 0.30),
+                                      exclude=(0.31, 0.36))
+        rec = d2[ax]
+        assert (single is None) == (rec is None)
+        if single is not None:
+            assert rec["pitch_px"] == pytest.approx(single["pitch_px"], abs=1e-9)
+            assert rec["f0_cy_per_px"] == pytest.approx(single["f0_cy_per_px"], abs=1e-9)
+            assert rec["amp"] == pytest.approx(single["amp"], abs=1e-9)
+
+
+def test_2d_M_aware_band_threads_through():
+    # When M is given, the 2-D path uses the M-aware band/exclude defaults (A5) — the
+    # resolved band/exclude must equal resolvable_band_cy_per_px(M) / maze_band_cy_per_px(M).
+    img = _lattice(384, pu=21.0, pv=30.0)
+    d = discover_fundamental_2d(img, M=2.0)
+    assert d is not None
+    assert d["band"] == pytest.approx(resolvable_band_cy_per_px(2.0))
+    mb = maze_band_cy_per_px(2.0)
+    assert d["exclude"] == pytest.approx((mb[1], mb[2]))
+
+
+def test_2d_none_on_flat_and_bad_input():
+    assert discover_fundamental_2d(np.full((128, 128), 50.0))["u"] is None
+    assert discover_fundamental_2d(np.zeros((0, 0))) is None
+    assert discover_fundamental_2d(np.zeros(10)) is None
 
 
 # --- diffraction ceiling at arbitrary frequency -------------------------------
