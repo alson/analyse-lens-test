@@ -379,6 +379,32 @@ centres. MCON-35 > 6T (centre) therefore stands on the groove ranking as before
   jobs were run with the prebuilt host venv + `PYTHONPATH=.../tile-sharpness/src`
   (worktree src wins over the editable install); `pytest` → 130 passed.
 
+## H. UPDATE (2026-06-29b): flat reflectance edges DO read ≤ ceiling — the blocker is registration, not relief  *(supersedes part of §G.2 below)*
+
+The §G.2 "isolated-edge route is closed" was over-broad. Testing the **2B serpent**
+(long *bright* metal lines on dark substrate) — confirmed FLAT (symmetric dips, no
+specular rim) — its edges with adequate clearance read **at/below the diffraction
+ceiling (0.82–0.96×, no rim)**, vs the recessed pads' 1.5–2.1× over-read. **So a flat
+target genuinely solves the over-read** — these are the first wafer edges that do.
+Neither route still yields a usable metric *on existing data*, for a new reason:
+- **Route 2 (flat edge)** reads ≤ceiling but **can't rank**: at the only reliably-
+  registering magnification (M≈1) the lines are too DENSE (pitch ~7–26px → ~3–13px
+  lateral clearance), giving 0–3 passing edges/config (3 of 6 bare lenses → 0, so soft
+  ≡ no-coverage). **Lateral clearance, not edge length, is the limiter** — the longer
+  top lines face neighbouring lines, not open field.
+- **The M≈2 sweet spot (~22px gaps) is unreachable**: the 2:1 configs don't register
+  (Sigma+TC 2:1 reg-fails on sharp frames; AF200+5T+6T 2:1 scale-collapses to M≈0.001
+  — the §A failure). So the regime where the flat serpent WOULD be cleanly isolated is
+  gated by **high-M registration**, now the binding constraint.
+- **Route 1 (harmonic Aₙ/A₁)**: estimator validated on a synthetic square-wave grating
+  (<5%); on the real serpent it fails (irregular pitch / mixed duty 0.45–0.72, only the
+  1st harmonic clears noise, higher harmonics alias onto the 0.33 cy/px maze → ratio>1).
+New reusable, tested code: `methods/harmonic_mtf.py`, `route2_flat_edge.py`,
+`route1_harmonic.py`, `lib_2b.py` (159 tests). **Net: periodic-FFT + ceiling remain the
+suite.** The unlock for an absolute edge metric from *existing* data is **high-M
+registration** of the 2:1 serpent frames (manual anchors or a high-M-robust reg) — then
+the flat serpent at M≈2 (22px gaps) is the target, and the tooling is ready.
+
 ## G. Periodic-FFT metric (the WIN) + isolated-edge closure + the metric suite (2026-06-29)
 
 ### G.1 Periodic-FFT — a physically-valid SPANNING relative metric
