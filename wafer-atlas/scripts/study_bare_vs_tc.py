@@ -21,8 +21,12 @@ Method (per config):
 F_COMMON is chosen in the band resolvable by ALL configs (low enough that even M=1
 configs carry it, high enough to discriminate). We report MTF@F_COMMON per config.
 
-Sigma 105 + TC-2001 does NOT register (§I); we try the robust reg and, if it still
-fails, report that cell MISSING (never guessed).
+Sigma 105 + TC-2001 registers since the §K.5 reg fix (c204bbd, M~2.08) — the old
+"does not register" blocker is gone. The 2:1 cell is still MISSING here for a
+*different* reason: at M=2 the magenta sub-element aliases above F_COMMON (see
+study_bare_vs_tc_magenta.py), and the serpent route adds instance/SNR gaps. We run
+the robust reg and, if no usable read at F_COMMON can be formed, report MISSING
+(never guessed). A matched-M fix is to use the 1:1 sweep instead of 2:1.
 
 Runs on nufan. Output: study_bare_vs_tc.csv + a ranking / TC-tolerance summary.
 """
@@ -54,7 +58,7 @@ CONFIGS = [
     ("TC-1401", "Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401", "1_1", "F8"),
     ("TC-1401", "Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-1401", "1_1", "F8"),
     ("TC-2001", "Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-2001", "2_1", "F11"),
-    ("TC-2001", "Sigma Macro 105mm F2.8 EX DG OS HSM + TC-2001", "2_1", "F11"),  # §I: expected reg-fail
+    ("TC-2001", "Sigma Macro 105mm F2.8 EX DG OS HSM + TC-2001", "2_1", "F11"),  # registers (M~2.08) but M=2 aliases above F_COMMON; 1:1 sweep would be matched-M
 ]
 
 

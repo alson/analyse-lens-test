@@ -122,7 +122,8 @@ def part3():
         print(f"  {lens}: bare={b if b else '-'}  +TC14={t14 if t14 else '-'} (x{ratio(t14)})  "
               f"+TC20={t20 if t20 else '-'} (x{ratio(t20)})")
     print("  CAVEAT: bare Sigma 105 frames a DIFFERENT serpent instance (die 9F vs 6B/6D),")
-    print("  low SNR (1-3), and 105+TC-2001 reg-fails -> serpent route unreliable for this")
+    print("  low SNR (1-3), and 105+TC-2001 @2:1 has no read at F_COMMON (M=2 aliasing, not a")
+    print("  reg failure since §K.5) -> serpent route unreliable for this")
     print("  ranking. The robust answer is the broad magenta cross-check below.")
     _part3_magenta()
 
