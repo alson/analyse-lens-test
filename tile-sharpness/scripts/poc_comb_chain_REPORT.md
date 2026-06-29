@@ -538,3 +538,48 @@ regions but is small and not arranged to cancel the fundamental. This is consist
 diag-1's "one broad mode" finding and reinforces that the low pad FFT-fundamental
 contrast is a genuine low-modulation/duty-cycle/DC-deflation effect, not a two-population
 cancellation artifact.
+
+---
+
+## Stage T_n — empirical per-structure harmonic content (PLANNED 2026-06-29)
+
+**Why.** The Task-1 verdict ("fixed-sensor-frequency relocates the M-confound; chain not
+viable") rested partly on the harmonic-MTF cross-structure check failing (pad vs maze
+intrinsic-corrected MTF disagree ~5× at the same f_px). But two facts reopen it:
+1. The intrinsic-correction **already de-confounds M** — `corr(M, MTF)` collapsed from
+   +0.33/+0.78 (raw) to −0.27 / −0.17 / +0.03. The axis was never the blocker; the
+   harmonic-content model is.
+2. The 5× disagreement is most likely an **artifact of the assumed `T_n`**: we applied
+   ONE odd-only square-wave model (`T_n=|sinc(nD)|`, even harmonics ≡ 0) to TWO different
+   signals. Pads and maze have different real spectra, and the **maze skips/merges cycles
+   → genuine EVEN (N=2) harmonic content** the model forces to zero. So neither structure
+   is correctly de-weighted, and the residual MTFs can't be expected to match.
+
+If a *correct* `T_n` makes the MTF physical (≤1) AND the cross-structure MTF agree while
+preserving the de-confounding, the cross-M chain may be viable after all.
+
+**Approach (run on the saturation channel — specular-suppressed, so `T_n` has the best
+chance of being stable):**
+1. **Direct empirical `T_n`, where MTF≈1.** At high M the low-order harmonics sit at low
+   cy/px where the system MTF≈1, so measured amplitude ≈ `T_n` directly. Clean for pads
+   (fundamental ~0.039 cy/px at M=2); only low orders for the maze (fundamental already
+   ~0.167 cy/px, into the rolloff).
+2. **Self-calibration across M (primary, more robust).** The same structure at several M
+   places its teeth at different cy/px. Require all `A_n / T_n` to collapse onto a single
+   MTF(f_px) curve, and jointly solve for `{T_n}` and the curve. A consistent solution
+   simultaneously (a) measures `T_n` empirically and (b) proves the structure's content is
+   stable. If NO `{T_n}` makes them collapse, the content is specular-unstable and the
+   approach is genuinely dead — a definitive answer either way.
+
+**Validation (the gates):**
+- Re-run the **cross-structure agreement** check with empirical per-structure `T_n` — does
+  the ~5× pad-vs-maze disagreement shrink toward ~1×?
+- Re-confirm the **M de-confounding** holds (corr stays ~0) and the **MTF values become
+  physical** (≤1, monotone non-increasing).
+- Re-run the **fixed-f_px ranking** sanity (bare 105≈150; 105 more TC-tolerant than 150;
+  macros > primes > diopters; no empty-magnification float).
+
+**Gating risk:** works only if each structure's `T_n` is *stable* (fixed-but-non-square)
+across the configs/field/focus compared; if the texture/speculars make it vary, it won't
+transfer. The self-calibration collapse test is the direct check. Driver:
+`poc_comb_chain_tn_*.py` (to be added).
