@@ -2,8 +2,8 @@
 
 The serpent-only bare-vs-TC read (study_bare_vs_tc.py) is fragile: configs frame
 DIFFERENT serpent instances (bare 105 lands on die 9F, the macros+TC on 6B/6D), the
-serpent SNR is low (1-3), and Sigma105+TC-2001 registers only at M=2 (where magenta
-pads alias above the common band — see the Note in main()). So for the controlled
+serpent SNR is low (1-3), and Sigma105+TC-2001 registration was historically a gap.
+So for the controlled
 ranking we use the established spanning metric — the periodic-FFT magenta bond-pad
 arrays (REPORT §G.1, ~50 reads/config, broad field coverage) — at a COMMON subject
 frequency.
@@ -96,12 +96,13 @@ def main():
             return f"x{x/bv:.2f}" if (x and bv) else ("MISSING" if x is None else "-")
         print(f"  Sigma {lens}: bare={bv if bv else '-'}  +TC14={v14 if v14 else '-'} ({rr(v14)})  "
               f"+TC20={v20 if v20 else '-'} ({rr(v20)})")
-    print("\nNote: both TC-2001 cells are MISSING for the same reason -- M=2 aliasing, "
-          "NOT registration failure. Since the §K.5 reg fix (c204bbd) Sigma105+TC-2001 "
-          "registers cleanly (M~2.08, rmse~5.4px, magenta SNR up to ~100), but at M=2 every "
-          "magenta pad aliases to its sub-element fundamental at ~76 lp/mm, leaving zero reads "
-          "in the 18+-5 band; 150+TC-2001 (M=2) is identical. So neither common-f cell can be "
-          "averaged or interpolated -> MISSING, never guessed.")
+    print("\nNote: TC-2001 cells are read from the 1:1 sweeps (matched to the bare / "
+          "+TC-1401 reference magnification). At 2:1 the magenta pad array aliases up into "
+          "the maze band (~76 lp/mm) and supplies no read at 18+-5 lp/mm, so those rows "
+          "(if present in rank_all) fall outside the band and never contribute. The 1:1 "
+          "rows register cleanly (M~1.0, rmse ~2px) and fill 18+-5 with 27 (105) / 35 (150) "
+          "near-band reads. Aperture caveat: TC-2001 1:1 is F8.5 (no F8 at 1:1), vs F8 for "
+          "the bare / +TC-1401 rows -- a 1/3-stop diff, negligible at 18 lp/mm.")
 
 
 if __name__ == "__main__":
