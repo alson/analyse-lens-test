@@ -522,3 +522,32 @@ capture that frames die 2B (row B) at M≈2** (~22px line gaps) — the tooling 
 `route2_flat_edge`/`long_edge` + `harmonic_mtf`) is ready to consume it. Net: the
 metric suite is unchanged (periodic-FFT spanning + ceiling); the reg fix extends its
 high-M coverage and readies the absolute route for one targeted re-shoot.
+
+## J. UPDATE (2026-06-29d): first absolute lp/mm points from existing data — flat serpent at 1<M<2
+
+Tested the flat 2B-serpent EDGE on the intermediate-M (1<M<2) diopter/TC configs — the
+regime prior runs skipped. **Partial positive:** on the 4 configs where die 2B is both
+framed AND coarse enough, flat edges read **≤ ceiling (0.19–0.85×), discriminate, and
+reproduce the periodic-FFT order** — the FIRST absolute subject-lp/mm points from
+existing data: **Sigma105+TC ≈28 > MCON-35 ≈19 > 100-400+6T ≈13 lp/mm**, with macros >
+diopter and **MCON-35 > 6T** (agrees with §G/§D). So the flat-edge route genuinely
+yields absolute, ceiling-valid, discriminating numbers — and they cross-validate the
+periodic-FFT spanning metric over the overlap.
+
+**But it still can't calibrate, for two structural reasons:**
+- **Yield collapse persists** (4 of 9 in-FOV configs give ≥4 passing edges; 5 give 0–1
+  → soft ≡ no-coverage). The lead's "clearance ≈ 11px×M" is **refuted**: the in-FOV
+  serpent instance gets *finer/sparser* at higher M (Sigma150+5T at M=1.30 lands on die
+  2B with a 9px pitch → ~4px clearance → all edges rejected), not coarser.
+- **Framing**: only 9/25 configs frame die 2B, all at **M=1.0–1.4**; above ~1.4 row B
+  leaves the FOV (the §I limit, starting earlier). So all clean anchors cluster in the
+  **diopter/macro-TC tail — no sharp bare macro is in-FOV**, so there's no "head" anchor
+  to pin `k_feature` across the periodic-FFT range. 3 tail-biased points can't calibrate.
+
+**Net (final):** flat-edge physics fully confirmed and it now produces real absolute
+points that AGREE with periodic-FFT — but a *calibration-grade* absolute metric needs a
+**targeted re-shoot that frames die 2B at M≈2 (~20px gaps) AND includes a sharp bare
+macro** (head anchor). Existing data is exhausted. Metric suite stays: periodic-FFT
+(spanning, relative) + diffraction ceiling; the handful of §J absolute points serve as
+an overlap cross-check, not a calibration. Artifacts: `diag_2b_intermediate_fov.{py,csv}`,
+`route2_intermediate_drive.py` + `route2_intermediate_results.csv`.
