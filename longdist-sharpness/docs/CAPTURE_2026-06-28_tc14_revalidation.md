@@ -7,38 +7,57 @@ is not part of this test. Primary comparison is *within this session* (bare
 lens = unchanged-hardware anchor); cross-date comparison to the old/lost
 copy is secondary. See the revalidation plan and Z7-era scene-design notes.
 
-## ✅ Verdict (resolved 2026-06-29)
+## ✅ Verdict (consolidated 2026-06-29)
 
-**The replacement Z TC-1.4× is a good, well-centred copy — validated.**
+**Replacement Z TC-1.4× is a good, well-centred copy — validated.** Matched-
+aperture f/11 retention vs bare = **0.88** (≈ the lost copy's ~0.80,
+`LONGDIST_TELE_RESULTS.md` §6b); field symmetric (L/R 0.99, T/B 0.98 → no
+decentering/tilt). That answers the revalidation question.
 
-- **Retention ≈ 0.77–0.80** of the bare lens (MTF50, cy/sensor-px), landing on
-  the lost copy's ~0.80 (`LONGDIST_TELE_RESULTS.md` §6b); **+8 % subject-
-  resolution FOM** over cropping the bare 400 mm frame, matching the old
-  "+5–10 % median" (§11b). Clears the 0.714 break-even → the TC adds real
-  detail. **bare ≥ tc14** (physically correct ordering).
-- **Field is symmetric** (L/R 0.99, T/B 0.98) → no decentering / tilt.
+**Three distinct questions — keep them separate:**
+1. *Good copy?* — **yes** (matched-f/11 retention 0.88).
+2. *TC-2.0× beats cropping the bare 400?* — **yes, robustly**: MTF50 FOM
+   **+20 %** (lucky-imaging) to **+46 %** (median-of-AF); clears its 0.500
+   break-even on every analysis.
+3. *TC-1.4× beats cropping?* — **a wash / marginal**: **−5 %** (lucky-imaging)
+   to **+38 %** (median-of-AF). It flips because lucky imaging recovers bare's
+   real f/8 peak, raising the bar.
 
-**How we got there (the metric mattered more than the data).** radial_cutoff
-and JPEG slanted-edge MTF50 both gave physically impossible results
-(tc14 < tc20) — artifacts of (1) radial_cutoff saturation for this sharp
-lens, (2) MTF50 capping at the 0.49 Nyquist limit (saturation is *lens
-sharpness*, not edge contrast — MTF50 is contrast-normalised), and (3)
-in-camera JPEG **sharpening halos** inflating MTF@Nyquist >1.0. The clean
-result came from the **RAW POC** (`scripts/poc_longdist_tc14_raw.py`):
-develop the f/8 NEFs to **linear, demosaic-only** RAW (rawpy:
-`gamma=(1,1), no_auto_bright, output_bps=16, use_camera_wb, AHD`; no
-sharpening / no lens corrections), measure on the **brick mortar edges**
-(low-contrast, dense, central) in linear light. That removed the halo
-(MTF@Nyq back ≤1.0), pulled MTF50 off the cap, and gave the physical
-retention above. tc20 can't join at f/8 (wide-open f/11) but it's unchanged
-hardware, not the unit under test.
+**The flat bare profile was a gust+defocus artefact, not optics.** On
+median-of-AF / JPEG, bare MTF50 was flat ~0.20 (no f/8 peak). Per-edge
+lucky-imaging over the full stacks (independent gradient proxy) recovered a
+**real bare f/8 peak of 0.342** — so the bare lens is genuinely sharp at f/8,
+which is why cropping it nearly matches the 1.4×. The ISO-100-vs-500 shake test
+was **inconclusive** (variable wind confounds it — a gust hit the tc20 cells),
+but lucky imaging settles it: wind was the limiter, not atmosphere (clear and
+sunny) or distance.
 
-**Capture-design lesson for next time:** put a low-contrast fine-detail target
-at the **centre** (where all FOVs overlap), shoot **wide (≤ f/8)** to dodge
-edge saturation and the f/11–f/16 over-read, and **analyse from linear RAW**,
-not JPEG.
+**Trust hierarchy.** Matched-aperture **f/11** (equal, well-sampled pools) is
+the safe cross-config comparison; **f/16 is untrustworthy** (lucky imaging
+pushes it over the diffraction-ceiling gate; tc14 f/16 had only 3 frames so the
+f/16 ordering violation is a sampling artefact). The TC-vs-cropping FOM is
+**re-basing-sensitive** — the marginal TC-1.4× call is exactly what a
+**calm-day reshoot** (faster shutter / float ISO / bursts) would settle.
+
+**Distance.** ~45 m is **not a compromise** — it's the minimum for the 800 mm
+(TC-2.0×) to sit in the stabilised/infinity MTF regime (56× FL, past the ~50×
+FL / 40 m floor); closer would test a close-focus MTF instead.
+
+*Metric pitfalls + the capture/analysis lessons from this session are written up
+in [`LENS_TEST_METHODOLOGY_Z7.md`](LENS_TEST_METHODOLOGY_Z7.md) Parts A/B
+(A8 gust/ISO, A9 target, B5 over-read fix, B8 lucky imaging, B9 ceiling gate,
+B10 matched-aperture). Detailed median-of-AF + lucky-imaging tables: the
+subsections below + `scripts/poc_longdist_tc_family_raw_f11f16_out/summary.md`.*
 
 ### Clean f/11 + f/16 matched-aperture run — TC-2.0× resolved (2026-06-29)
+
+> **These are the median-of-AF numbers.** They were later refined by the
+> per-edge lucky-imaging pass (which recovered the bare f/8 peak and shifted the
+> FOMs — see the consolidated verdict above and
+> `scripts/poc_longdist_tc_family_raw_f11f16_out/summary.md`). The +38 %/+46 %
+> below are the median-of-AF figures; the lucky-imaging figures are −5 %/+20 %.
+> Use this subsection for the matched-aperture *ordering*; use the consolidated
+> verdict for the cross-cropping call.
 
 The f/8 RAW POC above couldn't include the **TC-2.0×** (it's wide-open at f/11,
 so it can't be shot ≤ f/8). The matched-aperture run

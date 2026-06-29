@@ -57,10 +57,12 @@ at 400 mm each brick (210 mm Waalformaat + 10 mm joint) ≈ 2.45 m of distance.
 
 ### A6. Aperture: shoot wide-open, then step down — and the **widest is the
 most informative** for measurement
-The widest aperture is furthest from both edge-saturation and the documented
-f/11–f/16 MTF50 over-read (Part B). For TC comparisons, compare at the widest
-**common** aperture (bare f/5.6, TC-1.4× f/8 → use **f/8**; TC-2.0× wide-open
-is f/11, so it can't join an f/8 comparison — that's physics, not a gap).
+The widest aperture is furthest from edge-saturation and diffraction. The
+f/11–f/16 over-read that used to make "shoot wide" mandatory is now **fixed
+(B5)**, so f/11–f/16 are usable when **ceiling-gated (B9)** — which lets the
+**TC-2.0× join at its f/11 wide-open** via matched-aperture, ceiling-gated
+retention (B10) rather than being excluded. Caveat: stopping down forces a
+slower shutter, so on a windy day keep it gust-frozen by floating ISO (A8).
 
 ### A7. Put the high-contrast *and* fine detail at the CENTRE
 A TC frame is a centred crop of the bare frame — **the centre is the same
@@ -71,6 +73,33 @@ the chalk/placard edges sat off-centre, so bare had *zero* central edges and
 the cross-config comparison broke. **Next time: place a low-contrast,
 fine-detail target dead-centre.** (Brick mortar is fine detail and everywhere,
 incl. centre — see B2 for why it still didn't save MTF50.)
+
+### A8. Freeze gust first, float ISO to afford it, burst for lucky imaging
+Tripod + VR-off in wind → **wind-induced rig vibration** is the dominant blur
+on a gusty day. It flattened the bare MTF-vs-aperture curve on 2026-06-28 — a
+gust+defocus artefact lucky imaging later undid, recovering a real f/8 peak
+(B8). Blur is angular → scales with effective FL. **Shutter floor 1/f_eff;
+target 2–4× faster** (≈1/800 @ 400 mm, 1/1600 @ 800 mm); faster while a gust is
+blowing. The original stopped-down TC cells ran 1/100–1/250 — 3–8× too slow.
+**Float ISO** (Auto-ISO + min-shutter) to hold that shutter, cap ~ISO
+3200–6400; ISO does **not** bias the contrast-normalised MTF (B2), so you need
+NOT repeat the full aperture series at every ISO — the only failure mode is
+high-ISO **×** low-contrast (the 2026-01-28 ISO-8000 twilight collapse). And
+**shoot bursts**: with non-constant wind a calm instant gets captured and the
+analysis lucky-images it (B8) — cheaper insurance than any single exposure.
+
+### A9. Target: high-contrast, fine, flat, large — and single-depth
+Brick mortar is too low-contrast, and **3D scenes mis-rank** (the 2026-01
+foliage "edge>centre" was a depth / pick-sharpest-tile artefact — different
+field positions land on different depths). Want a **single-depth flat** surface
+with **high-contrast fine detail**, large enough to fill the frame: at 45 m an
+FX 400 mm frame is ~4 m wide (800 mm ~2 m), so the target must be **≥ ~2–4 m**.
+Found-urban options: a **glazed facade's window-mullion grid** (high-contrast
+slanted edges, flat, large — best found target), **perforated/expanded-metal
+cladding or mesh** (fine periodic detail), **large printed signage/hoardings**.
+Most repeatable: a **printed vinyl banner** (~1.5–2 m, slanted-edge /
+checkerboard / Siemens-star), mounted flat — controlled contrast + slant, and
+reshootable on a calm day.
 
 ---
 
@@ -108,14 +137,17 @@ is why we shoot RAW + JPEG. Measure in **linear light**.
 Canny finds ≈0 edges on linear light. Normalise + apply gamma ≈ 1/2.2 for
 *detection*, then run the MTF measurement on the underlying **linear** float.
 
-### B5. The f/11–f/16 over-read is an analysis bug, not physics
-`measure_edge_metrics` over-reads MTF50 (above the diffraction ceiling) at
-f/11–f/16 and throws MTF@Nyq outliers > 1.0 **even on linear RAW** — a
-left/right trough-wall asymmetry in the LSF (see
-[`LONGDIST_HANDOVER.md`](LONGDIST_HANDOVER.md) §5.6e and root
-`SHARPNESS_METRICS.md`). **Workaround: report the MEDIAN across edges, never
-the max.** Until fixed, single-edge readings at f/11+ are unreliable — another
-reason to shoot/measure wide (A6).
+### B5. The f/11–f/16 over-read — FIXED 2026-06-29 (was an analysis bug, not physics)
+`measure_edge_metrics` used to over-read MTF50 (above the diffraction ceiling)
+at f/11–f/16 and throw MTF@Nyq outliers > 1.0 **even on linear RAW** — an
+asymmetric LSF inflating the FFT tail. **Fixed (§5.6e): a Hann window centred
+on the LSF centroid + DC renormalisation** (`LSF_PROFILE = centroid_hann`; see
+[`LONGDIST_HANDOVER.md`](LONGDIST_HANDOVER.md) §5.6e + root
+`SHARPNESS_METRICS.md`). f/11–f/16 are now measurable — the TC-2.0× joins at
+its f/11 wide-open. Two rules still apply: **report the median across edges**
+(per-frame outliers persist), and **gate on the diffraction ceiling (B9)** —
+the over-read bites *near-ceiling* (sharp) edges, so a soft wide-open config at
+f/11 is reliable while a sharp stopped-down one can still over-read.
 
 ### B6. `top`/`max` reducer is frame-count biased on focus-shift stacks
 Reducing a focus-shift stack by its **max** rewards bigger stacks (60-frame vs
@@ -130,16 +162,54 @@ vs the bare anchor; the shared scene/quality/metric-version cancels. (JPEG
 quality was *checked* not assumed: 2026-01 is FINE-class, ~2× the 370 kB/MP
 that 2025-07-05 showed sufficient, so it is not the confound.)
 
+### B8. Lucky imaging for gust + focus-shift stacks — select per-edge by an INDEPENDENT proxy
+Gusty / focus-shift data has most frames blurred (defocused or gust-hit). Don't
+**median** the stack (defocus contaminates) and don't **max** the MTF (that
+re-introduces the B5/B6 over-read). Instead, **per edge**, rank every frame by
+an MTF-independent sharpness proxy (Tenengrad / Brenner / var-of-Laplacian on
+the edge ROI) — it rejects defocused AND gust-blurred frames together — take
+the **top-k** (k≈3) and read MTF50 on those. Per-edge (not per-frame) selection
+handles field curvature (different frames focus at different field positions).
+Worked 2026-06-28: recovered a real **bare f/8 peak 0.342** from a gust-
+flattened ~0.20 profile; ~50–135 of each stack's frames were correctly rejected
+as defocused. Two-pass to save compute: half-size develop to score the proxy,
+full-develop only the selected frames.
+
+### B9. Diffraction-ceiling gate — the over-read is a near-ceiling effect, not an aperture
+A reading is trustworthy only if it sits **below** the aperture's diffraction
+MTF50 ceiling (`tile-sharpness/optics.py`,
+`diffraction_mtf50_sensor_lpmm(N)·pitch`). The B5 over-read bites *sharp, near-
+ceiling* edges — so a **soft wide-open TC at f/11 is reliable** (glass-limited,
+well below ceiling) while a sharp stopped-down config can over-read. This
+replaces the blunt "avoid f/11–f/16" rule with a per-config physical check.
+Caveat: lucky imaging (B8) can push f/16 readings *over* the ceiling → those are
+the least trustworthy.
+
+### B10. Cross-config retention: match the aperture AND the frame-pool
+Compare configs at the **same aperture** with **equal, well-sampled pools**.
+"Best-vs-best" across cells of unequal luck / pool-size **re-bases the
+reference**: on 2026-06-28 lucky imaging lifted the bare-f/8 reference most (its
+AF triplet was gust-hit, its stack held a sharp frame), which flipped the
+TC-1.4×-vs-cropping verdict from +38 % to −5 %. The matched-**f/11** comparison
+(equal pools) is the safe one; the f/16 ordering violation (tc20 > tc14) was an
+unequal-pool artefact (tc14 f/16 had 3 frames, no stack). State the question
+precisely: *is the copy good* (matched-aperture retention) is a different test
+from *does the TC beat cropping* (best-vs-best FOM).
+
 ---
 
 ## Part C — What "validated" looked like (the worked example)
 
 For the replacement Z TC-1.4× (2026-06-28, see the capture log for full
-numbers): **retention ≈ 0.77–0.80 of the bare lens** (MTF50 on linear RAW,
-brick mortar edges, f/8), matching the lost copy's ~0.80; **+8 % subject-
-resolution FOM** over cropping the bare frame; **symmetric field** (no
-decentering). → a good, well-centred copy. The "+X % over cropping" magnitude
-needed RAW; the decentering check worked on JPEG.
+numbers): **a good, well-centred copy** — matched-aperture f/11 retention vs
+bare **0.88** (≈ the lost copy's ~0.80), symmetric field (no decentering). That
+is the revalidation answer. *Separately*, does the TC beat just cropping the
+bare 400? — **TC-2.0× yes** (FOM +20 % lucky-imaging to +46 % median-of-AF,
+clears 0.500), **TC-1.4× a wash** (−5 % to +38 %, re-basing-sensitive — B10).
+Lucky imaging (B8) recovered a real **bare f/8 peak 0.342** that gust+defocus
+had flattened, which is what makes cropping competitive with the 1.4×. Trust
+matched-f/11; distrust f/16 (over ceiling, B9). The decentering check worked on
+JPEG; the sharpness magnitudes needed linear RAW + the centroid_hann fix.
 
 ### Scripts (TC-revalidation track)
 | Script | Purpose |
