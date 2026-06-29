@@ -62,30 +62,32 @@ Cross-dataset comparison against the existing auto-detect
 replicates, so the auto column is comparable to ~2× the known-edge
 CV-median column.
 
+Values below are **post-§5.6e** (centroid-Hann LSF, re-run 2026-06-29).
+
 | Dataset | KE NaN | Auto NaN | KE CV (med) | Auto range_pct | KE vs radial ρ | Auto vs radial ρ |
 |---|---|---|---|---|---|---|
-| wide2026_01_24 (Z7) | 14.5 % | 61.3 % | 10.8 % | 131 % | 0.52 | −0.01 |
-| wide2026_01_26 (Z7) | 10.7 % | 71.5 % | 5.4 %  | 168 % | 0.51 | 0.29 |
-| wide2026_02_07 (Z7) | 9.4 %  | 47.7 % | 11.1 % | 73 %  | 0.43 | −0.12 |
-| wide2025_09_10 (D7200) | 9.6 % | 48.1 % | 10.2 % | 75 % | 0.37 | 0.09 |
-| mid2025_09_11 (D7200) | 19.2 % | 38.1 % | 14.3 % | 121 % | 0.34 | 0.07 |
+| wide2026_01_24 (Z7) | 14.5 % | 60.0 % | 2.7 % | 131 % | 0.82 | 0.01 |
+| wide2026_01_26 (Z7) | 13.4 % | 69.9 % | 2.2 % | 168 % | 0.69 | 0.30 |
+| wide2026_02_07 (Z7) | 11.8 % | 39.3 % | 5.0 % | 73 %  | 0.62 | −0.15 |
+| wide2025_09_10 (D7200) | 8.5 % | 33.9 % | 4.5 % | 75 % | 0.50 | 0.23 |
+| mid2025_09_11 (D7200) | 16.2 % | 19.3 % | 6.2 % | 121 % | 0.54 | 0.04 |
 
 Three things to read off this table:
 
-1. **NaN rate**: from 38–71 % to 9–19 %. Hits the §5.1 target of
-   "≈20 %" across all five datasets — the auto-detect's fundamental
-   failure mode (gradient direction undetectable in real
+1. **NaN rate**: 9–16 % (≈ unchanged by §5.6e — within ±3 pp of the
+   pre-fix values), vs the auto-detect's 19–70 %. The auto-detect's
+   fundamental failure mode (gradient direction undetectable in real
    consensus tiles) is gone because the direction now comes from a
    high-confidence Hough segment on the sharp reference.
-2. **Replicate stability**: median CV in single digits (5–14 %) vs
-   the auto-detect range_pct of 73–168 % (≈ 35–85 % CV-equivalent).
-   The local refinement + reference-peak threshold strips the
-   outliers that were inflating cross-replicate spread.
-3. **Ranking agreement with `radial_cutoff`**: Spearman ρ 0.34–0.52
-   across datasets, all positive. The auto-detect ranged from −0.12
-   to 0.29 — essentially uncorrelated. The new metric reproduces the
-   workhorse metric's per-aperture-per-lens ordering, so it's a
-   meaningful cross-check rather than independent noise.
+2. **Replicate stability**: the §5.6e fix roughly **halved median CV**
+   (now 2.2–6.2 %, was 5.4–14.3 %) — the centroid-Hann window strips
+   the asymmetric-tail noise that was inflating cross-replicate spread.
+   Auto-detect range_pct stays 73–168 % (≈ 35–85 % CV-equivalent).
+3. **Ranking agreement with `radial_cutoff`**: the fix **improved
+   Spearman ρ on every dataset** (now 0.50–0.82, was 0.34–0.52); the
+   auto-detect ranges −0.15 to 0.30 (essentially uncorrelated). The new
+   metric reproduces the workhorse metric's per-aperture-per-lens
+   ordering more closely than before — a stronger cross-check.
 
 The remaining 9–19 % NaN are mostly genuine occlusions (cyclists /
 pedestrians crossing a long pavement boundary in some replicates)
@@ -299,17 +301,22 @@ centre tiles.
 
 Under §5.1 CV-discovered edges (which land on stair-side diagonals
 and paver boundaries regardless of the consensus tile picker's
-centre choice), the ranking restores to:
+centre choice), the ranking restores to (values refreshed 2026-06-29
+under the §5.6e over-read fix):
 
 | Lens (best aperture) | mtf50_known_edge |
 |---|---|
-| **NIKKOR Z 20/1.8 S @ f/5.6** | **0.476** |
-| NIKKOR Z 14-24/2.8 S @ 20 mm f/8 | 0.427 |
-| Nikon AF Nikkor 20/2.8 @ f/8 | 0.407 |
-| Viltrox AF 20/2.8 Z Air @ f/11 | 0.379 |
+| **NIKKOR Z 20/1.8 S @ f/5.6** | **0.424** |
+| NIKKOR Z 14-24/2.8 S @ 20 mm f/8 | 0.382 |
+| Nikon AF Nikkor 20/2.8 @ f/11 | 0.372 |
+| Viltrox AF 20/2.8 Z Air @ f/5.6 | 0.361 |
 
-Z 20/1.8 S leads by 12 % over the Z 14-24 at the same focal length,
-matching the user's visual judgement. Closes handover §5.4.
+Z 20/1.8 S leads by ~11 % over the Z 14-24 at the same focal length,
+matching the user's visual judgement. Closes handover §5.4. **The
+over-read fix lowered every value ~0.04–0.05 (best apertures for
+AF 20/2.8 and the Viltrox also shifted within noise — f/8→f/11 and
+f/11→f/5.6) but the 4-way ordering is unchanged** (pre-fix values were
+0.476 / 0.427 / 0.407 / 0.379).
 
 ## Files
 

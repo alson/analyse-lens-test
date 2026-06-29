@@ -423,18 +423,24 @@ by a tiny margin (0.316 vs 0.301 — within FFT-bin quantization).
 Re-running the dataset through the CV-discovered edge picker (which
 lands on stair-side diagonals, paver boundaries, and other
 structural content rather than grass) gives this median-across-
-edges ranking per (lens, FL, best aperture):
+edges ranking per (lens, FL, best aperture) (values refreshed
+2026-06-29 under the §5.6e over-read fix — see
+[`MTF50_KNOWN_EDGE_RESULTS.md`](MTF50_KNOWN_EDGE_RESULTS.md) "MTF
+over-read fix"):
 
 | Lens (best aperture) | mtf50_known_edge |
 |---|---|
-| **NIKKOR Z 20mm f/1.8 S @ f/5.6** | **0.476** |
-| NIKKOR Z 14-24/2.8 S @ 20mm f/8 | 0.427 |
-| Nikon AF Nikkor 20/2.8 @ f/8 | 0.407 |
-| Viltrox AF 20/2.8 Z Air @ f/11 | 0.379 |
+| **NIKKOR Z 20mm f/1.8 S @ f/5.6** | **0.424** |
+| NIKKOR Z 14-24/2.8 S @ 20mm f/8 | 0.382 |
+| Nikon AF Nikkor 20/2.8 @ f/11 | 0.372 |
+| Viltrox AF 20/2.8 Z Air @ f/5.6 | 0.361 |
 
-The Z 20/1.8 S leads by 12 % MTF50 over the Z 14-24 at the same
+The Z 20/1.8 S leads by ~11 % MTF50 over the Z 14-24 at the same
 focal length — matching the user's visual judgement that the 1.8
 prime delivered better corners than the zoom at 20 mm on this scene.
+(The over-read fix lowered every value ~0.04–0.05 and nudged the best
+aperture for the AF 20/2.8 and Viltrox within noise; ordering held —
+pre-fix values were 0.476 / 0.427 / 0.407 / 0.379.)
 The CV-edge approach works because it doesn't depend on the centre
 tile having structural content; it directly measures the long
 structural edges wherever they happen to be in the frame.

@@ -4,9 +4,9 @@ State as of **2026-06-29** (handover updated at the end of a
 2026-06 session that landed §5.1–§5.5 follow-ups, added MTF@Nyquist
 + MTF10 to the §5.1 algorithm, computed the D7200↔Z7 bridge, and
 **landed the §5.6e slanted-edge MTF over-read fix** — centroid-Hann LSF
-windowing, diffraction-ceiling validated; see §5.6e. Downstream
-`mtf50_known_edge` dataset re-run under the fix is the new top
-follow-up, §5.6f).
+windowing, diffraction-ceiling validated; see §5.6e — and the §5.6f
+downstream re-run of all five wide/mid `mtf50_known_edge` datasets under
+it, rankings preserved).
 
 This doc is for the next chat session picking up the work. Read it first.
 The detailed numbers and per-lens prose are in [`LONGDIST_TELE_RESULTS.md`](LONGDIST_TELE_RESULTS.md)
@@ -562,20 +562,30 @@ A worthwhile follow-up is to switch `poc_longdist_tc14_raw.py` (and
 similar) from max-over-frames to a robust focus pick (median, or pick
 the frame by a focus measure then read its metric).
 
-**Downstream re-run still owed (new top follow-up — see §5.6f):** the
-cached `poc_known_edge_mtf50_out/` results and the §4.6 / §5.4 numbers
-in the result docs were computed under the old `endtaper` metric.
-Rankings are expected to hold (centroid_hann is monotonic with sharpness
-and preserved orderings on the brick data), but absolute MTF50 values
-shift down ~5–12 % and the 0.49-Nyquist saturation eases.
+**Downstream re-run DONE (§5.6f):** the cached `poc_known_edge_mtf50_out/`
+results and the §4f / §5.4 numbers in the result docs have been
+recomputed under `centroid_hann` and refreshed. Rankings held; absolute
+MTF50 dropped ~0.04–0.13, replicate CV ~halved, and Spearman ρ vs
+radial_cutoff improved on all five datasets.
 
-#### 5.6f Re-run wide/mid `mtf50_known_edge` datasets under the over-read fix
+#### 5.6f Re-run wide/mid `mtf50_known_edge` datasets under the fix — LANDED 2026-06-29
 
-The five wide/mid datasets in `poc_known_edge_mtf50_out/` predate the
-§5.6e fix. Re-run `poc_known_edge_mtf50.py dataset <key>` for each and
-refresh the cited numbers in `MTF50_KNOWN_EDGE_RESULTS.md` §Results,
-§2026-06 Z 20/1.8, and `WIDEANGLE_RESULTS.md` §4.6a. Confirm the Z 20/1.8
-> Z 14-24 ordering on wide2026_02_07 survives (it should). Run on nufan.
+All five wide/mid datasets re-run under `centroid_hann` (on nufan); the
+`poc_known_edge_mtf50_out/` CSVs + `comparison_summary.md` and the cited
+numbers in `MTF50_KNOWN_EDGE_RESULTS.md` §Results / §2026-06 Z 20/1.8 and
+`WIDEANGLE_RESULTS.md` §4f are refreshed. Findings:
+
+- **Ordering held** — Z 20/1.8 S > Z 14-24 > AF 20/2.8 > Viltrox on
+  wide2026_02_07 (now 0.424 / 0.382 / 0.372 / 0.361; every value down
+  ~0.04–0.05 from the over-read correction, gaps intact). §5.4 stays
+  closed.
+- **Replicate CV ~halved** on every dataset (median CV 5.4–14.3 % →
+  2.2–6.2 %) — the cleanest win of the fix.
+- **Spearman ρ vs radial_cutoff improved on all five** (0.34–0.52 →
+  0.50–0.82), so the known-edge metric now tracks the workhorse more
+  closely.
+- MTF50 medians dropped ~0.06–0.13; NaN rate essentially unchanged
+  (±3 pp).
 
 ## 6. Gotchas the next session should know about
 
