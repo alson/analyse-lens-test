@@ -48,9 +48,12 @@ For each test frame (any aperture, any replicate of the same lens/FL):
 3. Project pixel coords onto the **known** gradient-normal direction
    (no auto-detect); bin into 0.25-px bins to recover an oversampled
    ESF.
-4. Smooth ESF, derive LSF, Hann-window, FFT, find MTF50 by linear
-   interpolation between the bracketing bins. Cap at Nyquist (0.5
-   cy/px). Floor at 0.10 cy/px → NaN below (FFT-bin-noise artefact).
+4. Smooth ESF, derive LSF, **window with a Hann centred on the LSF
+   centroid and renormalise by the DC bin** (the §5.6e over-read fix,
+   2026-06-29 — see "MTF over-read fix" below), FFT, find MTF50 by
+   linear interpolation between the bracketing bins. Cap at Nyquist
+   (0.5 cy/px). Floor at 0.10 cy/px → NaN below (FFT-bin-noise
+   artefact).
 
 ## Results
 
@@ -119,9 +122,69 @@ threshold but it saturates for the best edges. MTF@Nyquist breaks
 the saturation; MTF10 captures the tail when MTF50 doesn't reach
 the Nyquist cap.
 
-ESF contrast-normalisation (rather than `mtf[0]` from Hann-windowed
-LSF) keeps mtf[0] ≈ 1 by construction, so the three metrics share a
-coherent normalisation.
+Normalisation (updated 2026-06-29): the LSF is built by ESF
+contrast-normalisation, then windowed with a Hann centred on its
+centroid and **renormalised so `mtf[0] = 1`** (the §5.6e fix). The
+earlier code skipped the `mtf[0]` renormalisation and tapered only the
+ROI ends — that is what let the asymmetric LSF tail over-read; see
+below.
+
+## MTF over-read fix (§5.6e, 2026-06-29)
+
+The estimator used to over-read MTF50 at f/11–f/16 — above the
+diffraction ceiling — and threw `mtf_at_nyquist` outliers even on
+linear, demosaic-only RAW. Root cause: an **asymmetric LSF**. The old
+end-of-ROI taper left the longer / noisier LSF tail intact, and that
+asymmetry inflates the FFT high-frequency magnitude. (This is the
+single-step-edge analogue of the macro scribe-trough wall asymmetry,
+but the macro `lsf_mtf50(combine="min")` two-wall trick does not apply
+to a single edge.)
+
+Fix: window the LSF with a **Hann centred on its centroid** and
+renormalise by the DC bin (`poc_known_edge_mtf50.LSF_PROFILE =
+{"window": "centroid_hann"}`). Chosen by `scripts/poc_lsf_overread_fix.py`,
+which compared windowing variants on (a) synthetic edges with analytic
+ground-truth MTF and (b) 2026-06-28 brick RAW against the diffraction
+ceiling (`tile-sharpness/optics.py`), using in-focus AF frames and a
+per-edge **median across frames** (the old "best-focus = max over
+frames" pick was itself inflating MTF@Nyq — the previously-reported
+max ~2.4 was largely that artefact, not the metric).
+
+Aggregate result vs the old end-taper, bare Z 100-400 @ 400 mm
+(in-focus AF frames, per-edge median across frames):
+
+| config | ceiling | metric | old (endtaper) | new (centroid_hann) |
+|---|---|---|---|---|
+| f/16 | 0.200 | median MTF50 | 0.225 (+12 %) | **0.194** (≈ceiling) |
+| f/16 | 0.200 | over-ceiling frac | 68 % | **45 %** |
+| f/11 | 0.290 | over-ceiling frac | 21 % | **11 %** |
+| f/11 | 0.290 | MTF@Nyq p95 | 0.75 | **0.53** |
+| f/11 | — | usable edges (lower NaN) | 248 | **763** |
+
+**Read these honestly.** The headline win is **edge yield** (~3× more
+edges measured) + a lower MTF@Nyq tail. The aggregate median drop is
+**partly a population effect** — the ~500 extra (softer, lower-contrast)
+edges centroid_hann measures pull the aggregate down. A *paired,
+same-edge* comparison (`poc_lsf_overread_paired.py`) isolates the true
+per-edge effect, which is **modest**: f/16 over-ceiling 70 % → 59 %,
+ΔMTF50 −0.007; f/11 bare 20 % → 17 %, ΔMTF50 ≈ 0. And a **residual
+over-read persists** on sharp diffraction-limited edges (59 % still over
+the f/16 ceiling) — likely demosaic aliasing on the no-OLPF Z7, which
+LSF windowing cannot remove. The earlier "max MTF@Nyq ~2.4" was largely
+a *max-over-frames* picking artefact, not the metric. So the
+diffraction-ceiling clamp and the "median across in-focus frames, never
+max" rule still apply.
+
+centroid_hann also beat fixed-width Tukey windows (clip the lobe when
+narrow), `mirror` (no gain on single edges), and a derivative/sinc
+correction (negligible) — and is the simplest. Full variant table:
+`scripts/poc_lsf_overread_fix_out/summary.md`; paired check:
+`scripts/poc_lsf_overread_fix_out/paired.md`.
+
+**Cached results predate this fix.** The §Results / §2026-06 Z 20/1.8
+numbers below were computed under the old metric; rankings are expected
+to hold but absolute MTF50 shifts down ~5–12 % and the 0.49-Nyquist
+saturation eases. Re-run owed — see LONGDIST_HANDOVER §5.6f.
 
 ## Known limitations
 
@@ -137,99 +200,95 @@ coherent normalisation.
   (Z7 has no OLPF). The algorithm caps reads at 0.5 cy/sensor-px
   deliberately.
 
-## Extending to telephoto / mid datasets — proposals
+## Extending to telephoto / mid datasets — 2026-06 update
 
-The current algorithm requires ≥ 400-px long Hough segments on a
-sharp reference, which is plentiful on the wide-angle stairs scene
-but sparse on the existing telephoto frames (mostly 3D shrubbery
-where the dominant gradients are short twig branches). Three
-practical paths, ordered by complexity:
+After the 2026-06 follow-up session, the §5.6a "extend to
+telephoto" item splits cleanly by **what the user actually
+focused on** in each dataset. The slanted-edge approach only
+applies where there are long structural edges *at the focus
+plane*. Most tele scenes don't qualify; one does.
 
-### A. Try the existing algorithm at relaxed length, per-dataset
+### Per-dataset disposition
 
-Lowest-effort first cut. Drop `HOUGH_MIN_LINE_PX` from 400 to ~150
-and re-run on each telephoto dataset. If the algorithm finds usable
-edges at the lower length and the resulting MTF50 values pass the
-reference-MTF floor (≥ 0.20), the dataset is implicitly viable.
+- **2025-07-09 (D7200, `tele2025_07_09`) — VIABLE for path (A),
+  but only for the D7200 F-mount telephoto lenses on this date**
+  (300/4D + TCs, 70-200 + TCs, Sigma DC zooms at infinity-class
+  distance). User focused on the **galvanised pole** itself.
+  The pole has two long vertical step edges against the grass
+  background and a horizontal bracket near mid-pole. Pole-vs-
+  grass contrast is high. Run with `HOUGH_MIN_LINE_PX ≈ 150` and
+  the algorithm should find these. The macro lens variants on
+  this date (Sigma 150 macro, Tamron 90 macro at close-distance)
+  used a different methodology and are not pole-focus — their
+  results from path (A) would measure whatever was at their
+  individual focus plane, not the pole.
+- **2025-09-06 (D7200, `tele2025_09_06`) — BLOCKED.** Focus is on
+  the shrubbery embankment, not the road sign. Spot-check at
+  bare 300 mm f/4D F8: sign's plate edges are clearly soft;
+  shrubbery leaves are crisp. The sign also drifts in and out of
+  frame across lens configurations. Use `radial_cutoff`.
+- **2026-01-28 / 30 (Z7, hedge) — BLOCKED.** Focus is mid-volume
+  in the hedge, between closest twigs and the far horizon. No
+  long structural edges exist at that depth. The sky/hedge
+  horizon and any distant building silhouettes are at infinity
+  — out of focus.
+- **2026-02-07 telephoto (Z7) — BLOCKED.** Pure winter shrubbery,
+  same methodology as 01-28 / 30.
+- **2025-07-05 (D7200, NEF-only) — BLOCKED.** Heath/grass at the
+  same scene location as 09-06 (user confirmed), but with no
+  man-made objects in frame. Stochastic vegetation only.
 
-Likely viable candidates by visual inspection of one sharp F8 frame:
+### Short-FL coverage
 
-- **2025-07-09 (D7200)** — the **galvanised sign post** in the scene
-  has two long vertical edges (left/right of the pole) of order
-  150–300 px. With min-length lowered, Hough should pick these.
-  The pole-vs-grass contrast is high and the edge is a true step.
-  This is the highest-confidence telephoto candidate.
-- **2026-01-28 / 30 (Z7)** — the 300 PF and Z 100-400 family shots
-  at 31.62 m / 84 m include a **distant building skyline / chimney
-  silhouettes** plus the **horizon-line where the shrubbery meets
-  sky**. Lengths are scene-dependent; worth checking with a single
-  `discover` run.
+The user notes that one early 70-200 (or similar long-zoom) test
+*was* shot at the stairs scene, but it isn't in this directory
+tree as a self-contained dataset. All short-FL (≤ 56 mm) data on
+the stairs scene is already captured by:
 
-Workflow: run `poc_known_edge_mtf50.py discover --reference <sharp_F8>`
-with the lowered minimum, view the overlay, and decide per scene.
+- `mid2025_09_11` (FLs 24, 27, 28, 35, 50, 55, 56 mm) — done by
+  §5.1 known-edge.
+- The five wide-angle datasets (`wide*`) — done by §5.1
+  known-edge.
 
-### B. Sky / hedge boundary as a "soft" structural edge
+So the genuine ≤ 100 mm "stairs + man-made objects" zone is
+already covered. Everything above ~100 mm in subsequent sessions
+has been shrubbery-focus; no slanted-edge coverage is reachable
+there.
 
-For shrubbery shots the only inherently long boundary is the
-**sky/hedge horizon** — irregular (twigs poking up) but mostly
-monotonic. Two ways to extract it:
+### What this means for future sessions
 
-1. **Brightness-threshold segmentation**: binarise on the sky
-   brightness, take the bottom row of the sky region per column,
-   smooth with a median filter. The resulting curve is the
-   sky/hedge boundary. Sample MTF perpendicular to its local
-   tangent in 20–40 short ROIs along the curve.
-2. **Hough on the smoothed boundary**: extract the contour as a
-   1-D y(x) signal, look for the longest near-horizontal stretch
-   where curvature is low, and treat that stretch as a single
-   "slanted" edge for ISO-12233-style MTF.
+- For new telephoto data on shrubbery / heath / hedge:
+  `radial_cutoff` (§5.3) is the right metric.
+- For new telephoto data **at the stairs scene** (if the user
+  ever reshoots), `mtf50_known_edge` could apply — but the per-
+  (lens, FL) reference picker is currently tuned for wide-FL
+  framings of that scene, and may need a refresh.
+- **Path (B) sky/hedge segmentation is permanently shelved.**
+  The sky/hedge horizon is at infinity-class distance; the user
+  focuses mid-volume. Any future session that revisits this
+  should re-read this section before re-proposing it.
 
-This is the most general approach but takes real engineering
-(segmentation tuning, boundary smoothing, MTF on a curved-rather-
-than-straight edge). The boundary is also where lens *centre*
-isn't always — the metric becomes a "boundary MTF" which may
-emphasise different field positions than the wide-angle MTF50.
+### Historical: pre-2026-06 proposals A/B/C
 
-### C. Hand-pick edge coordinates per dataset
+Kept for reference. Path (A) survives, scoped to 2025-07-09;
+(B) and (C) are rejected on the same focus-depth grounds as
+above.
 
-Lowest-tech path: open one sharp F8 reference per dataset in any
-image viewer, note the (x, y, angle, length) of 2–6 well-chosen
-edges, dump those as JSON into the per-(lens, FL) edges.json the
-algorithm normally generates. The measurement step works unchanged
-because it's just reading `EdgeSpec` records.
-
-Pros: zero algorithm risk; you pick edges the algorithm already
-knows how to measure.
-Cons: manual labour per dataset (~5 minutes per scene class), and
-the choice is no longer reproducible from code.
-
-For the existing datasets this would be:
-
-- 2025-07-09 sign-post: 2–3 pole edges
-- 2026-01-28 / 30 hedge: sky/hedge horizon + any visible
-  distant building or roofline
-- 2026-02-07 telephoto: shrubbery only — skip; the dataset is
-  genuinely edgeless and the bell-curve / radial_cutoff path
-  remains the right metric there.
-
-A small CLI to load a `edges.json` you hand-curate and run the
-measurement step against the dataset's other apertures /
-replicates would be ~30 lines on top of the existing code.
-
-### D. Different metric for true shrubbery
-
-When no usable structural edges exist, fall back to the existing
-`radial_cutoff` (§5.3 metric) for ranking. The current per-config
-sharpness CSV under `poc_longdist_algorithms_out/tele*/` is already
-the right artefact for those datasets — no need to force a
-slanted-edge metric onto a scene that doesn't have edges.
-
-### Recommendation
-
-Start with (A) on 2025-07-09 (sign-post) — if it works, that's the
-test case for the relaxed-length variant. Then (C) for any specific
-telephoto cross-date the user wants quantified. (B) is a research
-project rather than a quick fix.
+- **(A) Relaxed `HOUGH_MIN_LINE_PX` ≈ 150** — adopted for
+  `tele2025_07_09` (pole focus). Not viable on any other tele
+  dataset because the long edges in those scenes are at the
+  wrong depth.
+- **(B) Sky/hedge boundary segmentation** — rejected. The
+  sky/hedge horizon is at infinity-class; user focused
+  mid-volume. Measuring at the horizon would report defocused
+  MTF, not the lens's behaviour at the user's actual focus
+  distance.
+- **(C) Hand-pick edges per dataset** — only helpful where path
+  (A) is also viable (i.e. where there are structural edges at
+  the focus plane). For 2025-07-09 it's redundant with (A); for
+  the shrubbery-focus datasets it can't fix the depth mismatch.
+- **(D) Stay with `radial_cutoff`** — adopted for everything
+  except `tele2025_07_09`.
 
 ## 2026-06 — Z 20/1.8 ordering on wide2026_02_07 restored
 

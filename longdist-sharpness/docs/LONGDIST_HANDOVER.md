@@ -1,8 +1,12 @@
 # Long-distance & wide-angle sharpness — session handover
 
-State as of **2026-06-28** (handover updated at the end of a
+State as of **2026-06-29** (handover updated at the end of a
 2026-06 session that landed §5.1–§5.5 follow-ups, added MTF@Nyquist
-+ MTF10 to the §5.1 algorithm, and computed the D7200↔Z7 bridge).
++ MTF10 to the §5.1 algorithm, computed the D7200↔Z7 bridge, and
+**landed the §5.6e slanted-edge MTF over-read fix** — centroid-Hann LSF
+windowing, diffraction-ceiling validated; see §5.6e. Downstream
+`mtf50_known_edge` dataset re-run under the fix is the new top
+follow-up, §5.6f).
 
 This doc is for the next chat session picking up the work. Read it first.
 The detailed numbers and per-lens prose are in [`LONGDIST_TELE_RESULTS.md`](LONGDIST_TELE_RESULTS.md)
@@ -458,32 +462,120 @@ add the relevant `tele*` keys to the DATASETS dict in
 with `--min-line-px 150–200`, path (A). It found plenty of edges; see
 `docs/CAPTURE_2026-06-28_tc14_revalidation.md`.)
 
-#### 5.6e Fix the slanted-edge MTF over-read (trough-wall asymmetry)
+#### 5.6e Slanted-edge MTF over-read — improved metric LANDED 2026-06-29
 
-`measure_edge_metrics` in `poc_known_edge_mtf50.py` over-reads MTF50 at
-f/11–f/16 (values above the diffraction ceiling) and produces
-occasional `mtf_at_nyquist` outliers > 1.0 even on **linear,
-unsharpened RAW** — so it is a genuine analysis bug, not a JPEG or
-physics effect. `SHARPNESS_METRICS.md` (2026-06-28 correction)
-localises the cause to **left/right trough-wall asymmetry** in the
-LSF: one wall of the line-spread trough reads ≈ the optical ceiling
-(physical), the other does not, and the asymmetric trough inflates the
-FFT high-frequency tail.
+**Status: best available metric landed; over-read reduced, not fully
+eliminated.** `measure_edge_metrics` in `poc_known_edge_mtf50.py` now
+windows the LSF with a **Hann centred on its centroid** and renormalises
+by the DC bin (`LSF_PROFILE = dict(window="centroid_hann")`) — the
+standard ISO-12233 LSF treatment.
 
-Confirmed independently by the 2026-06-28 RAW POC
-(`poc_longdist_tc14_raw.py`): on linear demosaic-only RAW the **median**
-MTF@Nyquist is clean (≤ 1.0) and MTF50 is physical, but a few edges
-still spike to max ~2.4 — the residual asymmetry artefact. Workaround
-in use: **report the median across edges, never the max.**
+*What the over-read actually was* (investigated 2026-06-29, more nuanced
+than the 2026-06-28 single-cause guess). Three contributions, in
+descending size:
 
-Fix: make the ESF/LSF handling symmetric (e.g. fit/normalise each
-trough wall independently, or window symmetrically about the LSF
-centroid) so individual-edge MTF50/MTF@Nyq become trustworthy — then
-the `max`/per-edge values (needed for sparse-edge telephoto scenes and
-for decentering maps) are usable, not just the median. Until then,
-single-edge readings at f/11+ are unreliable. Validate any fix against
-the diffraction-ceiling overlay (`tile-sharpness/optics.py` +
-`scripts/diffraction_ranking.py`).
+1. **Max-over-frames picking (dominant).** The scary numbers (MTF@Nyq up
+   to ~2.4, MTF50 well over the ceiling) came from taking best-focus =
+   *max* of the metric over ~30–60 frames per edge — that selects the
+   single spurious spike frame. It is a *harness* choice, not the LSF
+   metric, and no LSF tweak fixes it. Use a per-edge **median across
+   in-focus frames** and the tail is sane.
+2. **Asymmetric-LSF handling (the part the fix addresses).** The old
+   end-of-ROI taper left the longer / noisier LSF tail intact, mildly
+   inflating the FFT high-frequency magnitude. centroid-Hann windowing
+   fixes this — but on real edges the per-edge effect is *modest*
+   (ΔMTF50 ≈ −0.007 at f/16; see paired result below). Its bigger payoff
+   is **edge yield** (3× more edges measured).
+3. **Demosaic aliasing residual (unfixable in the LSF stage).** On the
+   no-OLPF Z7, AHD demosaic folds above-Nyquist content back in-band, so
+   sharp diffraction-limited edges still read ~5–12 % over the f/16
+   ceiling even after the fix. The diffraction-ceiling clamp + median
+   rule remain necessary.
+
+(The macro scribe-LINE over-read is a *different* code path: there the
+asymmetry is between the two *walls* of a dark trough, mitigated by
+`lsf_mtf50(combine="min")`. That two-wall trick does not transfer to
+single step edges. The 2b-padedge wafer worktree is unrelated, abandoned
+scribe-line work.)
+
+*POC* — `scripts/poc_lsf_overread_fix.py` (run on nufan), two yardsticks:
+
+1. **Synthetic** — ESF built from a known PSF (symmetric Gaussian range,
+   asymmetric half-Gaussian, diffraction Airy), off-centred + noisy,
+   with the *analytic* MTF as ground truth. All variants are unbiased
+   (~3 %) on clean edges; under a non-flat background (the over-read
+   driver) centroid-windowed variants stay accurate (~7 %) while the
+   baseline degrades to ~11 %.
+2. **Real RAW** — 2026-06-28 brick wall, bare + TC-1.4× at f/8/11/16,
+   **in-focus AF frames, per-edge median across frames** (the original
+   "best-focus = max over frames" pick was itself inflating every
+   variant — the old max~2.4 MTF@Nyq was largely a max-pick artefact,
+   not the metric). Compared against the diffraction ceiling
+   (`tile-sharpness/optics.py`).
+
+*Result (centroid_hann vs the old end-taper).* Read these honestly —
+the win is real but is **mostly edge yield + a modest per-edge
+reduction, not a full over-read elimination**:
+
+- **Edge yield ~triples.** The centred window tolerates lower-contrast /
+  off-centre edges, so NaN rate plunges (e.g. f/11 bare 248 → 763
+  usable; ~500 edges measured that the old metric rejected). This is the
+  biggest practical win — per-edge / decentering maps and sparse-edge
+  telephoto become viable.
+- **MTF@Nyq tail drops:** f/11 bare p95 0.75 → 0.53, Nyq>1 → 0 %.
+- **Per-edge over-read reduction is modest.** Paired *same-edge*
+  comparison (`poc_lsf_overread_paired.py`): at f/16 over-ceiling
+  70 % → 59 %, median ΔMTF50 −0.007; at f/11 bare 20 % → 17 %, ΔMTF50 ≈ 0.
+  The larger aggregate-median drop (f/16 0.225 → 0.194) is **partly a
+  population effect** — the extra soft edges hann measures pull the
+  aggregate down — not a pure per-edge improvement.
+- **The scary numbers were a max-pick artefact, not the metric.** The
+  previously-reported max MTF@Nyq ~2.4 came from picking best-focus =
+  *max over ~30–60 frames* per edge; that selects the one spurious spike
+  frame and is unchanged by any LSF tweak. With a per-edge median across
+  in-focus frames the tail is sane (p95 ≤ ~0.5).
+- **Residual over-read remains** on sharp, diffraction-limited edges
+  (f/16 sharp common edges still ~59 % over the ceiling). centroid
+  windowing can't remove it; the likely cause is demosaic aliasing on
+  the no-OLPF Z7 near Nyquist (a slanted-edge fundamental), plus the
+  metric's own ~3 % bias seen on clean synthetic edges. So the
+  diffraction-ceiling clamp + "median, never max" rule still apply.
+- centroid_hann beat fixed-width Tukey windows (clip the lobe when
+  narrow → over-read), `mirror` (no gain on single edges), and a
+  derivative/sinc correction (negligible) — and is the simplest.
+
+*Validation artefacts:* `scripts/poc_lsf_overread_fix_out/summary.md`
+(full variant table). The refactor that made one LSF→MTF code path
+(`_build_esf` + `_esf_to_metrics(**LSF_PROFILE)`) was checked
+byte-equivalent to the pre-fix code on the `endtaper` default.
+
+*Remaining caveat — the "median, never max" rule still stands.* The fix
+removes the **systematic** median over-read (f/16 median now sits on the
+ceiling) and triples edge yield, but individual *(edge, frame)* readings
+can still spike — `poc_longdist_tc14_raw.py`, which picks best-focus =
+**max over frames** per edge, still shows max MTF@Nyq ~2.3 (a max-pick +
+defocus artefact, not the metric; its median stays ≤ 1.0 and the
+TC-1.4× retention PASS is unchanged). So aggregate across in-focus
+frames per edge with a **median** — then per-edge / decentering maps are
+physical. Do not trust a single-frame single-edge reading at f/11+.
+A worthwhile follow-up is to switch `poc_longdist_tc14_raw.py` (and
+similar) from max-over-frames to a robust focus pick (median, or pick
+the frame by a focus measure then read its metric).
+
+**Downstream re-run still owed (new top follow-up — see §5.6f):** the
+cached `poc_known_edge_mtf50_out/` results and the §4.6 / §5.4 numbers
+in the result docs were computed under the old `endtaper` metric.
+Rankings are expected to hold (centroid_hann is monotonic with sharpness
+and preserved orderings on the brick data), but absolute MTF50 values
+shift down ~5–12 % and the 0.49-Nyquist saturation eases.
+
+#### 5.6f Re-run wide/mid `mtf50_known_edge` datasets under the over-read fix
+
+The five wide/mid datasets in `poc_known_edge_mtf50_out/` predate the
+§5.6e fix. Re-run `poc_known_edge_mtf50.py dataset <key>` for each and
+refresh the cited numbers in `MTF50_KNOWN_EDGE_RESULTS.md` §Results,
+§2026-06 Z 20/1.8, and `WIDEANGLE_RESULTS.md` §4.6a. Confirm the Z 20/1.8
+> Z 14-24 ordering on wide2026_02_07 survives (it should). Run on nufan.
 
 ## 6. Gotchas the next session should know about
 

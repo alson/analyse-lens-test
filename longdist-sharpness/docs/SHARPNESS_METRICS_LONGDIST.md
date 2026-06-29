@@ -15,6 +15,12 @@
 > - New algorithm `mtf50_known_edge` reports MTF50, MTF@Nyquist, and
 >   MTF10 from CV-discovered Hough edges on a sharp reference. See
 >   [`MTF50_KNOWN_EDGE_RESULTS.md`](MTF50_KNOWN_EDGE_RESULTS.md).
+> - **2026-06-29**: `mtf50_known_edge` LSF handling changed to a Hann
+>   window centred on the LSF centroid + DC renorm
+>   (`LSF_PROFILE = {"window":"centroid_hann"}`) — the §5.6e over-read
+>   fix. It ~triples edge yield and reduces (does not eliminate) the
+>   f/11–f/16 over-read; cached results predate it (re-run owed, §5.6f).
+>   See `MTF50_KNOWN_EDGE_RESULTS.md` "MTF over-read fix".
 > - D7200 ↔ Z7 cross-camera bridge factor measured: ~1.35× in
 >   cy/sensor-px. See
 >   [`CROSS_CAMERA_BRIDGE_RESULTS.md`](CROSS_CAMERA_BRIDGE_RESULTS.md).

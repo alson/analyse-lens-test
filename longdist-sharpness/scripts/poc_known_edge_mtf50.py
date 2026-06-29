@@ -495,17 +495,36 @@ def measure_edge_metrics(luma: np.ndarray, spec: EdgeSpec,
     nan_result = dict(mtf50=float("nan"),
                       mtf_at_nyquist=float("nan"),
                       mtf10_freq=float("nan"))
+    built = _build_esf(luma, spec, length=length, width=width,
+                       refine=refine, min_peak=min_peak)
+    if built is None:
+        return nan_result
+    esf, bin_size = built
+    return _esf_to_metrics(esf, bin_size, **LSF_PROFILE)
+
+
+def _build_esf(luma: np.ndarray, spec: EdgeSpec,
+               length: int = EDGE_ROI_LEN, width: int = EDGE_ROI_WID,
+               refine: bool = True,
+               min_peak: float = 0.0) -> Optional[tuple]:
+    """Extract + supersample the edge-spread function for one ROI.
+
+    Returns ``(esf, bin_size)`` (esf already Gaussian-smoothed, the same
+    array the original code fed to the LSF stage) or ``None`` when the
+    edge can't be measured. Factored out so the over-read POC can run
+    every LSF-handling variant on one shared ESF per edge.
+    """
     if refine:
         mx, my, peak = _refine_edge_position(luma, spec, length=length,
-                                              width=width)
+                                             width=width)
         if min_peak > 0 and peak < min_peak:
-            return nan_result
+            return None
     else:
         mx, my = spec.mid_x, spec.mid_y
     out = _extract_axis_aligned_roi(luma, mx, my, spec.angle_rad,
                                     length=length, width=width)
     if out is None:
-        return nan_result
+        return None
     roi, (x0, y0) = out
     angle = spec.angle_rad
     cos_a = math.cos(angle); sin_a = math.sin(angle)
@@ -525,7 +544,7 @@ def measure_edge_metrics(luma: np.ndarray, spec: EdgeSpec,
     # Mask: keep pixels within length/2 along edge and width/2 across
     mask = (np.abs(dist_t) <= length / 2) & (np.abs(dist_n) <= width / 2)
     if mask.sum() < length * 4:
-        return nan_result
+        return None
 
     bin_size = 0.25
     d = dist_n[mask].ravel()
@@ -533,90 +552,107 @@ def measure_edge_metrics(luma: np.ndarray, spec: EdgeSpec,
     d_min = float(d.min()); d_max = float(d.max())
     n_bins = int(math.ceil((d_max - d_min) / bin_size)) + 1
     if n_bins < 32:
-        return nan_result
+        return None
     bin_idx = np.clip(((d - d_min) / bin_size).astype(np.int32), 0, n_bins - 1)
     esf_sum = np.bincount(bin_idx, v.astype(np.float64), minlength=n_bins)
     esf_count = np.bincount(bin_idx, minlength=n_bins)
     esf = esf_sum / np.maximum(esf_count, 1)
     valid = esf_count > 2
     if valid.sum() < 32:
-        return nan_result
+        return None
     first = int(np.argmax(valid))
     last = n_bins - 1 - int(np.argmax(valid[::-1]))
     esf = esf[first:last + 1]
     if len(esf) < 32:
-        return nan_result
+        return None
     esf = ndi.gaussian_filter1d(esf, sigma=1.0)
-    # Normalise the LSF by the ESF endpoint contrast (the brightness
-    # step the edge actually traverses). That makes mtf[0] = 1 by
-    # construction without depending on a window function that can
-    # distort sum(LSF) when the LSF isn't centred.
-    n_endpt = max(4, len(esf) // 10)
-    low = float(np.median(esf[:n_endpt]))
-    high = float(np.median(esf[-n_endpt:]))
-    contrast = abs(high - low)
-    if contrast < 1.0:
-        return nan_result
-    lsf = np.diff(esf) / contrast
-    if len(lsf) < 32:
-        return nan_result
-    # Light Tukey-style taper only at the very ends (5 % each side)
-    # rather than full Hann — full Hann was the source of the
-    # mtf[0]-near-zero pathology.
+    return esf, bin_size
+
+
+# ---------------------------------------------------------------------------
+# LSF -> MTF stage (factored out 2026-06-29 so the over-read-fix POC and
+# production share one code path). The DEFAULT arguments reproduce the
+# original behaviour byte-for-byte; the keyword options drive the POC
+# variants (see scripts/poc_lsf_overread_fix.py).
+# ---------------------------------------------------------------------------
+
+# Chosen LSF-handling profile (set 2026-06-29 by the over-read POC
+# `poc_lsf_overread_fix.py`; see §5.6e of LONGDIST_HANDOVER.md).
+# `centroid_hann` windows the LSF with a Hann centred on its centroid and
+# renormalises by the DC bin — the standard ISO-12233 fix for the
+# asymmetric-noisy-tail over-read. On the 2026-06-28 brick RAW (diffraction
+# -ceiling validated) it moves the f/16 median MTF50 from +12 % over the
+# ceiling onto it, ~halves the over-ceiling fraction, drops the MTF@Nyquist
+# tail (p95 0.44->0.33, Nyq>1 ~0 %), and ~triples the usable edge count
+# (lower NaN rate). It beat fixed-width Tukey windows (which clip the lobe
+# when narrow), `mirror` (no gain on single step edges), and a
+# derivative/sinc correction (negligible). `window="endtaper"` is the
+# pre-fix behaviour, kept for the POC.
+LSF_PROFILE = dict(window="centroid_hann")
+
+
+def _mtf_readout(lsf: np.ndarray, bin_size: float, *,
+                 deriv_correct: bool = False,
+                 renorm_dc: bool = False) -> Optional[dict]:
+    """|FFT(LSF)| -> (mtf50, mtf_at_nyquist, mtf10_freq) in cy/orig-px.
+
+    Returns None on a pathological spectrum (caller maps to NaN).
+    """
     n = len(lsf)
-    taper = np.ones(n)
-    n_taper = max(2, n // 20)
-    ramp = 0.5 * (1 - np.cos(np.pi * np.arange(n_taper) / n_taper))
-    taper[:n_taper] = ramp
-    taper[-n_taper:] = ramp[::-1]
-    lsf = lsf * taper
+    if n < 32:
+        return None
     mtf = np.abs(np.fft.fft(lsf))
-    # The raw bin-by-bin MTF oscillates because of finite-ROI windowing
-    # and noise. Smooth it with a Gaussian over ~1/100 of the spectrum
-    # so MTF50 / MTF10 readings track the envelope rather than spurious
-    # bin spikes. σ in bin units; with bin_size=0.25 px and n~500 the
-    # smoothing covers ~0.04 cy/px which is below the structural
-    # frequencies we care about (0.05 cy/px steps in the f grid).
+    # Smooth the bin-by-bin MTF (oscillates from finite-ROI windowing +
+    # noise) over ~1/100 of the spectrum so the readings track the
+    # envelope, not spurious bin spikes.
     mtf = ndi.gaussian_filter1d(mtf, sigma=max(2.0, len(mtf) / 200))
     freqs = np.arange(n) / (n * bin_size)    # cy per original-image pixel
     half = n // 2
-    # Cap the search at sensor Nyquist (0.5 cy/sensor-px). Beyond
-    # Nyquist the spectrum contains aliased content from lens
-    # frequencies above 0.5 folded back (and the Z7's lack of OLPF
-    # means there IS such content); separating real lens-MTF from
-    # aliased content inside the slanted-edge supersampled ESF is
-    # not well-defined. Keep the metric inside the unambiguous band.
     f = freqs[:half]; m = mtf[:half]
+    if deriv_correct:
+        # Undo the forward-difference (np.diff) magnitude response
+        # |1-e^{-iω}| / ω = sinc(f·bin_size); tiny (<3 %) at 4× oversample.
+        sinc = np.ones_like(f)
+        nz = f > 0
+        x = np.pi * f[nz] * bin_size
+        sinc[nz] = np.sin(x) / x
+        m = m / np.maximum(sinc, 1e-6)
+    if renorm_dc:
+        # MTF(0)=1 by definition. Correct when a centroid window has
+        # truncated part of the LSF lobe so the ESF-contrast scaling no
+        # longer makes m[0]≈1.
+        if m[0] <= 0:
+            return None
+        m = m / m[0]
+    # Cap at sensor Nyquist (0.5 cy/px). Beyond it the supersampled ESF
+    # mixes real lens-MTF with aliased content (Z7 has no OLPF) and the
+    # separation is ill-defined.
     cap = np.searchsorted(f, 0.5)
     f = f[:max(cap, 4)]; m = m[:len(f)]
     if len(f) == 0:
-        return nan_result
-    # Sanity: after smoothing mtf[0] should be roughly 1 (ESF contrast-
-    # normalised). Reject the worst pathological LSFs but allow some
-    # slack — Hann-style end-tapering can drop mtf[0] toward ~0.4 even
-    # on a clean edge, and noisy ROIs occasionally bump max past 1.0.
+        return None
+    # Sanity: reject the worst pathological LSFs (m[0] far from 1, or a
+    # spectrum bump well past unity).
     if float(m[0]) < 0.3 or float(m.max()) > 2.5:
-        return nan_result
+        return None
 
-    # MTF50: first below-0.5 crossing with sub-bin linear interp
-    below_50 = np.where(m < 0.5)[0]
-    if len(below_50) == 0:
-        mtf50 = float(f[-1])   # capped at Nyquist
-    else:
-        i = int(below_50[0])
+    def _cross(level: float, first: bool = True) -> float:
+        below = np.where(m < level)[0]
+        if len(below) == 0:
+            return float(f[-1])   # stays above `level` through the cap
+        i = int(below[0])
         if i == 0:
-            mtf50 = float("nan")
-        else:
-            m_prev, m_curr = float(m[i - 1]), float(m[i])
-            if m_prev == m_curr:
-                mtf50 = float(f[i])
-            else:
-                frac = (0.5 - m_prev) / (m_curr - m_prev)
-                mtf50 = float(f[i - 1] + frac * (f[i] - f[i - 1]))
-            if mtf50 < MTF50_RESULT_FLOOR:
-                mtf50 = float("nan")
+            return float("nan")
+        m_prev, m_curr = float(m[i - 1]), float(m[i])
+        if m_prev == m_curr:
+            return float(f[i])
+        frac = (m_prev - level) / (m_prev - m_curr)
+        return float(f[i - 1] + frac * (f[i] - f[i - 1]))
 
-    # MTF@Nyquist: linear interp the MTF curve to 0.5 cy/px
+    mtf50 = _cross(0.5)
+    if mtf50 == mtf50 and mtf50 < MTF50_RESULT_FLOOR:
+        mtf50 = float("nan")
+
     nyq = 0.5
     if f[-1] >= nyq:
         idx = int(np.searchsorted(f, nyq))
@@ -632,24 +668,109 @@ def measure_edge_metrics(luma: np.ndarray, spec: EdgeSpec,
     else:
         mtf_at_nyq = float(m[-1])
 
-    # MTF10: first below-0.1 crossing (frequency where MTF=0.1). Clip
-    # at Nyquist (0.5) when the curve doesn't drop that low in-band.
-    below_10 = np.where(m < 0.1)[0]
-    if len(below_10) == 0:
-        mtf10 = float(f[-1])    # MTF stays above 0.1 through Nyquist
-    else:
-        i = int(below_10[0])
-        if i == 0:
-            mtf10 = float("nan")
-        else:
-            m_prev, m_curr = float(m[i - 1]), float(m[i])
-            if m_prev == m_curr:
-                mtf10 = float(f[i])
-            else:
-                frac = (m_prev - 0.1) / (m_prev - m_curr)
-                mtf10 = float(f[i - 1] + frac * (f[i] - f[i - 1]))
-
+    mtf10 = _cross(0.1)
     return dict(mtf50=mtf50, mtf_at_nyquist=mtf_at_nyq, mtf10_freq=mtf10)
+
+
+def _esf_to_metrics(esf: np.ndarray, bin_size: float = 0.25, *,
+                    window: str = "endtaper",
+                    taper_frac: float = 0.05,
+                    half_window_px: Optional[float] = None,
+                    deriv_correct: bool = False,
+                    mirror: Optional[str] = None) -> dict:
+    """Smoothed ESF -> three edge-MTF metrics.
+
+    ``window="endtaper"`` (+ all other defaults) is the original code:
+    contrast-normalise the LSF, taper only the ROI ends (5 % each side),
+    FFT, read MTF50 / MTF@Nyquist / MTF10. The other ``window`` values
+    centre a symmetric window on the LSF centroid (the over-read fix:
+    asymmetric noisy LSF tails are what inflate the high-frequency tail
+    and push MTF past the diffraction ceiling). ``mirror`` instead
+    splits the LSF at its centroid, reflects each half into a symmetric
+    LSF, and combines the two readouts ("min" = conservative cleaner
+    half, the single-edge analogue of macro ``lsf_mtf50(combine='min')``).
+    """
+    nan_result = dict(mtf50=float("nan"),
+                      mtf_at_nyquist=float("nan"),
+                      mtf10_freq=float("nan"))
+    # Normalise the LSF by the ESF endpoint contrast (the brightness
+    # step the edge actually traverses) so mtf[0] = 1 for a full,
+    # centred LSF without needing a window that distorts sum(LSF).
+    n_endpt = max(4, len(esf) // 10)
+    low = float(np.median(esf[:n_endpt]))
+    high = float(np.median(esf[-n_endpt:]))
+    contrast = abs(high - low)
+    if contrast < 1.0:
+        return nan_result
+    lsf = np.diff(esf) / contrast
+    n = len(lsf)
+    if n < 32:
+        return nan_result
+
+    if window == "endtaper":
+        # Light Tukey-style taper only at the very ends (5 % each side).
+        taper = np.ones(n)
+        n_taper = max(2, n // 20)
+        ramp = 0.5 * (1 - np.cos(np.pi * np.arange(n_taper) / n_taper))
+        taper[:n_taper] = ramp
+        taper[-n_taper:] = ramp[::-1]
+        out = _mtf_readout(lsf * taper, bin_size,
+                           deriv_correct=deriv_correct, renorm_dc=False)
+        return out if out is not None else nan_result
+
+    # --- centroid-based handling ------------------------------------
+    sign = 1.0 if lsf.sum() >= 0 else -1.0
+    lsf_o = lsf * sign                       # main lobe positive
+    w = np.clip(lsf_o, 0.0, None)
+    if w.sum() <= 0:
+        return nan_result
+    idx = np.arange(n, dtype=np.float64)
+    centroid = float((idx * w).sum() / w.sum())
+
+    if mirror is not None:
+        c = int(round(centroid))
+        c = min(max(c, 1), n - 2)
+        left = lsf_o[:c + 1]
+        left_sym = np.concatenate([left, left[-2::-1]])
+        right = lsf_o[c:]
+        right_sym = np.concatenate([right[:0:-1], right])
+        outs = []
+        for half_lsf in (left_sym, right_sym):
+            r = _mtf_readout(half_lsf, bin_size,
+                             deriv_correct=deriv_correct, renorm_dc=True)
+            if r is not None:
+                outs.append(r)
+        if not outs:
+            return nan_result
+        comb = np.min if mirror == "min" else np.mean
+        keys = ("mtf50", "mtf_at_nyquist", "mtf10_freq")
+        return {k: float(comb([o[k] for o in outs if o[k] == o[k]]))
+                if any(o[k] == o[k] for o in outs) else float("nan")
+                for k in keys}
+
+    # Single symmetric window centred on the centroid.
+    if half_window_px is None:
+        hw = max(centroid, n - 1 - centroid)
+    else:
+        hw = half_window_px / bin_size
+    hw = max(hw, 4.0)
+    dist = np.abs(idx - centroid)
+    if window == "centroid_hann":
+        win = np.where(dist <= hw, 0.5 * (1 + np.cos(np.pi * dist / hw)), 0.0)
+    elif window == "centroid_hamming":
+        win = np.where(dist <= hw, 0.54 + 0.46 * np.cos(np.pi * dist / hw), 0.0)
+    elif window == "centroid_tukey":
+        flat = (1.0 - taper_frac) * hw
+        denom = max(hw - flat, 1e-9)
+        win = np.where(dist <= flat, 1.0, 0.0)
+        ramp_region = (dist > flat) & (dist <= hw)
+        win = np.where(ramp_region,
+                       0.5 * (1 + np.cos(np.pi * (dist - flat) / denom)), win)
+    else:
+        raise ValueError(f"unknown window {window!r}")
+    out = _mtf_readout(lsf * win, bin_size,
+                       deriv_correct=deriv_correct, renorm_dc=True)
+    return out if out is not None else nan_result
 
 
 def mtf50_known_edge(luma: np.ndarray, spec: EdgeSpec,

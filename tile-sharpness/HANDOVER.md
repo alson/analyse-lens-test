@@ -38,7 +38,12 @@ State as of 2026-05-18 (extended 2026-06-27, 2026-06-28).
 >      the other ~1.6× over; mean over-reads). Shipped `lsf_mtf50(combine="min")`
 >      (opt-in; default `mean` unchanged, 117 tests pass) — cuts over-reads F11
 >      40→28/44, F8 11→8/38, but NOT both-walls-over-read configs. Full fix needs
->      symmetric sub-pixel ESF extraction.
+>      symmetric sub-pixel ESF extraction. **2026-06-29 update:** the
+>      symmetric-window idea (Hann centred on the LSF centroid + DC renorm) was
+>      built and validated on the *long-distance single-edge* estimator (a
+>      different code path — see `longdist-sharpness` §5.6e). It is the candidate
+>      port for this two-wall scribe case (window each wall independently) but is
+>      NOT yet ported; `combine="min"` still ships here.
 >    - **Bare macros measured** (`enumerate_bare_configs.py` + same driver, min) →
 >      `out_accessory_atlas/unified_ranking.csv` (bare+accessory, one axis). F8
 >      trustworthy: modern bare macros (Sigma 150 41.6, Sigma 105 40.2, 105VR 39.5,

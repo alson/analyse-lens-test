@@ -563,6 +563,24 @@ Two complementary metrics, computed per tile from the **native frame**
 > configs where *both* walls over-read (sharpest macro+diopter). A full fix needs
 > symmetric sub-pixel ESF extraction, not a normalisation tweak.
 >
+> **⚠ 2026-06-29 — the symmetric-window fix landed on the *long-distance*
+> single-edge estimator** (`longdist-sharpness`, a separate code path —
+> `poc_known_edge_mtf50.measure_edge_metrics`, single step edges, not scribe
+> troughs). Windowing the LSF with a Hann **centred on its centroid** + DC
+> renormalisation reduced the over-read and ~tripled edge yield, validated
+> against the same ceiling overlay (`optics.py`). Be precise about size: on a
+> *paired same-edge* basis the per-edge reduction is **modest** (f/16
+> over-ceiling 70 %→59 %, ΔMTF50 −0.007) and a residual over-read persists on
+> sharp edges (demosaic aliasing on the no-OLPF Z7) — the bigger win is yield,
+> and the scary "max ~2.4" was a max-over-frames artefact, not the metric. See
+> `longdist-sharpness/docs/LONGDIST_HANDOVER.md` §5.6e +
+> `MTF50_KNOWN_EDGE_RESULTS.md`. Centroid-windowing is the candidate "symmetric
+> sub-pixel ESF" approach for this macro scribe case too — but it is **not yet
+> ported here** (the scribe trough has two walls; centroid-windowing each wall
+> independently is the untested next step). The macro mitigation above
+> (`combine="min"`) is still what ships. (The abandoned 2b-padedge worktree is
+> unrelated.)
+>
 > **Practical rule (unchanged):** trust subject-space MTF50 for cross-config
 > ranking only where it sits comfortably *below* the ceiling (glass-limited —
 > corners, wider apertures); there MCON-35 vs 6T etc. rank correctly. For
