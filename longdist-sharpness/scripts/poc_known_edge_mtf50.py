@@ -44,7 +44,9 @@ import poc_longdist_algorithms as pla  # noqa: E402
 # Hough line minimum length (in the original full-resolution frame).
 # Bumped from 200 → 400 to reject grass-texture short edges that
 # otherwise out-score the long structural edges (pavement boundary,
-# hill horizon) on the wide-angle stairs scene.
+# hill horizon) on the wide-angle stairs scene. Tele datasets with
+# shorter structural features (e.g. 2025-07-09 sign-post pole)
+# need a lower setting; CLI flag --min-line-px overrides.
 HOUGH_MIN_LINE_PX = 400
 # Hough max gap that still merges two collinear segments.
 HOUGH_MAX_GAP_PX = 24
@@ -127,7 +129,8 @@ class EdgeSpec:
 
 # ----- discovery ----------------------------------------------------------
 
-def _canny_hough_segments(luma: np.ndarray) -> np.ndarray:
+def _canny_hough_segments(luma: np.ndarray,
+                          min_line_px: int = HOUGH_MIN_LINE_PX) -> np.ndarray:
     """Run Canny + probabilistic Hough on a uint8 luma image. Returns
     an (N, 4) array of segments [x1, y1, x2, y2]."""
     if luma.dtype != np.uint8:
@@ -138,7 +141,7 @@ def _canny_hough_segments(luma: np.ndarray) -> np.ndarray:
         rho=1,
         theta=math.pi / 720,           # 0.25 deg resolution
         threshold=80,
-        minLineLength=HOUGH_MIN_LINE_PX,
+        minLineLength=min_line_px,
         maxLineGap=HOUGH_MAX_GAP_PX,
     )
     if segs is None:
@@ -237,14 +240,16 @@ def _is_too_axis_aligned(angle_rad: float) -> bool:
     return min(d0, d90) < MIN_SLANT_DEG
 
 
-def all_hough_segments_for_debug(luma: np.ndarray) -> list[tuple[int, int, int, int, float, float]]:
+def all_hough_segments_for_debug(luma: np.ndarray,
+                                 min_line_px: int = HOUGH_MIN_LINE_PX
+                                 ) -> list[tuple[int, int, int, int, float, float]]:
     """Return (x1, y1, x2, y2, length, angle_deg) for every Hough segment
     that passes the minimum-length filter, for debug overlays."""
-    segs = _canny_hough_segments(luma)
+    segs = _canny_hough_segments(luma, min_line_px=min_line_px)
     out = []
     for x1, y1, x2, y2 in segs:
         length = math.hypot(x2 - x1, y2 - y1)
-        if length < HOUGH_MIN_LINE_PX:
+        if length < min_line_px:
             continue
         _, theta = _segment_to_polar(float(x1), float(y1), float(x2), float(y2))
         out.append((int(x1), int(y1), int(x2), int(y2), float(length),
@@ -253,13 +258,14 @@ def all_hough_segments_for_debug(luma: np.ndarray) -> list[tuple[int, int, int, 
 
 
 def discover_edges(luma: np.ndarray, top_k: int = DEFAULT_TOP_K,
-                   roi_len: int = EDGE_ROI_LEN) -> list[EdgeSpec]:
+                   roi_len: int = EDGE_ROI_LEN,
+                   min_line_px: int = HOUGH_MIN_LINE_PX) -> list[EdgeSpec]:
     """Find candidate edges via Canny+Hough; rank by gradient*contrast."""
-    segs = _canny_hough_segments(luma)
+    segs = _canny_hough_segments(luma, min_line_px=min_line_px)
     raw: list[tuple] = []
     for x1, y1, x2, y2 in segs:
         length = math.hypot(x2 - x1, y2 - y1)
-        if length < HOUGH_MIN_LINE_PX:
+        if length < min_line_px:
             continue
         rho, theta = _segment_to_polar(float(x1), float(y1), float(x2), float(y2))
         # Use the line angle relative to x-axis in [-pi/2, pi/2)
@@ -682,16 +688,19 @@ def cmd_discover(args: argparse.Namespace) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     luma = load_luma(ref)
-    print(f"[discover] reference {ref.name} shape={luma.shape}", flush=True)
+    print(f"[discover] reference {ref.name} shape={luma.shape} "
+          f"min_line_px={args.min_line_px}", flush=True)
     if args.debug_all_segments:
         rgb = load_rgb(ref)
         canvas = rgb.copy()
-        for x1, y1, x2, y2, length, ang in all_hough_segments_for_debug(luma):
+        for x1, y1, x2, y2, length, ang in all_hough_segments_for_debug(
+                luma, min_line_px=args.min_line_px):
             cv2.line(canvas, (x1, y1), (x2, y2), (0, 255, 0), 2)
         debug_path = out_dir / "all_hough_segments.jpg"
         Image.fromarray(canvas).save(debug_path, quality=85)
         print(f"[discover] all hough segments → {debug_path}")
-    specs = discover_edges(luma, top_k=args.top_k)
+    specs = discover_edges(luma, top_k=args.top_k,
+                           min_line_px=args.min_line_px)
     print(f"[discover] found {len(specs)} edges (top-{args.top_k})", flush=True)
     for s in specs:
         print(f"  #{s.edge_id} mid=({s.mid_x:.0f},{s.mid_y:.0f}) "
@@ -777,7 +786,8 @@ def cmd_dataset(args: argparse.Namespace) -> int:
         print(f"[dataset] {slug}: reference={ref_path.name}", flush=True)
 
         ref_luma = load_luma(ref_path)
-        specs = discover_edges(ref_luma, top_k=args.top_k)
+        specs = discover_edges(ref_luma, top_k=args.top_k,
+                               min_line_px=args.min_line_px)
         if not specs:
             print(f"[dataset] {slug}: no usable edges found, skip", flush=True)
             continue
@@ -798,9 +808,12 @@ def cmd_dataset(args: argparse.Namespace) -> int:
                 role="reference",
             ))
 
-        # Measure on every replicate at every aperture
+        # Measure on every replicate at every aperture (optionally strided —
+        # focus-shift step-1 stacks are dense, so every Nth frame still
+        # brackets each edge's peak within ~1 step).
+        stride = max(1, getattr(args, "stride", 1))
         for c in sorted(group, key=lambda c: c.aperture_f):
-            for jp in c.jpegs:
+            for jp in c.jpegs[::stride]:
                 luma = load_luma(jp)
                 for s in specs:
                     metrics = measure_edge_metrics(
@@ -842,6 +855,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--reference", required=True)
     sp.add_argument("--out-dir", required=True)
     sp.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
+    sp.add_argument("--min-line-px", type=int, default=HOUGH_MIN_LINE_PX,
+                    help="Override Hough min line length. Default 400 "
+                    "(wide-angle stairs); use ~150 for tele datasets "
+                    "with shorter structural features.")
     sp.add_argument("--debug-all-segments", action="store_true",
                     help="Also dump all surviving Hough segments overlay.")
     sp.set_defaults(fn=cmd_discover)
@@ -851,8 +868,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("dataset", choices=list(pla.DATASETS),
                     help="Dataset key from poc_longdist_algorithms.py")
     sp.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
+    sp.add_argument("--min-line-px", type=int, default=HOUGH_MIN_LINE_PX,
+                    help="Override Hough min line length (default 400).")
     sp.add_argument("--limit", type=int, default=0,
                     help="Process only the first N (lens, FL) groups; 0 = all.")
+    sp.add_argument("--stride", type=int, default=1,
+                    help="Measure every Nth frame per aperture (default 1 = all). "
+                    "Use 3 for dense focus-shift stacks to ~3x speed up with "
+                    "negligible peak-focus loss.")
     sp.set_defaults(fn=cmd_dataset)
     return p
 

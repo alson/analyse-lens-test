@@ -1,0 +1,212 @@
+# Capture log — 2026-06-28 — Z TC-1.4× replacement revalidation
+
+Field session capturing data to validate a **replacement Z TC-1.4×** (the
+original was dropped/lost) on the Z 100-400, compared within-session against
+the **bare lens** and the **Z TC-2.0×**. The 300 PF is no longer owned and
+is not part of this test. Primary comparison is *within this session* (bare
+lens = unchanged-hardware anchor); cross-date comparison to the old/lost
+copy is secondary. See the revalidation plan and Z7-era scene-design notes.
+
+## ✅ Verdict (resolved 2026-06-29)
+
+**The replacement Z TC-1.4× is a good, well-centred copy — validated.**
+
+- **Retention ≈ 0.77–0.80** of the bare lens (MTF50, cy/sensor-px), landing on
+  the lost copy's ~0.80 (`LONGDIST_TELE_RESULTS.md` §6b); **+8 % subject-
+  resolution FOM** over cropping the bare 400 mm frame, matching the old
+  "+5–10 % median" (§11b). Clears the 0.714 break-even → the TC adds real
+  detail. **bare ≥ tc14** (physically correct ordering).
+- **Field is symmetric** (L/R 0.99, T/B 0.98) → no decentering / tilt.
+
+**How we got there (the metric mattered more than the data).** radial_cutoff
+and JPEG slanted-edge MTF50 both gave physically impossible results
+(tc14 < tc20) — artifacts of (1) radial_cutoff saturation for this sharp
+lens, (2) MTF50 capping at the 0.49 Nyquist limit (saturation is *lens
+sharpness*, not edge contrast — MTF50 is contrast-normalised), and (3)
+in-camera JPEG **sharpening halos** inflating MTF@Nyquist >1.0. The clean
+result came from the **RAW POC** (`scripts/poc_longdist_tc14_raw.py`):
+develop the f/8 NEFs to **linear, demosaic-only** RAW (rawpy:
+`gamma=(1,1), no_auto_bright, output_bps=16, use_camera_wb, AHD`; no
+sharpening / no lens corrections), measure on the **brick mortar edges**
+(low-contrast, dense, central) in linear light. That removed the halo
+(MTF@Nyq back ≤1.0), pulled MTF50 off the cap, and gave the physical
+retention above. tc20 can't join at f/8 (wide-open f/11) but it's unchanged
+hardware, not the unit under test.
+
+**Capture-design lesson for next time:** put a low-contrast fine-detail target
+at the **centre** (where all FOVs overlap), shoot **wide (≤ f/8)** to dodge
+edge saturation and the f/11–f/16 over-read, and **analyse from linear RAW**,
+not JPEG.
+
+## Equipment
+
+| Item | Detail |
+|---|---|
+| Body | Nikon Z7 (45.7 MP, 8256×5504, 4.35 µm pitch) |
+| Lens | Z 100-400/4.5-5.6 VR S, set to the **400 mm** long-end stop for all configs |
+| TCs | Z TC-1.4× (new replacement copy); Z TC-2.0× |
+| VR | **Off** |
+| Lens foot | **Kirk** replacement foot (Arca), clamped to the ballhead |
+| Head | Arca-Swiss Monoball **Z1+** ballhead |
+| Leveling | Markins **TH-230** tripod hub (leveling base) |
+| Tripod | Gitzo **GT3542L** (operator's heaviest) |
+
+Three configs, all at the lens's 400 mm setting:
+
+| Config | Effective FL | Wide-open aperture |
+|---|---|---|
+| Bare | 400 mm | f/5.6 |
+| + Z TC-1.4× | 560 mm | f/8 |
+| + Z TC-2.0× | 800 mm | f/11 |
+
+## Subject & conditions
+
+- **Subject:** flat brick wall, framed to fill the sensor corner-to-corner;
+  camera level (no up-tilt), squared to the wall via the building's H/V
+  lines + virtual horizon.
+- **Distance:** **~45 m** (±1–2 m), derived from a brick face measuring
+  **426 × 106 px** at 400 mm (210 mm Waalformaat, no head joint → m =
+  426·4.348 µm / 210 mm = 0.00882 → d ≈ f/m ≈ 45 m). Past the 40 m floor;
+  puts 800 mm at ~56× FL (stable-MTF regime). Can refine from EXIF
+  (quantized) once imported.
+- **Tripod height:** ~1.8 m (level 400 mm frame spans ~0.3–3.3 m up the
+  wall, clear of the ground).
+- **Location:** Zoetermeer (specific wall not recorded).
+- **Date/time:** 2026-06-28, roughly **12:00–13:30** (from frame
+  timestamps — verify in EXIF once imported).
+- **Weather:** sunny, ~24 °C; sun near-overhead (near solstice) → even
+  grazing light on the vertical wall. **Wind gusty and varied** through the
+  shoot — the 3× AF replicates + 3× focus-shift stacks per cell give
+  multiple chances to catch lulls between gusts.
+
+## Capture matrix
+
+- **ISO:** 100 and 500 (fixed per series).
+- **Mode:** Aperture priority (shutter floats; ISO fixed).
+- **White balance:** Sunny (fixed) for all shots.
+- **Files:** NEF + JPEG **Fine★** (Nikon's optimal-quality JPEG, better
+  than plain Fine).
+- **Apertures:** whole stops from wide-open through **f/16**:
+
+| Config | Aperture series (whole stops) |
+|---|---|
+| Bare 400 mm | f/5.6, f/8, f/11, f/16 |
+| + TC-1.4× 560 mm | f/8, f/11, f/16 |
+| + TC-2.0× 800 mm | f/11, f/16 |
+
+## Per-cell protocol
+
+For each (config/FL, aperture, ISO) cell, two phases:
+
+**Phase 1 — AF replicates (×3):**
+- 3 frames, **Pinpoint AF** (re-acquired, **centre of frame**), **remote
+  shutter release**.
+
+**Phase 2 — focus-shift stacks (×3 series):**
+- Pinpoint AF at centre, then **defocus toward the near side** (so the
+  sweep starts in front of the wall and runs through peak toward infinity).
+- **Focus-shift shooting**, **exposure locked** (AE-L), **electronic
+  shutter**, **step size 1** (finest).
+- Shot count per stack: **400 mm → 20**, **560 mm → 20**, **800 mm → 40**.
+- **3 stacks per cell**, refocusing (Pinpoint + near-defocus) before each.
+- Observed: peak sharpness usually fell within the **first ~10 frames** of
+  each stack, so the 20/40 counts carry margin.
+
+## Exceptions & caveats
+
+- **560 mm f/16:** Phase 1 was shot normally (3× at ISO 100 **and** 3× at
+  ISO 500), but Phase 2 was reduced to a **single focus-shift stack at
+  ISO 500** (memory-card space) — i.e. the ISO 100 stacks and the extra
+  ISO 500 stacks are absent for this one cell. Rationale: f/16 is
+  diffraction-limited so the loss is minor.
+- **Cross-series comparability — anchor, don't compare absolutes.** The
+  2026-01 series is shrubbery; this is a brick wall — different scene
+  content *and* probably different JPEG quality (2026-01 setting not
+  recorded; recover from EXIF `Quality` tag or kB/MP, but see below). So do
+  NOT compare new-TC-1.4× to old-TC-1.4× in absolute metric values. Instead
+  use **bare 100-400 and 100-400 + TC-2.0× as anchors present in BOTH
+  series** (both are unchanged hardware — only the 1.4× was replaced). Per
+  series, form MTF-retention ratios vs the bare anchor:
+  - `retention_2.0 = M(TC-2.0×)/M(bare)` = **validity check** — unchanged
+    hardware, so it should match across series (~60 %, §6b) if the
+    normalization transfers.
+  - `retention_1.4 = M(TC-1.4×)/M(bare)` = **the actual test** — new copy
+    is good if this matches the old copy (~80 %, §6b) once retention_2.0
+    confirms the regime transfers.
+  Since the anchors share each series' scene + JPEG quality + metric-code
+  version, all those confounds cancel in the ratios — so the unknown
+  2026-01 JPEG quality is largely moot. Caveat: in 2026-01 the Z 100-400
+  family floored at 0.20–0.25, so the anchors are barely separated there
+  until the planned metric re-run (new ref-band/sub-bin) lifts them off the
+  floor. The **within-this-series** bare-vs-TC-1.4×-vs-TC-2.0× comparison
+  (all on the wall, well-separated) stays the primary test; cross-series
+  retention is the secondary "behaves like the old copy" check.
+- **JPEG quality is NOT a cross-series confound — checked.** The actual
+  Z 100-400 frames on all three 2026-01 tele dates are **Fine** at very high
+  bitrate (2026-01-18 ~42 MB, -28 ~34 MB, -30 [TC-2.0× anchor] ~37 MB ≈
+  750–925 kB/MP). This session is **Fine★**. Both are ~2× the ~370 kB/MP
+  that 2025-07-05 showed was already sufficient (only the ~113 kB/MP *basic*
+  embedded JPEG floored `radial_cutoff`), and the Fine-vs-Fine★ gap at these
+  bitrates is well inside the ≤2 % NEF-vs-JPEG margin (`SHARPNESS_METRICS.md`
+  #3). ⇒ **No NEF demosaic needed.** The only cross-series difference is the
+  scene (shrubbery vs wall), handled by the bare + TC-2.0× anchors.
+  (A stray `Normal`/12 MB `_DSC*.JPG` in 2026-01-18/`results_other/` is not
+  part of the test series — ignore.)
+- **NEFs** are saved this session anyway, as insurance / for any future
+  need — but not required for this comparison.
+- f/16 across all configs is diffraction-limited; treat it as a corner /
+  field-flatness reference rather than a peak-sharpness contender (peak is
+  expected around f/11).
+- **VR off** + heavy locked tripod is the intended rigid setup; in the
+  gusty wind, rely on the best-of-replicates / best-of-stack picker to
+  reject gust-blurred frames.
+
+## Data location
+
+`~/shared/files/pics/digikam/test-raw-data/2026-06-28/`
+(imported from card by digiKam).
+
+## How this feeds analysis
+
+Pipeline (scripts in place, validated):
+
+1. **Ingest** — rename + sort the flat capture dir into the
+   `<lens ISO>/<focal>/<F>/` tree, NEF+JPG moved together, reproducing the
+   digiKam Exiv2 token convention:
+   ```
+   python3 analyse-lens-test/rename_and_sort_lens_test.py \
+       --root ~/.../test-raw-data/2026-06-28            # dry-run
+   python3 analyse-lens-test/rename_and_sort_lens_test.py --root ... --apply
+   ```
+2. **Analyse** — dataset key `tele2026_06_28` is registered in
+   `poc_longdist_algorithms.py`; the dedicated within-session report is:
+   ```
+   cd longdist-sharpness && uv run python -u scripts/poc_longdist_tc14_revalidation.py
+   ```
+
+Three validation checks (all within-session, robust to the shrubbery↔wall
+scene change and metric-version drift):
+1. **Adds real detail vs cropping** — FOM = cutoff × f_eff; TC beats the
+   bare-400 frame cropped to its framing iff retention > 400/f_eff (0.714
+   for 1.4×, 0.500 for 2.0×).
+2. **Not decentered** — left/right field symmetry of the new TC-1.4×.
+   *(Current script uses the horizontal-midline L/R from the shared
+   `field_boxes()`; full 4-corner / through-focus tilt is a field-box grid
+   extension — TODO.)*
+3. **Sits sensibly vs the TC-2.0×** — retention_2.0 is the cross-series
+   *validity* anchor (unchanged hardware → should match old ~0.60);
+   retention_1.4 matching old ~0.80 means the new copy ≈ the lost one.
+
+Focus-shift stacks feed the best-of-stack picker directly (top = best-focus
+frame per position; median/range are not meaningful for a focus-shift stack
+since most frames are deliberately off-focus). AF was acquired at centre
+every time, but the sweep covers the whole range, so corners still reach
+peak in some frame.
+
+## To verify once data is imported
+
+1. Exact frame **timestamps** (confirm the ~12:00–13:30 window).
+2. **Phase-1 exposure consistency** across the 3 A-priority AF replicates
+   (operator noticed no drift; confirm from EXIF).
+3. Optionally refine the **~45 m distance** from EXIF FocusDistance
+   (quantized) or a cleaner multi-brick measurement.

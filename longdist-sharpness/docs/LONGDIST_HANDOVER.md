@@ -453,6 +453,38 @@ datasets so far. If (A)/(C) above proves workable on a tele dataset,
 add the relevant `tele*` keys to the DATASETS dict in
 `poc_known_edge_mtf50.py` and run.
 
+(Partly exercised: the 2026-06-28 TC-1.4× revalidation ran
+`mtf50_known_edge` on `tele2026_06_28` — a brick climbing-wall scene —
+with `--min-line-px 150–200`, path (A). It found plenty of edges; see
+`docs/CAPTURE_2026-06-28_tc14_revalidation.md`.)
+
+#### 5.6e Fix the slanted-edge MTF over-read (trough-wall asymmetry)
+
+`measure_edge_metrics` in `poc_known_edge_mtf50.py` over-reads MTF50 at
+f/11–f/16 (values above the diffraction ceiling) and produces
+occasional `mtf_at_nyquist` outliers > 1.0 even on **linear,
+unsharpened RAW** — so it is a genuine analysis bug, not a JPEG or
+physics effect. `SHARPNESS_METRICS.md` (2026-06-28 correction)
+localises the cause to **left/right trough-wall asymmetry** in the
+LSF: one wall of the line-spread trough reads ≈ the optical ceiling
+(physical), the other does not, and the asymmetric trough inflates the
+FFT high-frequency tail.
+
+Confirmed independently by the 2026-06-28 RAW POC
+(`poc_longdist_tc14_raw.py`): on linear demosaic-only RAW the **median**
+MTF@Nyquist is clean (≤ 1.0) and MTF50 is physical, but a few edges
+still spike to max ~2.4 — the residual asymmetry artefact. Workaround
+in use: **report the median across edges, never the max.**
+
+Fix: make the ESF/LSF handling symmetric (e.g. fit/normalise each
+trough wall independently, or window symmetrically about the LSF
+centroid) so individual-edge MTF50/MTF@Nyq become trustworthy — then
+the `max`/per-edge values (needed for sparse-edge telephoto scenes and
+for decentering maps) are usable, not just the median. Until then,
+single-edge readings at f/11+ are unreliable. Validate any fix against
+the diffraction-ceiling overlay (`tile-sharpness/optics.py` +
+`scripts/diffraction_ranking.py`).
+
 ## 6. Gotchas the next session should know about
 
 ### 6.1 EXIF FocusDistance stripped from JPEG MakerNotes on some days

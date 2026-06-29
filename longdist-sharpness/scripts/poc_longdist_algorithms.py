@@ -519,6 +519,17 @@ DATASETS = {
         pixel_pitch_mm=Z7_PIXEL_PITCH_MM,
         camera="Z7",
     ),
+    # TC-1.4x replacement revalidation — flat brick wall, ~45 m, focus-shift
+    # stacks (Z 100-400 bare / +TC-1.4x / +TC-2.0x). See
+    # docs/CAPTURE_2026-06-28_tc14_revalidation.md and the dedicated
+    # analysis script poc_longdist_tc14_revalidation.py.
+    "tele2026_06_28": dict(
+        root=Path("/home/alson/shared/files/pics/digikam/test-raw-data/2026-06-28"),
+        date="2026-06-28",
+        lens_filter=None,
+        pixel_pitch_mm=Z7_PIXEL_PITCH_MM,
+        camera="Z7",
+    ),
 
     # --- D7200 (DX, 3.91um) — older tests, possibly less strict methodology ---
     "tele2025_07_05": dict(

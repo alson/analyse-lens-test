@@ -22,6 +22,12 @@ direnv exec . uv run python scripts/poc_longdist_algorithms.py wide2026_01_24
 - `docs/` — methodology + results + handover docs:
   - [`SHARPNESS_METRICS_LONGDIST.md`](docs/SHARPNESS_METRICS_LONGDIST.md)
     — protocol design
+  - [`LENS_TEST_METHODOLOGY_Z7.md`](docs/LENS_TEST_METHODOLOGY_Z7.md)
+    — **read before planning a test**: Z7-era scene/capture design +
+    metric pitfalls (MTF50 saturation, measure on linear RAW, etc.),
+    distilled from the TC-1.4× revalidation
+  - [`CAPTURE_2026-06-28_tc14_revalidation.md`](docs/CAPTURE_2026-06-28_tc14_revalidation.md)
+    — Z TC-1.4× replacement revalidation: capture log + verdict
   - [`LONGDIST_TELE_RESULTS.md`](docs/LONGDIST_TELE_RESULTS.md)
     — Z7 + D7200 telephoto findings
   - [`WIDEANGLE_RESULTS.md`](docs/WIDEANGLE_RESULTS.md)
