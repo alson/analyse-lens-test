@@ -34,6 +34,14 @@ docs and are linked from here.
 
 ## Analysis / reporting style
 
+- **Lead with caveats and assumptions, not the verdict.** State analysis
+  conclusions — especially negative/closure ones ("not viable", "this is
+  closed") — as *"negative under [conditions tested]; not yet tested:
+  [assumptions / coverage gaps]"*, never as "final" with the caveats
+  buried. The assumptions are the headline. Rationale + the four-round
+  cross-M-sharpness case study (where "final" was wrong four times, each
+  for a different buried assumption) in ``LEADING_WITH_CAVEATS.md``.
+
 - **Aggregate across the sweep before surfacing output.** For any
   N-methods-by-M-inputs analysis, compute the cross-input aggregate
   (peak, argmax, median…) per method first, then compare on the
