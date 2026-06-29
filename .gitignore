@@ -20,3 +20,11 @@ tile-sharpness/cross_cohort_summary/
 tile-sharpness/scripts/poc_pad_grid_fft_out/
 tile-sharpness/scripts/poc_subpixel_binning_out/
 tile-sharpness/scripts/poc_wide_feature_inventory_out/
+
+# poc_comb_chain: commit scripts + REPORT + small result CSVs/histograms;
+# ignore heavy regenerable artifacts (bulk CSVs + multi-MB image crops)
+tile-sharpness/scripts/poc_comb_chain_out/a1_all.csv
+tile-sharpness/scripts/poc_comb_chain_out/a1_shard_*.csv
+tile-sharpness/scripts/poc_comb_chain_out/contrast_inspect/*__roi.png
+tile-sharpness/scripts/poc_comb_chain_out/contrast_inspect/view_*.png
+tile-sharpness/scripts/poc_comb_chain_out/contrast_inspect/padpop/*cellmode_map.png
