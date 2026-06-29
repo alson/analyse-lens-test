@@ -1,6 +1,50 @@
 # Sharpness assessment POC — session handover
 
-State as of 2026-05-18 (extended 2026-06-27).
+State as of 2026-05-18 (extended 2026-06-27, 2026-06-28).
+
+> **2026-06-28 — accessory-config M validation + atlas-anchored ranking (the two
+> top 2026-06-27 follow-ups). Full write-up: `REPORT_taskAD_2026-06-28.md`.**
+>
+> 1. **The "reg_auto mislabels cols/rows → scales M 8-29%" hypothesis is REFUTED.**
+>    Enumerating every phase-consistent label moves M by ≤1.9%
+>    (`wafer-atlas/scripts/probe_label_ambiguity.py`); atlas-M is independently
+>    validated — reproduces KNOWN nominal M to ~1.6% across M=0.385→2.0 incl. the
+>    100-400 zoom (`probe_anchor_validation.py`). So the atlas-vs-nominal gaps are
+>    **nominal-label errors**, and atlas-M is the trustworthy M. The real reg_auto
+>    failure mode is **scale collapse** (M≈0 at a *too-low* 0.4px residual, few
+>    intersections) — guard with an absolute M bound + residual ceiling, not
+>    residual alone. Memory `reg_auto_label_scale_uncertainty` corrected.
+> 2. **Label errors are concentrated in the 100-400 + close-up-diopter family**:
+>    MCON-35 +29% (ratio inversion — `1_1.16` should be ≈`1.16_1`), Canon 500D −16%,
+>    6T −10%, 5T −8%. All other 47 of 51 configs match nominal within ±7%
+>    (median ~1%). Corrected-M manifest: `wafer-atlas/scripts/atlas_m_manifest.csv`
+>    (m_lookup `vision_measured_mag` schema, untrustworthy regs omitted → nominal).
+> 3. **Ranking uses the atlas-anchored 5-position method, NOT blind characterise**
+>    (which is ~6 min/sweep and collapses to centre-only at M≈1.1). New driver
+>    `scripts/atlas_rank_accessory.py` → `out_accessory_atlas/ranking_resolution.csv`
+>    (51 configs × F8/F11, centre+4-corner subject lp/mm + diffraction headroom).
+>    **MCON-35 (28.9) > 6T (23.8) at centre confirmed** (matches 2026-06-27 exactly).
+>    Trust only `glass-ltd` rows; sharp macro+diopter centres and ~all of F11
+>    OVER-READ the ceiling (LSF artifact at high N_eff) — F11 buys no real resolution
+>    over F8 at these magnifications (diffraction/empty-mag regime).
+> 4. **Compute note:** the registration/measurement is CPU-bound and per-combo
+>    sequential — shard it across workers and run on **nufan** (16-core 5800X, vs a
+>    mobile i5); `scripts/atlas_rank_accessory.py` honours `SHARD="i/N"` writing
+>    per-shard CSVs to merge. ~6× faster than single-threaded on bumblebee.
+> 5. **2026-06-28b — both follow-ups executed (REPORT_taskAD §E):**
+>    - **LSF over-read: documented cause DISPROVEN.** Not noise-floor / peak-vs-DC
+>      normalisation (DC-norm+window moved it the wrong way, reverted; ESF is clean
+>      monotonic). Real cause = **L/R trough-wall asymmetry** (one wall ≈ceiling,
+>      the other ~1.6× over; mean over-reads). Shipped `lsf_mtf50(combine="min")`
+>      (opt-in; default `mean` unchanged, 117 tests pass) — cuts over-reads F11
+>      40→28/44, F8 11→8/38, but NOT both-walls-over-read configs. Full fix needs
+>      symmetric sub-pixel ESF extraction.
+>    - **Bare macros measured** (`enumerate_bare_configs.py` + same driver, min) →
+>      `out_accessory_atlas/unified_ranking.csv` (bare+accessory, one axis). F8
+>      trustworthy: modern bare macros (Sigma 150 41.6, Sigma 105 40.2, 105VR 39.5,
+>      AF60 38.1, AF200 35.8) > vintage 55mm primes (21–32) > 100-400+diopter (17–28).
+>    - **Still open:** residual both-walls over-read; the high-M Sigma stacked +
+>      2:1 AF200 configs (registration fails/collapses).
 
 > **2026-06-27 — cross-config resolution ranking: diffraction ceiling +
 > the MTF50 over-read finding.** Goal: rank lens/accessory configs by

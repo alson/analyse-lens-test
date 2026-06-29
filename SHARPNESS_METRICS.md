@@ -549,18 +549,25 @@ Two complementary metrics, computed per tile from the **native frame**
 > the sensor only degrades it; a 55mm even reads higher at f/16 than f/8). The
 > RAW-vs-JPEG diagnostic (`scripts/raw_vs_jpg_mtf.py`) shows this is a
 > MEASUREMENT artifact, NOT a JPEG one: 8-bit JPEG, linearised JPEG, and
-> linear/unsharpened RAW all over-read at f/11-f/16. Cause: the differentiated
-> ESF→LSF inflates on low-contrast / diffraction-blurred edges (noise floor holds
-> |FFT| up past the true 0.5 crossing), + `_mtf50_from_lsf` normalising to the
-> spectral PEAK (DC dropped), + large scribe-to-scribe variance (±~5 lp/mm).
-> **Practical rule:** trust subject-space MTF50 for cross-config ranking only
-> where it sits comfortably *below* the ceiling (glass-limited — corners, wider
-> apertures), where corner differences between same-strength diopters (e.g.
-> MCON-35 vs 6T) are real and the metric ranks them correctly. For
-> diffraction-limited configs (stopped-down centres) use the physics ceiling
-> directly — it depends only on M and effective aperture `N·(1+M)`. Fixing the
-> absolute calibration needs an LSF over-read fix (normalise to DC; denoise the
-> LSF) + scribe averaging. See `tile-sharpness/HANDOVER.md` (2026-06-27).
+> linear/unsharpened RAW all over-read at f/11-f/16.
+>
+> **⚠⚠ 2026-06-28 CORRECTION to the cause.** The "noise floor + peak-vs-DC
+> normalisation" cause stated above was TESTED and DISPROVEN
+> (`tile-sharpness/HANDOVER.md` 2026-06-28, REPORT_taskAD_2026-06-28.md §E): the
+> ESF is clean and monotonic (no noise plateau, no sharpening overshoot), and
+> DC-normalisation + windowing moved the value the *wrong* way. The real cause is
+> **left/right trough-wall asymmetry** — one wall reads ≈ the ceiling (physical),
+> the other ~1.6× too sharp; their mean over-reads. Mitigation shipped:
+> `lsf_mtf50(..., combine="min")` takes the cleaner edge (opt-in; default `mean`
+> unchanged), cutting over-reads (F11 40→28 of 44, F8 11→8 of 38) but NOT the
+> configs where *both* walls over-read (sharpest macro+diopter). A full fix needs
+> symmetric sub-pixel ESF extraction, not a normalisation tweak.
+>
+> **Practical rule (unchanged):** trust subject-space MTF50 for cross-config
+> ranking only where it sits comfortably *below* the ceiling (glass-limited —
+> corners, wider apertures); there MCON-35 vs 6T etc. rank correctly. For
+> diffraction-limited / over-reading configs use the physics ceiling directly
+> (`N·(1+M)`). + scribe averaging for the ±~5 lp/mm corner noise.
 
     MTF50_subject_lp_per_mm = MTF50_sensor_cy_per_px × M × 1000 / pixel_pitch_µm
 

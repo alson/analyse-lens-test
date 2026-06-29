@@ -431,18 +431,28 @@ def lsf_peak_amp(profile: np.ndarray, ref_freq_cy_per_px: float = 0.10) -> float
     return float(np.mean(amps))
 
 
-def lsf_mtf50(profile: np.ndarray) -> float | None:
+def lsf_mtf50(profile: np.ndarray, *, combine: str = "mean") -> float | None:
     """MTF50 frequency on sensor (cycles per pixel) from a trough profile.
 
     The trough is split into two ESFs (left and right of the deepest
     point), each is differentiated to a separate LSF (see
     :func:`_split_to_edge_lsfs`), each LSF's MTF50 is computed
     independently (zero-padded FFT → first crossing of 0.5 past the
-    peak, sub-bin interpolated), and the **arithmetic mean of the
-    two MTF50 values** is returned. Averaging after the FFT preserves
-    each edge's effective resolution; averaging the ESFs before
-    differentiating would smear non-aligned edges and pull MTF50
-    ~2× low (verified 2026-05-16 on AF 200/4D centre).
+    peak, sub-bin interpolated), and the two MTF50 values are combined.
+
+    ``combine`` selects the combination:
+      * ``"mean"`` (default) — arithmetic mean, preserving each edge's
+        effective resolution (averaging the ESFs *before* differentiating
+        would smear non-aligned edges and pull MTF50 ~2× low — verified
+        2026-05-16 on AF 200/4D centre).
+      * ``"min"`` — the lower of the two per-edge MTF50s. Diagnosed
+        2026-06-28: the scribe-LSF over-read above the diffraction ceiling
+        is driven by ONE trough wall reading too sharp (L/R asymmetry; the
+        other wall sits ≈ the ceiling). ``min`` takes the cleaner,
+        conservative edge — on AF200 1:1 F11 centre it pulls the reading
+        from 0.186 (over the 0.145 ceiling) to 0.146 (≈ceiling) while
+        preserving sharp>soft ordering. Use for cross-config ranking where
+        physicality matters more than capturing the sharpest single edge.
 
     Returns ``None`` when:
       * the trough cross-section is degenerate (centre too close to
@@ -466,4 +476,6 @@ def lsf_mtf50(profile: np.ndarray) -> float | None:
             mtf50s.append(m)
     if not mtf50s:
         return None
+    if combine == "min":
+        return float(np.min(mtf50s))
     return float(np.mean(mtf50s))

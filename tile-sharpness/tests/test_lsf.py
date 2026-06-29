@@ -143,6 +143,22 @@ def test_lsf_mtf50_per_edge_averaging_not_dominated_by_either_side():
     assert abs(mtf_avg - (mtf_left + mtf_right) / 2) < 1e-9
 
 
+def test_lsf_mtf50_combine_min_takes_lower_edge():
+    """combine='min' returns the lower per-edge MTF50 (the conservative, more
+    physical edge) — the 2026-06-28 over-read mitigation. Must equal min(L,R),
+    be <= the mean, and preserve sharp>soft ordering."""
+    from tile_sharpness.methods.lsf import _split_to_edge_lsfs, _mtf50_from_lsf
+    sharp = _load_profile("AF200_F11_centre_sharp")
+    soft = _load_profile("AF200_F11_centre_soft")
+    pair = _split_to_edge_lsfs(sharp)
+    edges = [_mtf50_from_lsf(p) for p in pair]
+    m_min = lsf_mtf50(sharp, combine="min")
+    m_mean = lsf_mtf50(sharp)
+    assert abs(m_min - min(edges)) < 1e-9
+    assert m_min <= m_mean + 1e-9
+    assert lsf_mtf50(sharp, combine="min") > lsf_mtf50(soft, combine="min")
+
+
 def test_lsf_mtf50_rejects_off_centre_trough():
     """If the trough centre is too close to the window edge, return None."""
     # Build a profile whose minimum is in the first few samples (degenerate).
