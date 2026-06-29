@@ -134,128 +134,62 @@ Two reporting units used:
   "subject I can't get closer to, longer lens helps" use case.
   Conversion: `FOM = cutoff_subj × pixel_pitch_mm × focus_distance_mm`.
 
-## 3. Z 100-400 family — per-date (best aperture per config)
+## 3. Z 100-400 family — per-date
 
-Each row: cutoff (cy / mm subject) at 5 horizontal positions; **centre**
-in bold. Best replicate per position. f_eff = EXIF FocalLength
-(camera-reported effective FL including TC).
+The full per-date × FL × aperture × position cutoff dumps for the
+Z 100-400 family are not re-tabulated here under §5.3 — they are bulky
+and fully superseded by:
 
-_The tables in §3–§5 below are the pre-§5.3-metric values (Z 100-400
-family floored at ~0.20). Refreshed §5.3 cross-date ranges are in §7
-and the regenerated `poc_longdist_cross_date_2026_01_out/overlap.md` —
-under §5.3 the bare lens resolves to 0.14–0.19 and the Z TC chains to
-0.17–0.21. Rankings are unchanged; only the absolute magnitudes shift._
+- **§5** — the §5.3 cross-date overlap table (per-date centre cutoff +
+  content-independence stdev), and
+- **§7** — the §5.3 per-lens prose with the refreshed cutoff bands, and
+- the regenerated raw dump
+  `poc_longdist_cross_date_2026_01_out/per_date_2026-01-{18,28,30}.md`.
 
-### 2026-01-18 (Z 100-400 only — no Z TCs on this day)
+Headline §5.3 facts that the old per-date tables (which floored the
+whole family at ~0.20) were hiding:
 
-| Lens | f_eff | F# | x=0.18 | x=0.34 | **centre** | x=0.66 | x=0.82 | n_repl | FOM |
-|---|---|---|---|---|---|---|---|---|---|
-| Z 100-400 bare | 400 | f/8 | 0.20 | 0.20 | **0.20** | 0.21 | 0.20 | 3 | 73 |
-| Z 100-400 bare | 400 | f/11 | 0.21 | 0.21 | **0.20** | 0.24 | 0.22 | 3 | 73 |
+- **Z 100-400 bare** resolves to a tight **0.14–0.19** cy/mm-subj band
+  across the full FL × aperture sweep (200 mm ≈ 0.14, 300 mm ≈ 0.16,
+  350–400 mm ≈ 0.17); the lens is aperture-flat from f/5.6 to f/16, and
+  the field stays flat (edge/centre ≥ 1.0, §6c).
+- **+ Z TC-1.4× (560 mm)** sits at **0.18–0.21** (best at f/11–f/16).
+- **+ Z TC-2.0× (800 mm)** sits at **0.18–0.20** (best at f/11; wide-open
+  f/10 is already near peak).
 
-### 2026-01-28 (all three Z 100-400 family chains)
+Rankings are unchanged from the old tables — only the absolute
+magnitudes drop now that the metric floor is removed. See §5/§7 for the
+numbers.
 
-| Lens | f_eff | F# | x=0.18 | x=0.34 | **centre** | x=0.66 | x=0.82 | n_repl | FOM |
-|---|---|---|---|---|---|---|---|---|---|
-| Z 100-400 bare | 400 | f/8 | 0.20 | 0.20 | **0.20** | 0.21 | 0.20 | 3 | 73 |
-| Z 100-400 bare | 400 | f/11 | 0.21 | 0.21 | **0.20** | 0.24 | 0.22 | 3 | 73 |
-| + Z TC-1.4× | 560 | f/8 | 0.20 | 0.21 | **0.22** | 0.21 | 0.20 | 3 | 81 |
-| + Z TC-1.4× | 560 | f/11 | 0.20 | 0.20 | **0.21** | 0.22 | 0.20 | 3 | 77 |
-| + Z TC-1.4× | 560 | f/16 | 0.20 | 0.20 | **0.22** | 0.21 | 0.20 | 3 | 79 |
-| + Z TC-2.0× | 800 | f/11 | 0.22 | 0.22 | **0.24** | 0.24 | 0.21 | 9 | 88 |
-| + Z TC-2.0× | 800 | f/16 | 0.22 | 0.22 | **0.22** | 0.22 | 0.21 | 6 | 81 |
+## 4. 300 PF family — per-date
 
-### 2026-01-30 (all three Z 100-400 family chains, deeper sampling)
+As with §3, the full per-date × aperture × position dumps for the
+300 PF family are not re-tabulated under §5.3 here — they are
+superseded by **§5** (the §5.3 cross-date overlap, refreshed below),
+**§7** (§5.3 per-lens prose), and the regenerated raw dumps
+`poc_longdist_cross_date_2026_01_out/per_date_2026-01-{18,28,30}.md`.
 
-| Lens | f_eff | F# | x=0.18 | x=0.34 | **centre** | x=0.66 | x=0.82 | n_repl | FOM |
-|---|---|---|---|---|---|---|---|---|---|
-| Z 100-400 bare | 400 | f/5.6 | 0.20 | 0.20 | **0.21** | 0.20 | 0.20 | 3 | 78 |
-| Z 100-400 bare | 400 | f/8 | 0.20 | 0.20 | **0.21** | 0.20 | 0.20 | 3 | 75 |
-| Z 100-400 bare | 400 | f/11 | 0.20 | 0.20 | **0.20** | 0.20 | 0.20 | 3 | 73 |
-| + Z TC-1.4× | 560 | f/8 | 0.20 | 0.20 | **0.20** | 0.20 | 0.20 | 7 | 74 |
-| + Z TC-1.4× | 560 | f/11 | 0.22 | 0.22 | **0.23** | 0.23 | 0.23 | 3 | 85 |
-| + Z TC-1.4× | 560 | f/16 | 0.22 | 0.22 | **0.25** | 0.23 | 0.23 | 3 | 90 |
-| + Z TC-2.0× | 800 | f/11 | 0.23 | 0.23 | **0.22** | 0.27 | 0.21 | 12 | 81 |
-| + Z TC-2.0× | 800 | f/16 | 0.23 | 0.22 | **0.21** | 0.28 | 0.24 | 6 | 75 |
+§5.3 facts that carry the per-date analysis, all preserved in §5/§7:
 
-**Z 100-400 family observations**
-
-- The bare lens and both Z TCs are highly **content-stable**: most rows
-  land at cutoff = 0.20–0.25 cy / mm-subject regardless of session.
-  Cross-date stdev under 8 % in nearly every cell (see §5).
-- Edge / centre ratio ≥ 1.00 across the board — the field is flat, no
-  off-axis penalty within the 5-position sweep.
-- **Best aperture for the Z TC-2.0× chain: f/11** (centre 0.22–0.24).
-  f/16 holds up but doesn't improve. Wide-open f/10 (the camera reports
-  this as the effective max aperture at 800 mm) is already very close
-  to peak.
-- **Best aperture for Z TC-1.4× chain: f/11 to f/16** at 560 mm; f/16
-  edged out slightly on 2026-01-30 (0.25 centre).
-
-## 4. 300 PF family — per-date (best aperture per config)
-
-### 2026-01-18 (300 PF bare + TC-14e III, TC-17e II, TC-20e III only — no TC-14e I or Kenko on this day)
-
-| Lens | f_eff | F# | x=0.18 | x=0.34 | **centre** | x=0.66 | x=0.82 | FOM |
-|---|---|---|---|---|---|---|---|---|
-| 300 PF bare | 300 | f/5.6 | 0.34 | 0.43 | **0.40** | 0.33 | 0.32 | 55 |
-| 300 PF bare | 300 | f/8 | 0.35 | 0.40 | **0.40** | 0.33 | 0.32 | 55 |
-| 300 PF bare | 300 | f/11 | 0.38 | 0.42 | **0.39** | 0.33 | 0.36 | 54 |
-| + TC-14e III | 420 | f/8 | 0.36 | 0.35 | **0.45** | 0.32 | 0.33 | 62 |
-| + TC-14e III | 420 | f/11 | 0.37 | 0.35 | **0.41** | 0.37 | 0.36 | 56 |
-| + TC-14e III | 420 | f/16 | 0.37 | 0.35 | **0.23** ⚠ | 0.37 | 0.36 | 31 |
-| + TC-17e II | 500 | f/8 | 0.33 | 0.31 | **0.44** | 0.34 | 0.35 | 61 |
-| + TC-17e II | 500 | f/11 | 0.35 | 0.35 | **0.47** | 0.34 | 0.37 | 64 |
-| + TC-17e II | 500 | f/16 | 0.37 | 0.40 | **0.40** | 0.34 | 0.37 | 55 |
-| + TC-20e III | 600 | f/11 | 0.34 | 0.41 | **0.32** | 0.32 | 0.34 | 45 |
-| + TC-20e III | 600 | f/16 | 0.39 | 0.44 | **0.34** | 0.36 | 0.43 | 47 |
-
-⚠ The `+TC-14e III | 420 mm | f/16` centre at 0.23 is anomalously low compared
-to the same config on 2026-01-30 (0.47). The likely culprit is **wind-shake**
-at slow shutter (ISO 100, f/16, 420 mm) — see §9 (sharpest-of-ISO follow-up).
-
-### 2026-01-28 (300 PF bare + all four F-mount TCs)
-
-| Lens | f_eff | F# | x=0.18 | x=0.34 | **centre** | x=0.66 | x=0.82 | FOM |
-|---|---|---|---|---|---|---|---|---|
-| 300 PF bare | 300 | f/5.6 | 0.36 | 0.49 | **0.52** | 0.43 | 0.31 | 72 |
-| 300 PF bare | 300 | f/8 | 0.32 | 0.40 | **0.53** | 0.39 | 0.31 | 73 |
-| 300 PF bare | 300 | f/11 | 0.39 | 0.45 | **0.43** | 0.40 | 0.33 | 59 |
-| + TC-14e I | 420 | f/11 | 0.36 | 0.38 | **0.43** | 0.42 | 0.37 | 59 |
-| + TC-14e III | 420 | f/11 | 0.32 | 0.41 | **0.43** | 0.47 | 0.42 | 59 |
-| + TC-17e II | 500 | f/11 | 0.31 | 0.43 | **0.37** | 0.38 | 0.38 | 51 |
-| + TC-20e III | 600 | f/11 | 0.44 | 0.55 | **0.48** | 0.44 | 0.53 | 66 |
-
-### 2026-01-30 (300 PF bare + TC-14e I/III + TC-17e II + Kenko Pro 300 1.4×; no TC-20e III on this day)
-
-| Lens | f_eff | F# | x=0.18 | x=0.34 | **centre** | x=0.66 | x=0.82 | n_repl | FOM |
-|---|---|---|---|---|---|---|---|---|---|
-| 300 PF bare | 300 | f/5.6 | 0.30 | 0.39 | **0.42** | 0.35 | 0.36 | 6 | 57 |
-| 300 PF bare | 300 | f/8 | 0.36 | 0.41 | **0.43** | 0.45 | 0.38 | 5 | 59 |
-| 300 PF bare | 300 | f/11 | 0.38 | 0.41 | **0.43** | 0.36 | 0.39 | 6 | 59 |
-| + TC-14e I | 420 | f/11 | 0.45 | 0.42 | **0.48** | 0.41 | 0.30 | 5 | 66 |
-| + TC-14e III | 420 | f/11 | 0.47 | 0.44 | **0.44** | 0.41 | 0.30 | 8 | 61 |
-| + TC-14e III | 420 | f/16 | 0.44 | 0.42 | **0.47** | 0.44 | 0.30 | 6 | 64 |
-| + TC-17e II | 500 | f/11 | 0.37 | 0.44 | **0.43** | 0.38 | 0.31 | 4 | 59 |
-| **+ Kenko Pro 300 1.4×** | 420 | f/11 | 0.44 | 0.43 | **0.50** | 0.37 | 0.30 | 6 | 69 |
-| + Kenko Pro 300 1.4× | 420 | f/16 | 0.44 | 0.42 | **0.44** | 0.47 | 0.30 | 6 | 61 |
-
-**300 PF family observations**
-
-- **Bare 300 PF peaks at f/8 centre** on 2026-01-28 (0.53), drops at
-  f/5.6 (0.42–0.52) and f/11 (0.43). f/8 is the centre-best stop.
-- **All F-mount TCs peak at f/11 centre** — confirms the
-  "1–2 stops down from wide-open" rule from manual visual inspection.
-- **Bare 300 PF is a centre-only lens on this scene** — edge / centre
-  ratio 0.60–0.78 at f/8. Stopping to f/11 flattens the field at the
-  cost of centre value.
-- **TC-20e III centre on 2026-01-18 (0.32) vs 2026-01-28 (0.48)** — large
-  cross-date difference; either focus-plane variation (3D scene) or AF
-  jitter. F11 in particular shows 27 % stdev across dates for this combo
-  (see §5).
-- **Kenko Pro 300 1.4× outperforms the Nikon TC-14e III at f/11**
-  on 2026-01-30 (0.50 vs 0.44 centre). New finding — the Kenko is
-  surprisingly competitive.
+- **Bare 300 PF is centre-best at f/5.6–f/8** (the two are within
+  cross-date noise; the old "f/8 only" claim was over-specific) and is
+  a **centre-only lens on this scene** — edge/centre ≈ 0.60 wide,
+  flattening toward f/11.
+- **All F-mount TCs peak at f/11 centre** (the manual "1–2 stops down"
+  rule holds).
+- **TC-20e III shows a large cross-date swing** (top 0.29 on 2026-01-18
+  vs 0.38 on 2026-01-28 at f/11, 19 % stdev) — focus-plane variation in
+  the 3D scene; see §5 and the §11a flier note (its f/11 top is a
+  `tvm` = 1.28 flier over a 0.29 median).
+- **The 2026-01-18 TC-14e III f/16 wind-shake anomaly** (top 0.16 vs the
+  cross-date 0.41) survives into the §5.3 data — that day shot ISO 100
+  only, so sharpest-of-ISO can't rescue it (§11c). 44 % cross-date
+  stdev for that cell (§5).
+- **Kenko Pro 300 1.4× still outperforms the Nikon TC-14e III at f/11**
+  on 2026-01-30 (per_date_2026-01-30.md: Kenko 420 f/11 centre 0.44 vs
+  TC-14e III 420 f/11 centre 0.39) — ordering preserved. The Kenko's
+  v2 sharpest-of-ISO top is higher (0.50, §7); either way it is the
+  most competitive F-mount-class 1.4× on this dataset.
 
 ## 5. Cross-date overlap — content-independence
 
@@ -264,49 +198,64 @@ centre cutoff per date and the cross-date stdev as a percent of the
 mean. A scene-independent metric should show small stdev; a
 scene-dependent metric will show stdev comparable to the mean.
 
+_§5.3-metric, from `poc_longdist_cross_date_2026_01_out/overlap.md`
+(centre cutoff per date, top replicate per position). The Z 100-400
+family is no longer floored at 0.20; it resolves to the real 0.14–0.20
+band, and the content-independence stdev%, which is metric-invariant in
+intent, ticks up slightly because the metric no longer pins those cells
+to an identical 0.20._
+
 | Lens | f_eff | F# | 18 | 28 | 30 | mean | **stdev %** | min..max |
 |---|---|---|---|---|---|---|---|---|
-| Z 100-400 bare | 400 | f/8 | 0.20 | 0.20 | 0.21 | 0.20 | **2.9 %** | 0.20..0.21 |
-| Z 100-400 bare | 400 | f/11 | 0.20 | 0.20 | 0.20 | 0.20 | **0.0 %** | 0.20..0.20 |
-| Z 100-400 bare | 400 | f/16 | 0.20 | 0.20 | 0.20 | 0.20 | **0.0 %** | 0.20..0.20 |
-| Z 100-400 + Z TC-1.4× | 560 | f/11 | — | 0.21 | 0.23 | 0.22 | **6.5 %** | 0.21..0.23 |
-| Z 100-400 + Z TC-1.4× | 560 | f/16 | — | 0.22 | 0.25 | 0.23 | **9.2 %** | 0.22..0.25 |
-| Z 100-400 + Z TC-2.0× | 800 | f/11 | — | 0.24 | 0.22 | 0.23 | **5.2 %** | 0.22..0.24 |
-| Z 100-400 + Z TC-2.0× | 800 | f/16 | — | 0.22 | 0.21 | 0.21 | **5.7 %** | 0.21..0.22 |
-| 300 PF bare | 300 | f/4 | 0.28 | 0.47 | 0.32 | 0.36 | **27.5 %** | 0.28..0.47 |
-| 300 PF bare | 300 | f/5.6 | 0.40 | 0.52 | 0.42 | 0.45 | **14.5 %** | 0.40..0.52 |
-| 300 PF bare | 300 | f/8 | 0.40 | 0.53 | 0.43 | 0.45 | **15.0 %** | 0.40..0.53 |
-| 300 PF bare | 300 | f/11 | 0.39 | 0.43 | 0.43 | 0.41 | **4.7 %** | 0.39..0.43 |
-| 300 PF bare | 300 | f/16 | 0.37 | 0.41 | 0.42 | 0.40 | **5.6 %** | 0.37..0.42 |
-| 300 PF + TC-14e I | 420 | f/11 | — | 0.43 | 0.48 | 0.45 | **7.4 %** | 0.43..0.48 |
-| 300 PF + TC-14e III | 420 | f/8 | 0.45 | 0.36 | 0.39 | 0.40 | **12.0 %** | 0.36..0.45 |
-| 300 PF + TC-14e III | 420 | f/11 | 0.41 | 0.43 | 0.44 | 0.43 | **4.3 %** | 0.41..0.44 |
-| 300 PF + TC-14e III | 420 | f/16 | 0.23 ⚠ | 0.37 | 0.47 | 0.35 | **33.9 %** | 0.23..0.47 |
-| 300 PF + TC-17e II | 500 | f/11 | 0.47 | 0.37 | 0.43 | 0.42 | **11.8 %** | 0.37..0.47 |
-| 300 PF + TC-17e II | 500 | f/16 | 0.40 | 0.28 | 0.44 | 0.37 | **21.6 %** | 0.28..0.44 |
-| 300 PF + TC-20e III | 600 | f/11 | 0.32 | 0.48 | — | 0.40 | **27.1 %** | 0.32..0.48 |
-| 300 PF + TC-20e III | 600 | f/16 | 0.34 | 0.41 | — | 0.37 | **12.9 %** | 0.34..0.41 |
+| Z 100-400 bare | 400 | f/8 | 0.16 | 0.17 | 0.18 | 0.17 | **6.8 %** | 0.16..0.18 |
+| Z 100-400 bare | 400 | f/11 | 0.15 | 0.17 | 0.17 | 0.17 | **6.6 %** | 0.15..0.17 |
+| Z 100-400 bare | 400 | f/16 | 0.16 | 0.16 | 0.17 | 0.16 | **4.5 %** | 0.16..0.17 |
+| Z 100-400 + Z TC-1.4× | 560 | f/11 | — | 0.18 | 0.20 | 0.19 | **8.3 %** | 0.18..0.20 |
+| Z 100-400 + Z TC-1.4× | 560 | f/16 | — | 0.18 | 0.21 | 0.19 | **8.1 %** | 0.18..0.21 |
+| Z 100-400 + Z TC-2.0× | 800 | f/11 | — | 0.20 | 0.19 | 0.19 | **6.0 %** | 0.19..0.20 |
+| Z 100-400 + Z TC-2.0× | 800 | f/16 | — | 0.20 | 0.17 | 0.19 | **10.3 %** | 0.17..0.20 |
+| 300 PF bare | 300 | f/4 | 0.25 | 0.36 | 0.25 | 0.29 | **22.5 %** | 0.25..0.36 |
+| 300 PF bare | 300 | f/5.6 | 0.34 | 0.44 | 0.37 | 0.38 | **14.5 %** | 0.34..0.44 |
+| 300 PF bare | 300 | f/8 | 0.33 | 0.43 | 0.39 | 0.39 | **12.5 %** | 0.33..0.43 |
+| 300 PF bare | 300 | f/11 | 0.34 | 0.37 | 0.39 | 0.36 | **6.3 %** | 0.34..0.39 |
+| 300 PF bare | 300 | f/16 | 0.32 | 0.34 | 0.37 | 0.34 | **6.2 %** | 0.32..0.37 |
+| 300 PF + TC-14e I | 420 | f/11 | — | 0.33 | 0.42 | 0.38 | **16.2 %** | 0.33..0.42 |
+| 300 PF + TC-14e III | 420 | f/8 | 0.38 | 0.30 | 0.36 | 0.35 | **11.6 %** | 0.30..0.38 |
+| 300 PF + TC-14e III | 420 | f/11 | 0.34 | 0.34 | 0.39 | 0.35 | **7.8 %** | 0.34..0.39 |
+| 300 PF + TC-14e III | 420 | f/16 | 0.16 ⚠ | 0.30 | 0.41 | 0.29 | **44.3 %** | 0.16..0.41 |
+| 300 PF + TC-17e II | 500 | f/11 | 0.41 | 0.41 | 0.38 | 0.40 | **4.3 %** | 0.38..0.41 |
+| 300 PF + TC-17e II | 500 | f/16 | 0.32 | 0.24 | 0.40 | 0.32 | **24.7 %** | 0.24..0.40 |
+| 300 PF + TC-20e III | 600 | f/11 | 0.29 | 0.38 | — | 0.33 | **19.0 %** | 0.29..0.38 |
+| 300 PF + TC-20e III | 600 | f/16 | 0.30 | 0.33 | — | 0.31 | **6.1 %** | 0.30..0.33 |
 
 **Reading the stdev %**
 
-- **< 5 %**: highly content-independent (Z 100-400 family, 300 PF at f/11).
-  Single-session reading is trustworthy.
-- **5–10 %**: typical scene-driven variation (Z TC chains, 300 PF + TC at
-  f/11). Use cross-date mean as the best estimate.
+- **< 5 %**: highly content-independent. Single-session reading is
+  trustworthy. Under §5.3 the cleanest cells are 300 PF + TC-17e II at
+  f/11 (4.3 %) and the Z 100-400 bare at f/16 (4.5 %).
+- **5–10 %**: typical scene-driven variation — the bulk of the Z 100-400
+  family (bare + both Z TCs sit 4.5–10 %) and 300 PF bare at f/11–f/16.
+  Use cross-date mean as the best estimate. The Z 100-400 family remains
+  the **most content-stable family** overall; it simply no longer reads
+  an artificial 0 % now that the 0.20 floor is gone.
 - **10–20 %**: real content sensitivity (300 PF bare at wider apertures,
-  300 PF + TC at f/8 or f/16). Single-session readings can be ±15 %
-  off the cross-date mean.
+  300 PF + TC-14e I/III at f/8/f/11, 300 PF + TC-20e III at f/11).
+  Single-session readings can be ±15 % off the cross-date mean.
 - **> 20 %**: untrustworthy single-session reading. 300 PF + TC-14e III
-  at f/16 has 34 % stdev because 2026-01-18's reading was likely
-  shake-corrupted (ISO 100, slow shutter); the other two dates agree.
-- **300 PF + TC-20e III at f/11 has 27 % stdev** between the two
+  at f/16 has 44 % stdev because 2026-01-18's reading was shake-
+  corrupted (0.16, ISO 100, slow shutter); the other two dates agree.
+  300 PF + TC-17e II at f/16 (25 %) is similarly noisy.
+- **300 PF + TC-20e III at f/11 has 19 % stdev** between the two
   available dates — a real scene-sensitivity issue, possibly
-  focus-plane variation in the 3D shrubbery at 600 mm.
+  focus-plane variation in the 3D shrubbery at 600 mm (the 2026-01-28
+  top is a `tvm` = 1.28 flier, see §11a).
 
-**Key takeaway**: f/11 is the most content-stable aperture across both
-lens families. Wider or smaller apertures show more cross-date variation
-for reasons specific to each (lens-MTF variation, diffraction, AF
-landing on different focal planes in the 3D scene, shake at slow shutter).
+**Key takeaway**: the Z 100-400 family is the most content-stable across
+sessions (4.5–10 % stdev at every aperture), and f/11 is the most stable
+aperture for the 300 PF family. Wider or smaller apertures show more
+cross-date variation for reasons specific to each (lens-MTF variation,
+diffraction, AF landing on different focal planes in the 3D scene, shake
+at slow shutter).
 
 ## 6. Headline findings
 
@@ -318,7 +267,9 @@ The relevant comparisons for actually deciding when to mount a TC.
 inspection. Those configurations are practically irrelevant: nobody
 puts a 2× TC on a zoom just to reach a focal length the bare zoom
 already covers natively. Excluded from the headline analysis below;
-the data is still in §3 for the curious.)
+the full per-config data is in the regenerated per-date dumps
+`poc_longdist_cross_date_2026_01_out/per_date_2026-01-{18,28,30}.md`
+for the curious.)
 
 **Question A — TC vs cropping the bare 400 mm frame.**
 At the TC's longer effective FL (lens at the long end + TC mounted),
@@ -574,14 +525,16 @@ Per-dataset raw outputs:
 
 ## 11. v2 update: sharpest-of-ISO + replicate spread
 
-_The cutoff values in the §11a/§11b tables are pre-§5.3-metric (Z 100-400
-family floored at ~0.20). The regenerated §5.3 v2 data is in
-`poc_longdist_cross_date_v2_2026_01_out/overlap.md`: under §5.3 the bare
-400 mm median sits at ~0.17 and the Z TC chains at 0.18–0.19 median, so
-the §11b "median advantage is only 5–10 %, a closer call than the top-based
-headline" conclusion still holds on the typical-frame statistic — only the
-absolute magnitudes shift down. The flier / top-vs-median structure (the
-ratios in §11a) is metric-invariant._
+_The §11a/§11b tables below are §5.3-metric, pulled from
+`poc_longdist_cross_date_v2_2026_01_out/overlap.md` (regenerated under
+the new metric). Under §5.3 the bare 400 mm median sits at ~0.16–0.17
+and the Z TC chains at 0.18–0.19 median, so the §11b "median advantage
+is only 5–10 %, a closer call than the top-based headline" conclusion
+holds on the typical-frame statistic. The flier / top-vs-median
+structure in §11a is largely metric-invariant: the same cells remain
+fliers, with the per-cell `top_vs_median` ratios slightly compressed
+(the old metric's 0.20 ceiling has been removed, so tops and medians
+sit closer together for the Z 100-400 family)._
 
 The v2 cross-date analysis pools all ISO variants and all replicates
 per (lens, FL, aperture, position) and reports five statistics:
@@ -602,17 +555,17 @@ frame". Concrete examples from the v2 data:
 
 | Combo | Date | F# | top | median | top_vs_median | Read |
 |---|---|---|---|---|---|---|
-| 300 PF bare | 2026-01-28 | f/4 | 0.47 | 0.37 | **1.28** | Flier — typical is 0.37 |
-| 300 PF bare | 2026-01-28 | f/8 | 0.53 | 0.43 | **1.23** | Flier — typical is 0.43 |
-| 300 PF bare | 2026-01-28 | f/11 | 0.43 | 0.41 | 1.04 | Robust — typical = top |
-| 300 PF + TC-20e III | 2026-01-28 | f/11 | 0.48 | 0.34 | **1.40** | Heavy flier — typical is 0.34, far less impressive |
-| 300 PF + TC-20e III | 2026-01-18 | f/11 | 0.37 | 0.36 | 1.05 | Robust at lower value |
-| 300 PF + TC-14e III | 2026-01-30 | f/16 | 0.47 | 0.39 | 1.18 | Slight flier — typical is 0.39 |
-| 300 PF + TC-14e III | 2026-01-30 | f/11 | 0.44 | 0.43 | 1.03 | Robust |
-| Z 100-400 + Z TC-2.0× | 2026-01-28 | f/11 | 0.24 | 0.21 | 1.12 | Slight flier — typical is 0.21 |
-| Z 100-400 + Z TC-2.0× | 2026-01-30 | f/11 | 0.22 | 0.21 | 1.04 | Robust |
-| Z 100-400 + Z TC-1.4× | 2026-01-30 | f/16 | 0.25 | 0.22 | 1.14 | Slight flier — typical is 0.22 |
-| Z 100-400 bare | (all dates) | f/8-f/11 | 0.20 | 0.20 | 1.00 | Robust everywhere |
+| 300 PF bare | 2026-01-28 | f/4 | 0.36 | 0.30 | **1.22** | Flier — typical is 0.30 |
+| 300 PF bare | 2026-01-28 | f/8 | 0.43 | 0.38 | **1.12** | Slight flier — typical is 0.38 |
+| 300 PF bare | 2026-01-28 | f/11 | 0.37 | 0.35 | 1.04 | Robust — typical ≈ top |
+| 300 PF + TC-20e III | 2026-01-28 | f/11 | 0.38 | 0.29 | **1.28** | Heavy flier — typical is 0.29, far less impressive |
+| 300 PF + TC-20e III | 2026-01-18 | f/11 | 0.29 | 0.28 | 1.03 | Robust at lower value |
+| 300 PF + TC-14e III | 2026-01-30 | f/16 | 0.41 | 0.36 | 1.15 | Slight flier — typical is 0.36 |
+| 300 PF + TC-14e III | 2026-01-30 | f/11 | 0.39 | 0.38 | 1.02 | Robust |
+| Z 100-400 + Z TC-2.0× | 2026-01-28 | f/11 | 0.20 | 0.19 | 1.05 | Robust — typical is 0.19 |
+| Z 100-400 + Z TC-2.0× | 2026-01-30 | f/11 | 0.19 | 0.17 | 1.10 | Slight flier — typical is 0.17 |
+| Z 100-400 + Z TC-1.4× | 2026-01-30 | f/16 | 0.21 | 0.18 | 1.15 | Slight flier — typical is 0.18 |
+| Z 100-400 bare | (all dates) | f/8-f/11 | 0.15–0.18 | 0.15–0.18 | ≈1.00 | Robust everywhere |
 
 ### 11b. Updated TC vs bare-cropped headline (using median, the typical reading)
 
@@ -622,11 +575,11 @@ advantage over bare-cropped:
 
 | Combo | f_eff | F# | top | median | top vs bare-cropped | median vs bare-cropped |
 |---|---|---|---|---|---|---|
-| Bare 100-400 @ 400 mm | 400 | f/11 | 0.20 | 0.20 | (ref) | (ref) |
-| Bare 100-400 @ 400 mm cropped to 560-eff framing | 560 | — | 0.20 | 0.20 | (ref) | (ref) |
-| + Z TC-1.4× @ 560 mm | 560 | f/11 | 0.21–0.23 | 0.20–0.22 | +5–15 % | **0–10 %** |
-| + Z TC-1.4× @ 560 mm | 560 | f/16 | 0.22–0.25 | 0.21–0.22 | +10–25 % | **+5–10 %** |
-| + Z TC-2.0× @ 800 mm | 800 | f/11 | 0.22–0.24 | 0.21–0.22 | +10–20 % | **+5–10 %** |
+| Bare 100-400 @ 400 mm | 400 | f/11 | 0.15–0.18 | 0.15–0.17 | (ref) | (ref) |
+| Bare 100-400 @ 400 mm cropped to 560-eff framing | 560 | — | 0.15–0.18 | 0.15–0.17 | (ref) | (ref) |
+| + Z TC-1.4× @ 560 mm | 560 | f/11 | 0.18–0.20 | 0.18–0.19 | +5–15 % | **+5–10 %** |
+| + Z TC-1.4× @ 560 mm | 560 | f/16 | 0.18–0.21 | 0.18 | +10–25 % | **+5–10 %** |
+| + Z TC-2.0× @ 800 mm | 800 | f/11 | 0.19–0.20 | 0.17–0.19 | +10–20 % | **+5–10 %** |
 
 **Honest read**: the Z TCs deliver *up to* +15–20 % subject resolution
 when AF lands on the sharpest available branch and the burst caught a
@@ -635,10 +588,14 @@ advantage is **5–10 %** — small but consistent across dates. Cropping
 the bare 400 mm shot is therefore a closer call than the v1 headline
 "+10 % / +15 %" suggested.
 
-The Z TC-2.0× sometimes hits `top` = 0.24 (on 2026-01-28 at f/11) but
-`tvm` = 1.12 — that 0.24 was a lucky-burst frame, not a typical
-delivery. Most replicates of that combo are at 0.21 (median), which is
-basically the bare-cropped ceiling.
+The Z TC-2.0× sometimes hits `top` = 0.20 (on 2026-01-28 at f/11) but
+its median is 0.19 (`tvm` = 1.05); on 2026-01-30 the median drops to
+0.17. Most replicates of that combo sit at 0.17–0.19 (median), only
+marginally above the bare-cropped ceiling. (Note: the cross-family-
+edges single-day measurement in §6a/§7 picks a higher 0.28 centre via
+its best-tile-in-box methodology; this cross-date table uses the
+consensus-tile median, which is the more conservative typical-frame
+number.)
 
 ### 11c. Sharpest-of-ISO mostly didn't move the needle
 
