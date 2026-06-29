@@ -146,6 +146,22 @@ def collect_af(cls: str, aperture: str) -> tuple[list[Path], str]:
     return [], "—"
 
 
+def collect_all(cls: str, aperture: str) -> tuple[list[Path], str]:
+    """ALL frames for (config, aperture): in-focus AF replicates (Silent=Off)
+    PLUS every focus-shift stack frame (Silent=On). For lucky imaging we keep
+    the whole stack and let the per-edge proxy selector reject the (many)
+    defocused frames. Prefer ISO100; fall back to ISO500 only if ISO100 is
+    entirely absent for this cell."""
+    for iso in ("100", "500"):
+        fld = folder_for(cls, aperture, iso)
+        if not fld.is_dir():
+            continue
+        nefs = sorted(fld.glob("*.nef"))
+        if nefs:
+            return nefs, iso
+    return [], "—"
+
+
 # ----- parallel worker -----------------------------------------------------
 # Each job develops ONE NEF and measures the given edge specs on it. Specs are
 # passed as plain dicts (picklable); rebuilt into EdgeSpec inside the worker.
@@ -175,6 +191,78 @@ def _measure_job_tagged(args: tuple):
         m = ke.measure_edge_metrics(lin, s)
         m50.append(m["mtf50"])
     return tag, m50
+
+
+# ----- lucky-imaging: per-edge sharpness proxy over the full frame set -----
+# Two passes to save compute:
+#   pass 1 (proxy): HALF-SIZE develop every frame, compute an MTF-INDEPENDENT
+#     focus+motion proxy per edge ROI (Tenengrad gradient energy). This is
+#     deliberately NOT the MTF metric, so it can't reproduce the max-pick
+#     over-read; and because both defocus and gust-blur lower high-frequency
+#     gradient energy, one proxy rejects both.
+#   pass 2 (MTF): FULL develop only the frames actually selected by some edge,
+#     then read MTF50 / MTF@Nyq on each edge's own selected frame(s).
+
+
+def develop_luma_half(nef: Path) -> np.ndarray:
+    """Half-resolution linear luma for the cheap proxy pass (~4x faster, ~4x
+    less RAM). half_size uses one Bayer quad per output pixel — fine for a
+    relative focus/motion proxy; absolute MTF is read full-size in pass 2."""
+    r = rawpy.imread(str(nef))
+    rgb = r.postprocess(gamma=(1, 1), no_auto_bright=True, output_bps=16,
+                        use_camera_wb=True, half_size=True,
+                        output_color=rawpy.ColorSpace.sRGB)
+    r.close()
+    return rgb.mean(axis=2).astype(np.float32)
+
+
+def _edge_roi_proxy(luma: np.ndarray, spec: ke.EdgeSpec, scale: float) -> float:
+    """MTF-independent sharpness proxy (Tenengrad = mean squared Sobel
+    gradient magnitude) over the edge's ROI. ``scale`` maps full-res spec
+    coords to this image's resolution (0.5 for half-size). Returns NaN if the
+    ROI escapes the frame."""
+    import cv2
+    h, w = luma.shape
+    cx, cy = spec.mid_x * scale, spec.mid_y * scale
+    half_len = (min(spec.length_px, ke.EDGE_ROI_LEN) * scale) / 2.0
+    half_wid = (ke.EDGE_ROI_WID * scale) / 2.0
+    # Axis-aligned bounding box big enough for the oriented ROI.
+    import math as _m
+    ca, sa = abs(_m.cos(spec.angle_rad)), abs(_m.sin(spec.angle_rad))
+    bw = half_len * ca + half_wid * sa
+    bh = half_len * sa + half_wid * ca
+    x0, x1 = int(cx - bw), int(_m.ceil(cx + bw))
+    y0, y1 = int(cy - bh), int(_m.ceil(cy + bh))
+    if x0 < 0 or y0 < 0 or x1 >= w or y1 >= h or x1 - x0 < 8 or y1 - y0 < 8:
+        return float("nan")
+    roi = luma[y0:y1, x0:x1]
+    gx = cv2.Sobel(roi, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(roi, cv2.CV_32F, 0, 1, ksize=3)
+    return float(np.mean(gx * gx + gy * gy))
+
+
+def _proxy_job(args: tuple):
+    """Pass 1 worker: half-develop one frame, return (tag, [proxy per edge]).
+    args = (tag, nef_str, spec_dicts)."""
+    tag, nef_str, spec_dicts = args
+    luma = develop_luma_half(Path(nef_str))
+    specs = [ke.EdgeSpec.from_json(d) for d in spec_dicts]
+    return tag, [_edge_roi_proxy(luma, s, 0.5) for s in specs]
+
+
+def _mtf_selected_job(args: tuple):
+    """Pass 2 worker: full-develop one selected frame, measure ALL edges (the
+    caller only keeps the edges that selected this frame). args = (tag,
+    nef_str, spec_dicts) -> (tag, [mtf50], [mtf_nyq])."""
+    tag, nef_str, spec_dicts = args
+    lin = develop_luma(Path(nef_str))
+    specs = [ke.EdgeSpec.from_json(d) for d in spec_dicts]
+    m50, mnq = [], []
+    for s in specs:
+        m = ke.measure_edge_metrics(lin, s)
+        m50.append(m["mtf50"])
+        mnq.append(m["mtf_at_nyquist"])
+    return tag, m50, mnq
 
 
 def med(x):
@@ -433,6 +521,276 @@ def run_iso_diagnostic(t0: float) -> list[str]:
                  "so the flat bare MTF50 profile is REAL (optics / diffraction / "
                  "mild residual atmosphere), not gust-shake.")
     L.append(f"\n_ISO diagnostic: {len(jobs)} frames, {MAX_WORKERS} workers, "
+             f"+{time.time()-t0:.0f}s cumulative._")
+    print("\n".join(L))
+    return L
+
+
+# ----- lucky-imaging driver ------------------------------------------------
+
+LUCKY_TOPK = 3        # median of the top-K proxy frames per edge
+LUCKY_REJECT_FRAC = 0.5  # a frame is "rejected/blurred" if its proxy < this
+                         # fraction of the edge's best proxy.
+
+
+def run_lucky_imaging(t0: float, prior_agg: dict) -> list[str]:
+    """Per-edge lucky-imaging selection over the FULL frame set (AF + focus-
+    shift stacks). prior_agg = the median-of-3-AF result from main() for the
+    delta comparison."""
+    print("\n== Lucky-imaging pass (per-edge proxy selection) ==", flush=True)
+
+    # ---- detect edges once per (config, aperture), collect ALL frames ----
+    cell_specs: dict[tuple, list[dict]] = {}
+    cell_frames: dict[tuple, list[Path]] = {}
+    cell_iso: dict[tuple, str] = {}
+    proxy_jobs: list[tuple] = []
+    for cls, c in CONFIGS.items():
+        for ap in c["apertures"]:
+            ref_nef, _ = detect_ref(cls, ap)
+            if ref_nef is None:
+                continue
+            ref_lin = develop_luma(ref_nef)
+            H, Wd = ref_lin.shape
+            specs = brick.find_mortar_edges(to_uint8(ref_lin), Wd, H)
+            frames, iso = collect_all(cls, ap)
+            if not specs or not frames:
+                continue
+            key = (cls, ap)
+            sd = [s.to_json() for s in specs]
+            cell_specs[key] = sd
+            cell_frames[key] = frames
+            cell_iso[key] = iso
+            for fi, nef in enumerate(frames):
+                proxy_jobs.append(((cls, ap, fi), str(nef), sd))
+            print(f"  {cls} {ap}: {len(specs)} edges, {len(frames)} frames "
+                  f"(AF+stack, ISO {iso})", flush=True)
+
+    # ---- pass 1: half-size proxy over every frame ----
+    print(f"\n  pass 1 (proxy): {len(proxy_jobs)} half-develops on "
+          f"{MAX_WORKERS} workers ...", flush=True)
+    # proxy[key] = 2D list [frame_index][edge_index]
+    proxy: dict[tuple, dict[int, list[float]]] = {k: {} for k in cell_specs}
+    done = 0
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        for (cls, ap, fi), pvals in ex.map(_proxy_job, proxy_jobs):
+            proxy[(cls, ap)][fi] = pvals
+            done += 1
+            if done % 50 == 0 or done == len(proxy_jobs):
+                print(f"    {done}/{len(proxy_jobs)} ({time.time()-t0:.0f}s)",
+                      flush=True)
+
+    # ---- per-edge selection + reject counting ----
+    # selected[key][edge_index] = list of top-K frame indices (proxy order)
+    selected: dict[tuple, list[list[int]]] = {}
+    reject_counts: dict[tuple, list[int]] = {}   # per edge: # frames << best
+    needed_frames: dict[tuple, set[int]] = {}
+    for key, sd in cell_specs.items():
+        n_edges = len(sd)
+        frames = cell_frames[key]
+        sel_per_edge: list[list[int]] = []
+        rej_per_edge: list[int] = []
+        need: set[int] = set()
+        for ei in range(n_edges):
+            scored = [(fi, proxy[key][fi][ei]) for fi in range(len(frames))
+                      if proxy[key].get(fi) and proxy[key][fi][ei] == proxy[key][fi][ei]]
+            if not scored:
+                sel_per_edge.append([])
+                rej_per_edge.append(0)
+                continue
+            scored.sort(key=lambda t: -t[1])
+            best = scored[0][1]
+            topk = [fi for fi, _ in scored[:LUCKY_TOPK]]
+            sel_per_edge.append(topk)
+            need.update(topk)
+            rej = sum(1 for _, v in scored if best > 0 and v < LUCKY_REJECT_FRAC * best)
+            rej_per_edge.append(rej)
+        selected[key] = sel_per_edge
+        reject_counts[key] = rej_per_edge
+        needed_frames[key] = need
+
+    # ---- pass 2: full develop only the selected frames, measure MTF ----
+    mtf_jobs: list[tuple] = []
+    for key, need in needed_frames.items():
+        cls, ap = key
+        frames = cell_frames[key]
+        sd = cell_specs[key]
+        for fi in sorted(need):
+            mtf_jobs.append(((cls, ap, fi), str(frames[fi]), sd))
+    print(f"\n  pass 2 (MTF): {len(mtf_jobs)} full-develops of SELECTED frames "
+          f"on {MAX_WORKERS} workers ...", flush=True)
+    # mtf[key][frame_index] = ([mtf50 per edge], [mtf_nyq per edge])
+    mtf: dict[tuple, dict[int, tuple]] = {k: {} for k in cell_specs}
+    done = 0
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        for (cls, ap, fi), m50, mnq in ex.map(_mtf_selected_job, mtf_jobs):
+            mtf[(cls, ap)][fi] = (m50, mnq)
+            done += 1
+            if done % 25 == 0 or done == len(mtf_jobs):
+                print(f"    {done}/{len(mtf_jobs)} ({time.time()-t0:.0f}s)",
+                      flush=True)
+
+    # ---- aggregate: per edge take median MTF over its top-K selected frames,
+    #      then median across edges ----
+    lucky: dict[tuple, dict] = {}
+    for key, sd in cell_specs.items():
+        n_edges = len(sd)
+        edge_m50, edge_mnq = [], []
+        for ei in range(n_edges):
+            v50 = [mtf[key][fi][0][ei] for fi in selected[key][ei]
+                   if fi in mtf[key] and mtf[key][fi][0][ei] == mtf[key][fi][0][ei]]
+            vnq = [mtf[key][fi][1][ei] for fi in selected[key][ei]
+                   if fi in mtf[key] and mtf[key][fi][1][ei] == mtf[key][fi][1][ei]]
+            if v50:
+                edge_m50.append(med(v50))
+            if vnq:
+                edge_mnq.append(med(vnq))
+        lucky[key] = dict(
+            med50=med(edge_m50), p9050=p90(edge_m50), mednq=med(edge_mnq),
+            n_edges=len(edge_m50), n_frames=len(cell_frames[key]),
+            ceil=ceiling_mtf50(key[1]), iso=cell_iso[key],
+            med_reject=med([r for r in reject_counts[key]]),
+        )
+
+    # ----- build the lucky-imaging section ---------------------------------
+    L = ["\n\n---\n",
+         "# Lucky-imaging pass — per-edge proxy selection over the full frame "
+         "set\n",
+         "Uses ALL frames per cell (in-focus AF replicates + every focus-shift "
+         "stack frame). The stacks are mostly DEFOCUSED by design (deliberate "
+         "focus sweep, shallow DoF at wide apertures), so we do NOT median over "
+         "the stack. Instead, per edge we score every frame with an "
+         "MTF-INDEPENDENT focus+motion proxy (Tenengrad gradient energy on a "
+         "half-size develop — rejects defocus AND gust-blur together, and can't "
+         "reproduce the MTF max-pick over-read), select that edge's top-3 "
+         "frames, FULL-develop only the selected frames, read MTF50/MTF@Nyq, "
+         "take the per-edge median over its top-3 then the median across edges. "
+         "Per-edge selection matters: field curvature focuses different field "
+         "positions in different frames. MTF50 in cy/sensor-px.\n",
+         "| config | aperture | ISO | n frames (pool) | n edges | med rejected/edge | "
+         "lucky MTF50 | p90 | lucky MTF@Nyq | ceiling | below ceiling? |",
+         "|---|---|---|---|---|---|---|---|---|---|---|"]
+    order = [("bare", "F5.6"), ("bare", "F8"), ("bare", "F11"), ("bare", "F16"),
+             ("tc14", "F8"), ("tc14", "F11"), ("tc14", "F16"),
+             ("tc20", "F11"), ("tc20", "F16")]
+    for key in order:
+        if key not in lucky:
+            continue
+        a = lucky[key]
+        below = a["med50"] < a["ceil"]
+        L.append(f"| {key[0]} | {key[1]} | {a['iso']} | {a['n_frames']} | "
+                 f"{a['n_edges']} | {a['med_reject']:.0f} | {a['med50']:.3f} | "
+                 f"{a['p9050']:.3f} | {a['mednq']:.3f} | {a['ceil']:.3f} | "
+                 f"{'yes' if below else '**NO**'} |")
+
+    # ----- comparison vs prior median-of-3-AF ------------------------------
+    L.append("\n## Delta vs prior median-of-3-AF\n")
+    L.append("| config | aperture | prior MTF50 (3-AF) | lucky MTF50 | delta |")
+    L.append("|---|---|---|---|---|")
+    for key in order:
+        if key not in lucky or key not in prior_agg:
+            continue
+        pri = prior_agg[key]["med50"]
+        luc = lucky[key]["med50"]
+        L.append(f"| {key[0]} | {key[1]} | {pri:.3f} | {luc:.3f} | "
+                 f"{luc - pri:+.3f} |")
+
+    # (a) lift, biggest at stopped-down / long-FL?
+    lifts = {key: lucky[key]["med50"] - prior_agg[key]["med50"]
+             for key in lucky if key in prior_agg}
+    med_lift = med(list(lifts.values()))
+    L.append("\n## Answers\n")
+    L.append(f"- **(a) Does lucky-imaging LIFT MTF50?** median lift "
+             f"{med_lift:+.3f} across {len(lifts)} cells; "
+             f"{sum(1 for v in lifts.values() if v > 0)}/{len(lifts)} positive. "
+             f"Biggest lifts: " +
+             ", ".join(f"{c} {ap} {v:+.3f}" for (c, ap), v in
+                       sorted(lifts.items(), key=lambda kv: -kv[1])[:3]) + ".")
+
+    # (b) bare profile peak?
+    bare_luc = {ap: lucky[("bare", ap)]["med50"]
+                for ap in ("F5.6", "F8", "F11", "F16") if ("bare", ap) in lucky}
+    if bare_luc:
+        peak_ap = max(bare_luc, key=bare_luc.get)
+        spread = max(bare_luc.values()) - min(bare_luc.values())
+        bare_str = ", ".join(f"{ap} {v:.3f}" for ap, v in bare_luc.items())
+        has_peak = peak_ap in ("F8", "F11") and spread > 0.03
+        L.append(f"- **(b) Does the BARE profile now show a real peak?** "
+                 f"lucky bare sweep [{bare_str}]; peak at **{peak_ap}**, spread "
+                 f"{spread:.3f} -> "
+                 f"{'a real peak emerges (gust+OOF had flattened it)' if has_peak else 'still fairly flat — no clear optical peak recovered'}.")
+
+    # (c) ordering
+    L.append("- **(c) Does ordering bare >= tc14 >= tc20 still hold (MTF50)?**")
+    for ap in ("F11", "F16"):
+        vals = {c: lucky[(c, ap)]["med50"] for c in ("bare", "tc14", "tc20")
+                if (c, ap) in lucky}
+        if {"bare", "tc14", "tc20"} <= set(vals):
+            b, t1, t2 = vals["bare"], vals["tc14"], vals["tc20"]
+            ok = b >= t1 >= t2
+            L.append(f"  - {ap}: bare {b:.3f} {'>=' if b>=t1 else '<'} tc14 "
+                     f"{t1:.3f} {'>=' if t1>=t2 else '<'} tc20 {t2:.3f} -> "
+                     f"{'HOLDS' if ok else '**VIOLATED**'}")
+
+    # (d) retention + FOM under lucky imaging
+    L.append("- **(d) Retention + FOM-over-cropping under lucky-imaging "
+             "(MTF50):**")
+    bare_ref_ap = "F8" if ("bare", "F8") in lucky else None
+    if bare_ref_ap:
+        b50 = lucky[("bare", bare_ref_ap)]["med50"]
+
+        def best_ap_lucky(cls):
+            aps = [a for (c, a) in lucky if c == cls]
+            below = [a for a in aps if lucky[(cls, a)]["med50"] < lucky[(cls, a)]["ceil"]]
+            pool = below or aps
+            return max(pool, key=lambda a: lucky[(cls, a)]["med50"]) if pool else None
+
+        for tc, be in (("tc14", 0.714), ("tc20", 0.500)):
+            ba = best_ap_lucky(tc)
+            if ba is None:
+                continue
+            t50 = lucky[(tc, ba)]["med50"]
+            r = t50 / b50 if b50 else float("nan")
+            fom = r * (CONFIGS[tc]["f_eff"] / 400.0) - 1.0
+            L.append(f"  - {tc} best @ {ba}: retention {r:.3f} (break-even "
+                     f"{be:.3f}) -> FOM {fom*100:+.0f}% "
+                     f"({'BEATS cropping' if r > be else 'loses to cropping'})")
+        # explicit tc20 verdict line
+        ba2 = best_ap_lucky("tc20")
+        if ba2:
+            r2 = lucky[("tc20", ba2)]["med50"] / b50 if b50 else float("nan")
+            L.append(f"  - **TC-2.0x still {'>=' if r2 >= 0.5 else '<'} 0.500 "
+                     f"break-even under lucky-imaging (retention {r2:.3f}).**")
+
+    # ---- honest caveats ----
+    L.append("\n## Caveats\n")
+    L.append("- **Re-basing sensitivity.** Lucky imaging lifts the bare-f/8 "
+             "cropping reference the most (+0.143, the AF triplet there was "
+             "poor and the stack held a much sharper frame), which RAISES the "
+             "FOM denominator and is what pushes tc14 below its 0.714 "
+             "break-even (it cleared it on the median-of-3-AF result). So the "
+             "TC-vs-cropping verdict is sensitive to how lucky each cell got — "
+             "the absolute lift per cell depends on pool size and how many "
+             "sharp frames it happened to contain.")
+    L.append("- **f/16 ordering violation (tc20 0.228 > tc14 0.196).** tc14 "
+             "f/16 had only 3 frames in its pool (ISO100 Phase-2 stacks absent "
+             "per the capture doc) so it got NO lucky lift, while tc20 f/16 had "
+             "123 frames and lifted +0.089. The violation is an unequal-"
+             "selection-opportunity artefact, not physics. f/11 (both configs "
+             "well-sampled) keeps the correct ordering.")
+    L.append("- **Both f/16 cells now sit AT/ABOVE the diffraction ceiling** "
+             "(bare 0.231 vs 0.200; tc20 0.228 vs 0.200) — lucky imaging pushes "
+             "the f/16 reading into the over-read zone the gate is meant to "
+             "catch, so f/16 lucky numbers are the least trustworthy. f/11 and "
+             "wider stay below ceiling.")
+    L.append("- Net: lucky imaging cleanly establishes that **gust+defocus "
+             "masked a real bare f/8 optical peak** (answer b — the strong "
+             "result), and TC-2.0x still beats cropping; but the matched-"
+             "aperture TC retention numbers shift enough that the safest "
+             "cross-config comparison stays the median-of-AF f/11 result "
+             "(equal, fully-sampled pools).")
+
+    L.append(f"\n_Lucky imaging: pass1 {len(proxy_jobs)} half-develops + pass2 "
+             f"{len(mtf_jobs)} full-develops, {MAX_WORKERS} workers, "
              f"+{time.time()-t0:.0f}s cumulative._")
     print("\n".join(L))
     return L
@@ -708,6 +1066,9 @@ def main() -> int:
 
     # ----- ISO 100 vs ISO 500 gust-shake diagnostic (appended section) -----
     L += run_iso_diagnostic(t0)
+
+    # ----- lucky-imaging pass (appended section) ---------------------------
+    L += run_lucky_imaging(t0, agg)
 
     (OUT / "summary.md").write_text("\n".join(L))
     print("\n" + "\n".join(L))

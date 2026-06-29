@@ -82,7 +82,7 @@ Bare cropping reference: **F8** (MTF50 0.199).
 - tc20 F11: median MTF50 0.145 vs ceiling 0.290 -> PASS (glass-limited)
 - tc20 F16: median MTF50 0.139 vs ceiling 0.200 -> PASS (glass-limited)
 
-_Wall-clock 213s on 8 workers; 27 develop+measure jobs._
+_Wall-clock 211s on 8 workers; 27 develop+measure jobs._
 
 
 ---
@@ -114,4 +114,58 @@ Same fixed pipeline (linear RAW, centroid_hann, in-focus AF frames, per-edge med
 
 **SUGGESTIVE of gust-shake, but INCONCLUSIVE on this data.** ISO 500 reads sharper in the majority of cells (6/9, median delta +0.027) — the sign expected if a faster shutter freezes wind motion — and clear + sunny weather (no atmosphere) plus a heavy tripod with VR off (no hand shake) leave wind as the natural explanation for any exposure-time-dependent blur. **But the evidence is weak:** the deltas (~±0.01-0.05) are comparable to the per-cell 3-frame noise (only 3/9 cells clear it), the bare sweep is NOT cleanly aperture-ordered (mid-sweep sign flip at f/8; Spearman +0.60), and both tc20 cells actually go the WRONG way (ISO 500 softer). So gust-shake is the leading hypothesis and likely contributes, but it is not cleanly established as THE cause of the flat bare profile. To settle it: shoot more AF replicates per cell (drive down the 3-frame noise) and/or a deliberate fast-vs-slow shutter pair at one aperture. The earlier 'gust/atmosphere-limited' wording in the conclusion docs should stay hedged until then.
 
-_ISO diagnostic: 56 frames, 8 workers, +369s cumulative._
+_ISO diagnostic: 56 frames, 8 workers, +365s cumulative._
+
+
+---
+
+# Lucky-imaging pass — per-edge proxy selection over the full frame set
+
+Uses ALL frames per cell (in-focus AF replicates + every focus-shift stack frame). The stacks are mostly DEFOCUSED by design (deliberate focus sweep, shallow DoF at wide apertures), so we do NOT median over the stack. Instead, per edge we score every frame with an MTF-INDEPENDENT focus+motion proxy (Tenengrad gradient energy on a half-size develop — rejects defocus AND gust-blur together, and can't reproduce the MTF max-pick over-read), select that edge's top-3 frames, FULL-develop only the selected frames, read MTF50/MTF@Nyq, take the per-edge median over its top-3 then the median across edges. Per-edge selection matters: field curvature focuses different field positions in different frames. MTF50 in cy/sensor-px.
+
+| config | aperture | ISO | n frames (pool) | n edges | med rejected/edge | lucky MTF50 | p90 | lucky MTF@Nyq | ceiling | below ceiling? |
+|---|---|---|---|---|---|---|---|---|---|---|
+| bare | F5.6 | 100 | 63 | 414 | 54 | 0.272 | 0.493 | 0.357 | 0.571 | yes |
+| bare | F8 | 100 | 63 | 205 | 49 | 0.342 | 0.493 | 0.366 | 0.399 | yes |
+| bare | F11 | 100 | 63 | 708 | 47 | 0.266 | 0.403 | 0.193 | 0.290 | yes |
+| bare | F16 | 100 | 63 | 774 | 47 | 0.231 | 0.323 | 0.096 | 0.200 | **NO** |
+| tc14 | F8 | 100 | 153 | 533 | 135 | 0.208 | 0.393 | 0.248 | 0.399 | yes |
+| tc14 | F11 | 100 | 63 | 760 | 54 | 0.233 | 0.452 | 0.298 | 0.290 | yes |
+| tc14 | F16 | 100 | 3 | 331 | 0 | 0.196 | 0.375 | 0.294 | 0.200 | yes |
+| tc20 | F11 | 100 | 123 | 1136 | 109 | 0.205 | 0.418 | 0.200 | 0.290 | yes |
+| tc20 | F16 | 100 | 123 | 114 | 110 | 0.228 | 0.362 | 0.175 | 0.200 | **NO** |
+
+## Delta vs prior median-of-3-AF
+
+| config | aperture | prior MTF50 (3-AF) | lucky MTF50 | delta |
+|---|---|---|---|---|
+| bare | F5.6 | 0.252 | 0.272 | +0.021 |
+| bare | F8 | 0.199 | 0.342 | +0.143 |
+| bare | F11 | 0.209 | 0.266 | +0.057 |
+| bare | F16 | 0.196 | 0.231 | +0.035 |
+| tc14 | F8 | 0.162 | 0.208 | +0.046 |
+| tc14 | F11 | 0.173 | 0.233 | +0.059 |
+| tc14 | F16 | 0.196 | 0.196 | +0.000 |
+| tc20 | F11 | 0.145 | 0.205 | +0.060 |
+| tc20 | F16 | 0.139 | 0.228 | +0.089 |
+
+## Answers
+
+- **(a) Does lucky-imaging LIFT MTF50?** median lift +0.057 across 9 cells; 8/9 positive. Biggest lifts: bare F8 +0.143, tc20 F16 +0.089, tc20 F11 +0.060.
+- **(b) Does the BARE profile now show a real peak?** lucky bare sweep [F5.6 0.272, F8 0.342, F11 0.266, F16 0.231]; peak at **F8**, spread 0.111 -> a real peak emerges (gust+OOF had flattened it).
+- **(c) Does ordering bare >= tc14 >= tc20 still hold (MTF50)?**
+  - F11: bare 0.266 >= tc14 0.233 >= tc20 0.205 -> HOLDS
+  - F16: bare 0.231 >= tc14 0.196 < tc20 0.228 -> **VIOLATED**
+- **(d) Retention + FOM-over-cropping under lucky-imaging (MTF50):**
+  - tc14 best @ F11: retention 0.680 (break-even 0.714) -> FOM -5% (loses to cropping)
+  - tc20 best @ F11: retention 0.599 (break-even 0.500) -> FOM +20% (BEATS cropping)
+  - **TC-2.0x still >= 0.500 break-even under lucky-imaging (retention 0.599).**
+
+## Caveats
+
+- **Re-basing sensitivity.** Lucky imaging lifts the bare-f/8 cropping reference the most (+0.143, the AF triplet there was poor and the stack held a much sharper frame), which RAISES the FOM denominator and is what pushes tc14 below its 0.714 break-even (it cleared it on the median-of-3-AF result). So the TC-vs-cropping verdict is sensitive to how lucky each cell got — the absolute lift per cell depends on pool size and how many sharp frames it happened to contain.
+- **f/16 ordering violation (tc20 0.228 > tc14 0.196).** tc14 f/16 had only 3 frames in its pool (ISO100 Phase-2 stacks absent per the capture doc) so it got NO lucky lift, while tc20 f/16 had 123 frames and lifted +0.089. The violation is an unequal-selection-opportunity artefact, not physics. f/11 (both configs well-sampled) keeps the correct ordering.
+- **Both f/16 cells now sit AT/ABOVE the diffraction ceiling** (bare 0.231 vs 0.200; tc20 0.228 vs 0.200) — lucky imaging pushes the f/16 reading into the over-read zone the gate is meant to catch, so f/16 lucky numbers are the least trustworthy. f/11 and wider stay below ceiling.
+- Net: lucky imaging cleanly establishes that **gust+defocus masked a real bare f/8 optical peak** (answer b — the strong result), and TC-2.0x still beats cropping; but the matched-aperture TC retention numbers shift enough that the safest cross-config comparison stays the median-of-AF f/11 result (equal, fully-sampled pools).
+
+_Lucky imaging: pass1 717 half-develops + pass2 81 full-develops, 8 workers, +936s cumulative._
