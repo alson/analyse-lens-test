@@ -92,10 +92,23 @@ morphological path fail (anchor RMSE ~6000px):
     4. register() allows 2 lines on an axis (>=6 correspondences total) — 3 rows is
        physically unattainable at M~2 for these stacks.
   RESULT: AF200+5T+6T, AF200+6T+5T, Sigma150+TC all 2:1 now register at M~2.03-2.07,
-  residual <5 px (were collapse/fail). Sigma105+TC 2:1 stays an HONEST failure
-  (interior 2-row/3-col FOV, two col & two row candidates, no edge/4D-bar to
-  disambiguate — correctly refused, not collapsed). See diag_highm_repro.py /
-  diag_highm_fovmap.py.
+  residual <5 px (were collapse/fail).
+
+  SAME-PHASE EQUIVALENCE (2026-06-29, REPORT_taskAD §K). Sigma105+TC 2:1 was the last
+  honest refusal: interior 2-row×3-col FOV, col_cands [2,6], row_cands [1,5], no wafer
+  edge and the 4D bar can't pick the column (its candidates are type-identical). But
+  [2,6] and [1,5] are the SAME super-cell phase (≡ mod 4), so they are MEASUREMENT-
+  EQUIVALENT — identical scale/M, identical die-type assignment, identical feature
+  geometry; they differ ONLY by a whole-super-cell shift of the affine origin (x0,y0),
+  which affects nothing measurable. The absolute repeat is genuinely unconstrained AND
+  irrelevant. _same_phase() detects this: when the residual ambiguity is purely
+  same-mod-4-phase with no edge, register() proceeds with the interior-most repeat and
+  flags abs_index_unresolved=True (method 'same-phase-equiv'), instead of refusing.
+  Verified: all four (col_first∈{2,6})×(row_first∈{1,5}) fits give identical
+  scale=3.265/M=1.973/residual; only x0/y0 shift by an integer super-cell. So
+  Sigma105+TC 2:1 now registers at M~2 like the others. Manual anchors remain the
+  fallback ONLY if the super-cell PHASE itself were ambiguous (it is not here). See
+  diag_highm_repro.py / diag_highm_fovmap.py / diag_sigma105_equiv.py.
 
 Run:  reg_auto.py            # autonomous registration of all sweeps + validation
       reg_auto.py --validate # just the mapping/label sanity probe
@@ -551,6 +564,20 @@ def _touches_edge(first, n, n_lines):
     return first == 0 or (first + n - 1) == (n_lines - 1)
 
 
+def _same_phase(cands):
+    """Are all candidate offsets the SAME super-cell phase (≡ mod 4)? Then they
+    are MEASUREMENT-EQUIVALENT: the die-type pattern (col%4 / row%4), the per-axis
+    pitches, hence scale/M and the whole feature geometry are identical; the
+    candidates differ ONLY by an integer number of 4-die super-cells, i.e. a whole
+    super-cell translation of the affine origin (x0,y0) — which changes nothing
+    measurable. When the residual ambiguity is purely same-phase AND no wafer edge
+    cuts a die to pin the absolute repeat, that absolute index is both unconstrained
+    and irrelevant, so register() proceeds (flagging abs_index_unresolved) rather
+    than refusing. (Sigma105+TC 2:1: interior 2-row×3-col FOV, col_cands [2,6],
+    row_cands [1,5] — both ≡ mod 4; REPORT_taskAD §I / §K.)"""
+    return len(cands) >= 1 and len({c % 4 for c in cands}) == 1
+
+
 def _phase_offset(positions, pitch4, wide_idx):
     """Given sorted line positions, return the phase p such that the leftmost
     line has index ≡ p (mod 4), using the wide pitch location."""
@@ -645,6 +672,10 @@ def register(name, det, anchors=None):
     def _interior(cands, n, n_lines):
         return [c for c in cands if not _touches_edge(c, n, n_lines)]
 
+    # abs_index_unresolved: set when an axis resolves only to a same-super-cell-phase
+    # equivalence class (measurement-equivalent; see _same_phase).
+    col_abs_unresolved = row_abs_unresolved = False
+
     # --- absolute ROW offset ---
     # PRIMARY: a detected 4D bar sits in die-row D; the row-line just BELOW it
     # (next-larger image-y) is row-line 3 => pins row_first. Works for interior
@@ -672,6 +703,13 @@ def register(name, det, anchors=None):
         intr = _interior(row_cands, len(row_y), N_ROW_LINES)
         if len(intr) == 1:
             row_first, row_method = intr[0], "interior-default"
+        elif _same_phase(row_cands):
+            # measurement-equivalent (same super-cell phase, no edge) — see column
+            # block / _same_phase. Pick the interior-most repeat, flag unresolved.
+            pick = intr if intr else row_cands
+            row_first = int(sorted(pick, key=lambda c: abs(c - (N_ROW_LINES - len(row_y)) / 2.0))[0])
+            row_method = f"same-phase-equiv{sorted(row_cands)}"
+            row_abs_unresolved = True
         elif row_cands:
             row_first, row_method = None, f"ambiguous{row_cands}"
 
@@ -697,13 +735,25 @@ def register(name, det, anchors=None):
                 intr = _interior(col_cands, len(col_x), N_COL_LINES)
                 if len(intr) == 1:
                     col_first, col_method = intr[0], "interior-default?"
+                elif _same_phase(col_cands):
+                    # MEASUREMENT-EQUIVALENT ambiguity: the remaining candidates are
+                    # all the same super-cell phase (no wafer edge cut a die to pin
+                    # the absolute repeat), so they give identical scale/M/types and
+                    # differ only by a whole-super-cell origin shift. Pick the
+                    # interior-most repeat and proceed, flagging the unresolved
+                    # absolute index (it is irrelevant to every measurement).
+                    pick = intr if intr else col_cands
+                    col_first = int(sorted(pick, key=lambda c: abs(c - (N_COL_LINES - len(col_x)) / 2.0))[0])
+                    col_method = f"same-phase-equiv{sorted(col_cands)}"
+                    col_abs_unresolved = True
                 elif col_cands:
                     col_first = None
                     col_method = col_method if col_method.startswith("frag") else f"ambiguous{col_cands}"
 
     res.update(col_candidates=col_cands, row_candidates=row_cands,
                col_first=col_first, col_method=col_method,
-               row_first=row_first, row_method=row_method)
+               row_first=row_first, row_method=row_method,
+               abs_index_unresolved=bool(col_abs_unresolved or row_abs_unresolved))
 
     if col_first is None or row_first is None:
         res["success"] = False
@@ -923,6 +973,10 @@ def register_and_refine(name, path=None, anchors=None, refine=True):
     p["reg_fit_rmse_px"] = p.get("rmse_px")
     p["reg_col_first"], p["reg_col_method"] = r["col_first"], r["col_method"]
     p["reg_row_first"], p["reg_row_method"] = r["row_first"], r["row_method"]
+    # measurement-equivalent absolute-index ambiguity (same super-cell phase, no
+    # edge): scale/M/die-types are pinned; only the absolute repeat (x0,y0 by a
+    # whole super-cell) is unresolved and irrelevant. Surface it for consumers.
+    p["abs_index_unresolved"] = bool(r.get("abs_index_unresolved"))
     return p
 
 
