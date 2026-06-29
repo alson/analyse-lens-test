@@ -551,3 +551,27 @@ macro** (head anchor). Existing data is exhausted. Metric suite stays: periodic-
 (spanning, relative) + diffraction ceiling; the handful of §J absolute points serve as
 an overlap cross-check, not a calibration. Artifacts: `diag_2b_intermediate_fov.{py,csv}`,
 `route2_intermediate_drive.py` + `route2_intermediate_results.csv`.
+
+## K. HANDOVER (2026-06-29e): open agent runs, recent findings, corrections, resume
+
+### K.1 Agents RUNNING on nufan (branches off `main`; collect + consolidate when done)
+1. **Controlled edge↔FFT cross-check + bare-vs-TC + 3 edge-asymmetry fixes** (agent a35028bc…).
+   Does, on the 6B-serpent configs (M≈1.0–1.27): (a) MATERIAL check — matte/mask vs metal via glint stats; (b) SAME-feature/SAME-frequency comparison — FFT contrast at the serpent pitch ÷ duty-cycle `k` → absolute MTF(f_serpent) vs the CLEANED edge's fitted MTF at the same f; (c) implements ALL THREE edge fixes — conservative/clean aggregation; the "rim model" REFRAMED for matte (no specular overshoot → handle genuine rising≠falling via per-edge best-focus + independent rising/falling fits + many-line averaging; diagnose whether the 1.66× split is feature-etch-profile / focus-gradient / detection bias); polarity/consistency side-selection; (d) CONTROLLED bare-vs-TC — Sigma105/150 + AF200 bare, + TC-1401, + TC-2001, k-normalised at a common subject frequency → is Sigma 105 intrinsically sharper or does it just tolerate TCs better than the 150?
+   EXPECTED OUTPUT: material verdict; per-config edge↔FFT agreement (consistent, or a named physical reason); whether cleaned-edge reconciles Sigma150+TC to the FFT order; bare-vs-TC ranking + intrinsic-vs-TC-tolerance verdict; calibration `k`; which mechanism drove the asymmetry.
+2. **Why Sigma 105 + TC-2001 @2:1 won't register** (agent a7d0a7d0…).
+   REDIRECTED: candidate labels col [2,6] / row [1,5] are the SAME mod-4 phase (2≡6, 1≡5) → with no edge die to anchor the absolute repeat, the two are MEASUREMENT-EQUIVALENT (identical M, die-types, geometry; only affine origin shifts). Fix = make `register()` recognise same-mod-4 absolute ambiguity as equivalent, pick either, flag `abs_index_unresolved=True`, verify M identical for col_first 2 vs 6. NOT die-type appearance matching (can't and needn't disambiguate identical types). Sharp test frame: `.../Sigma Macro 105mm F2.8 EX DG OS HSM + TC-2001/2_1/F11/15287|…|alm-20260204-202935-2917.jpg`.
+   EXPECTED OUTPUT: confirmed root cause + the equivalence fix → config registers at M≈2, unblocking the Sigma105+TC-2001 cell in the bare-vs-TC comparison.
+(The periodic-FFT 2:1 re-run already COMPLETED: `out_periodic_fft/rank_all.csv`, 39 configs incl. the three 2:1 at M≈2.04–2.07; dir is gitignored. The `periodic_rank_configs.csv` gained a Sigma150+TC-2001 2_1 row.)
+
+### K.2 Recent findings (post-§J)
+- **2B serpent is MATTE** (dielectric/mask/poly), NOT exposed metal (only the bond/solder pads are shiny). → clean diffuse edges; the earlier "specular rim" on 2/6 Sigma150+TC edges is almost certainly a SPURIOUS flag, not a glint.
+- The edge↔FFT "disagreement" (Sigma150+TC: edge-sharpest 38.7 vs FFT-softest) is **largely a COMPARISON ARTIFACT**: different observables (edge MTF50 vs FFT contrast-at-f0), different features/locations, un-normalised `k_feature`, plus edge directional asymmetry (rising 0.112 vs falling 0.186 cy/px). Being resolved by the §K.1 controlled study.
+- **Min serpent pitch for the edge ≈ 12 px** (Sigma105+TC 12px→4 edges; 70-180+Kenko 11.5px→0). The minimum SCALES WITH the lens's effective PSF (diffraction+aberration), so soft lenses need a larger pitch → the edge metric is **sharpness-selective** (explains the soft-config yield collapse). FFT has no such gate → better spanning metric.
+- The **1.4× TC / Kenko combos frame die 6B** (type (2,1), col 6) at M≈1.0 — the usable serpent instance (coarse ~12–15px). Same type at 2B(col2) is finer (~9px, rejected), 6F is a sparse band.
+
+### K.3 CORRECTIONS to earlier sections
+- **§I/§J "frame 2B at M≈2 with a sharp bare macro" is WRONG.** No bare macro reaches M=2 — all are 1:1 max (the 55mm Micros are 1:2). 2:1 is ALWAYS via a TC or stacked diopters. So: the M≈2 head/sharp anchor must be **macro + TC** (e.g. Sigma 150 + TC-2001); a true **bare-macro anchor exists only at ≤1:1**. A re-frame for the absolute-edge metric needs BOTH: a bare macro at 1:1 framing 2B (head, ~11px borderline) AND a macro+TC at 2:1 framing 2B (clean ~22px).
+- Scratch-based absolute-die ID is **NOT worth adding to the atlas**: measurement-irrelevant (same-mod-4 ambiguity → identical results) and fragile (damage evolves, lighting-dependent). Keep as a personal sanity check only.
+
+### K.4 Resume
+Collect the two §K.1 agent branches, merge into `main` (keep-everything; ff or file-level checkout, scope out longdist/rename WIP), run their report builders, and fold their verdicts into this report. Then the open questions (edge↔FFT consistency, 105-vs-150 sharpness vs TC-tolerance, Sigma105+TC-2001 registration) are answered. Metric suite remains: **periodic-FFT (spanning relative) + diffraction ceiling**; flat-edge absolute is a sharp-config complement gated by acquisition framing.
