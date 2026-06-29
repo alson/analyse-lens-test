@@ -7,33 +7,41 @@ Compute ran on nufan (16 cores) over the shared NFS path. Spanning subset = 16 c
 
 ## Executive summary (bottom line)
 
-A single **cross-magnification absolute** sharpness ranking is **not viable** on this
-wafer's existing data. Every avenue converged: fixed-subject-frequency contrast is
-M-confounded (corr(M,C)=+0.33/+0.78); fixed-sensor-frequency *relocates* the confound
-(corr ~0 only at a degenerate knife-edge); the harmonic-shape intrinsic-correction
-de-confounds numerically but the assumed square-wave/sinc(nD) model is wrong for these
-textured/specular cells (pad-tooth vs maze-tooth MTF disagree ~5× at the same f_px);
-the dark/light-pad cancellation hypothesis is refuted (cells are one population). For
-the methods tested, use within-M rankings + the diffraction ceiling + tolerance-ratios
-instead.
+**Verdict (caveats-first — see `../../LEADING_WITH_CAVEATS.md`):** a single
+**cross-magnification absolute** sharpness ranking is **negative under** the conditions
+tested — the periodic-comb / harmonic self-calibration estimator, the structured targets
+on this wafer, and the existing focus-stacked acquisitions. It is **not** proven
+impossible in general. **Not yet tested / what would reopen it:** (1) a linear
+**pre-processing** pass that removes *measurement-induced* instability (phase-aligned
+windowing, consistent cross-config focus criterion, flat-fielding, specular masking) —
+this doubles as the experiment that isolates whether the instability is measurement
+artifact vs genuine target variation [IN PROGRESS]; (2) a fundamentally different
+estimator (deconvolution; same-physical-patch cross-M registration); (3) a purpose-shot
+clean grating/edge chart (new acquisition) — the only guaranteed route. **For now**, use
+within-M rankings + the diffraction ceiling + tolerance-ratios (the §L approach that
+worked).
 
-**Caveat on the verdict — one credible rescue path is UNTESTED.** The harmonic-shape
-intrinsic-correction *did* de-confound M (corr→~0); it was rejected only because the
-assumed square-wave/sinc(nD) `T_n` produced invalid MTF (>1) and a 5× pad-vs-maze
-cross-structure disagreement. But that disagreement is most likely an artifact of
-applying ONE wrong (odd-only square-wave) `T_n` model to TWO genuinely different
-signals: pads and maze have different harmonic content, and the maze in particular
-skips/merges cycles → real EVEN-harmonic (N=2) content the odd-only model omits. So the
-5× is plausibly "wrong shared `T_n`," not "method dead." The untested fix: measure each
-structure's `T_n` EMPIRICALLY (in a regime where MTF≈1 — e.g. low-order harmonics at
-high M — or by self-calibration across M), ideally on the saturation channel (specular-
-suppressed). If that makes the cross-structure MTF agree while preserving the
-de-confounding, the cross-M chain may be viable after all. NOT yet attempted.
+**The avenues tested (each was reopened by a distinct buried assumption, then closed —
+see the case study in `../../LEADING_WITH_CAVEATS.md`):**
+1. Fixed-subject-frequency contrast → M-confounded (corr +0.33/+0.78).
+2. Fixed-sensor-frequency → *relocates* the confound (corr ~0 only at a degenerate
+   knife-edge that collapses to same-M).
+3. Empirical per-structure `T_n` (Stage T_n) → fixed the symptoms (maze even-harmonic
+   content CONFIRMED, T2/T1=0.31; MTF made physical) but no consistent `{T_n}`+MTF
+   collapse exists (residual 0.79 vs 0.38 floor).
+4. Whole-target survey (Stage Targets, all 53 atlas targets) → instability is
+   target-general, not pad-pattern-specific; the maze alone doesn't self-collapse (0.84).
+5. Feature-locking audit (Stage Relock) → a real mislocking bug WAS found (band floor +
+   wrong-axis "auto") and it inflated the prior residuals (re-anchored 0.79→0.64), but
+   correct anchoring did **not** revive cross-M (residual/floor ~1.46; maze unchanged).
 
-**Salvaged / banked:** (a) **A5** — the M-aware maze/band fix — was a real production
-bug (static band locks onto the maze at M≳1.5); promoted to production in commit
-`29a3a80`. (b) **Saturation / R−B** decode is a real, M-independent SNR win for these
-pad features (2–3× structural contrast vs luma, suppresses achromatic speculars).
+**Salvaged / banked (committed):** (a) **A5** M-aware maze/band fix (`29a3a80`).
+(b) **Fundamental-detection fix** — `discover_fundamental` was collapsing 2-D
+anisotropic lattices to one wrong axis + clipping the coarse grid; added per-axis
+`discover_fundamental_2d` + opt-in `PER_AXIS=1` in `atlas_periodic_fft`, byte-identical
+default, §L verdict unchanged, 184 tests (`25d9d43`). (c) **Saturation / R−B** decode is
+a real, M-independent SNR win for these pad features (2–3× structural contrast vs luma,
+suppresses achromatic speculars).
 
 ## Scripts index (each result references its script)
 
@@ -1043,6 +1051,42 @@ discovery is reused for *within-M* per-axis MTF. **Do NOT commit** (exploratory 
 - `poc_comb_chain_relock_b_analyse.py` — re-anchored cross-M self-cal collapse + ranking/cross-structure gates.
 - `poc_comb_chain_out/relock/phaseA_audit.csv` — per-region audit table (committed).
 - `poc_comb_chain_out/relock/phaseB_collapse.csv` — per-target re-anchored collapse residuals (committed).
-- `poc_comb_chain_out/relock/phaseA_run.log`, `phaseB_run.log` — full run logs (committed).
+- `poc_comb_chain_out/relock/phaseA_run.log`, `phaseB_run.log` — run logs (removed as transient during commit cleanup).
 - `poc_comb_chain_out/relock/relock_all.csv`, `relock_shard_*` — bulk re-extracted comb (GITIGNORED, regenerable).
 - `poc_comb_chain_out/relock/fft2d/*.png` — 6 audit 2D-FFT images (GITIGNORED, ~2.4 MB).
+
+---
+
+## Future plans / open avenues (as of 2026-06-30)
+
+State: cross-M absolute ranking is *negative under the conditions tested* (see Executive
+summary), not proven impossible. Live and candidate next steps, in priority order:
+
+1. **Linear pre-processing cause-isolation POC [NEXT].** Re-run the Stage-T_n collapse
+   after MTF-*preserving* (linear) pre-processing only: sub-pixel phase-aligned windowing,
+   a consistent cross-config focus criterion, flat-fielding, and specular masking /
+   robust FFT. **Decision rule (set in advance):** if the collapse residual drops toward
+   the 0.38–0.49 within-config floor, the instability was *measurement-induced* and
+   cross-M revives; if it barely moves, it is *genuine target variation* and cross-M is
+   dead for these targets. Explicitly NOT thresholding/gamma/histogram-eq — nonlinear ops
+   stabilize by destroying the MTF signal. This experiment isolates the cause that Stages
+   T_n/Targets/Relock left inferred-but-unproven.
+
+2. **Within-M per-axis MTF via the new `PER_AXIS=1` path.** The fundamental-detection fix
+   (`25d9d43`) exposes correct per-axis (u≠v) fundamentals + a `true_below_floor` flag.
+   Regenerate `rank_all.csv` with `PER_AXIS=1` and build per-axis sharpness / uniformity /
+   astigmatism on it. NOTE: `characterise.py`'s existing per-axis metrics run off
+   LSF/maze-FFT (`peaks_v2.csv`), NOT periodic_fft — so this is a *new* periodic-FFT
+   per-axis product, complementary to characterise, not a replacement.
+
+3. **Alternative cross-M estimator** (only if (1) says measurement-induced but the comb
+   still won't behave): deconvolution-based MTF, or registering the *same physical patch*
+   across M to compare resolved detail directly rather than via a harmonic comb.
+
+4. **Clean grating/edge chart acquisition** — the only guaranteed route to a real cross-M
+   absolute axis. A purpose-shot target with stable, known harmonic content sidesteps the
+   textured/specular-metal instability entirely. New shoot, not a re-analysis.
+
+For the standing need ("is this TC/extension/diopter worth it; which config is sharpest"),
+the validated answer remains: within-M rankings + the diffraction ceiling + tolerance-
+ratios (the §L bare-vs-TC method).
