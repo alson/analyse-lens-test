@@ -1,0 +1,2 @@
+group,config,ok,reason,die,M,n_eff,rmse,f0_cypx,pitch_px,duty,n_harmonics,f_subj_span,mtf_at_common,ceil_at_common,over_at_common,harmonics
+TC-2001,Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-2001|2_1,True,,6D,2.035,33.38,4.29,0.0414,24.2,0.621,4,"[18.5,76.6]",0.0237,0.7884,0.03,n1:f18.5/M0.024/c0.788/snr3;n2:f42.9/M0.026/c0.520/snr3;n3:f48.0/M0.031/c0.467/snr1;n4:f76.6/M0.054/c0.197/snr10

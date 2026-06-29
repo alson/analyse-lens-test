@@ -1,0 +1,6 @@
+config,die,ok,pad_bright_med,pad_glint,pad_hi,pad_max,pad_sat,rmse,serp_bright_med,serp_glint,serp_hi,serp_line_bright,serp_line_dark,serp_max,serp_sat
+Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-1401|1_1,6B,True,142.5,1.726,0.1058,255.0,0.00052,1.57,126.2,1.993,0.0476,113.6,66.9,255.0,0.00043
+Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401|1_1,6B,True,112.5,2.174,0.1169,255.0,0.00034,2.19,101.5,2.373,0.0399,93.6,41.6,254.0,3e-05
+Nikon AF Micro-Nikkor 200mm f_4D IF-ED + Kenko Pro 300 DG 1.4x|1_1,6B,True,119.0,2.118,0.0781,255.0,3e-05,1.09,115.9,2.054,0.0715,119.7,53.1,245.0,0.0
+NIKKOR Z 100-400mm f_4.5-5.6 VR S + Olympus MCON-35|1_1.16,6B,True,148.0,1.723,0.0709,255.0,0.00189,1.56,132.0,1.928,0.0341,125.5,74.4,255.0,0.00109
+NIKKOR Z 100-400mm f_4.5-5.6 VR S + Nikon 6T|1.27_1,6B,True,152.5,1.604,0.1395,255.0,0.00017,1.9,132.9,1.851,0.0214,125.0,75.3,254.0,9e-05

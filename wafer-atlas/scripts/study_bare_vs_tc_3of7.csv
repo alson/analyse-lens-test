@@ -1,0 +1,2 @@
+group,config,ok,reason,die,M,n_eff,rmse,f0_cypx,pitch_px,duty,n_harmonics,f_subj_span,mtf_at_common,ceil_at_common,over_at_common,harmonics
+TC-1401,Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401|1_1,True,,6B,1.005,16.04,2.19,0.0405,24.7,0.67,4,"[8.6,42.4]",0.2056,0.7998,0.257,n1:f8.6/M0.383/c0.904/snr3;n2:f20.1/M0.165/c0.776/snr1;n4:f33.1/M0.242/c0.635/snr2;n5:f42.4/M0.176/c0.537/snr2

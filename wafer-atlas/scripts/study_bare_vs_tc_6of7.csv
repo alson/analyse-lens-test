@@ -1,0 +1,2 @@
+group,config,ok,reason,die,M,n_eff,rmse,f0_cypx,pitch_px,duty,n_harmonics,f_subj_span,mtf_at_common,ceil_at_common,over_at_common,harmonics
+TC-2001,Sigma Macro 105mm F2.8 EX DG OS HSM + TC-2001|2_1,False,reg-fail,,,,,,,,,,,,,

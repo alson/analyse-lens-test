@@ -1,0 +1,2 @@
+group,config,ok,reason,die,M,n_eff,rmse,f0_cypx,pitch_px,duty,n_harmonics,f_subj_span,mtf_at_common,ceil_at_common,over_at_common,harmonics
+bare,Nikon AF Micro-Nikkor 200mm f_4D IF-ED|1_1,True,,6B,0.997,15.98,1.6,0.0404,24.8,0.674,4,"[8.5,42.7]",0.2147,0.7991,0.269,n1:f8.5/M0.337/c0.904/snr3;n2:f20.6/M0.180/c0.770/snr2;n4:f33.5/M0.229/c0.630/snr2;n5:f42.7/M0.199/c0.532/snr2
