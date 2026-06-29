@@ -20,10 +20,20 @@ broad-coverage, sharpness-discriminating slanted-edge MTF target exists in the
 - The one **designed slanted-edge feature** (die 4D vertical bar) reads ≤ ceiling but
   is **intrinsic-width-limited (~0.10 cy/px, non-discriminating)** and **sparse**
   (1 of 16 die types).
+- **The 2B "bright pads" are RECESSED metal plates in a dark trench** (2026-06-29
+  masked-edge test, evidence in `wafer-atlas/scripts/diag_2b_padedge_out/`). Masking
+  to isolate the pad edge WORKED (solved the grating distraction), but each pad edge
+  is a groove wall after all: the lit side carries a **specular metalization rim**
+  (over-reads 0.9–2.1× ceiling), the shadow side floors and ranks INVERTED (sharp
+  AF200 below soft 6T), and the surrounding dark field is only ~24–36 px before the
+  next trace. So even the largest "open" pads on the wafer are not isolated flat
+  steps. This definitively closes the slanted-edge route on this dataset.
 
-The super-resolved edge estimator itself is sound (`methods/slanted_edge.py`,
-`mtf50_step_erf`/`mtf50_auto`, 130 tests) — it reads the designed edge ≤ ceiling. It
-just has no good *target* to consume. A dedicated knife/slant edge would fix that.
+The super-resolved edge estimators are sound (`methods/slanted_edge.py`
+`mtf50_step_erf`, `methods/long_edge.py` `mtf50_long_edge`, `methods/pad_long_edge.py`
+with its open-clearance/specular-rim isolation gate; 153 tests) — they read the
+designed edge ≤ ceiling and the gate correctly rejects the recessed/specular ones.
+They just have no good *target* to consume. A dedicated knife/slant edge would fix it.
 
 ## Do this first (no shoot needed): periodic-FFT on the existing wafer
 
@@ -52,6 +62,19 @@ position you care about, lit to avoid the groove-emboss / specular failure mode.
   magnifications. A glass-photomask test reticle is ideal if available.
 - **Slant 3–7° off the sensor axis** (not 0°, not 45°) so the edge is super-resolved
   across rows but stays within one ROI. A single long edge beats a busy chart.
+- **FLAT / non-recessed is non-negotiable.** The edge must be a *reflectance* step on
+  a flat, co-planar surface (matte→matte or chrome→glass), NOT a topographic/recessed
+  edge. Every edge on the wafer failed precisely because it has relief — scribe
+  grooves and even the metal pads sit in trenches, so one side catches a specular rim
+  and the other falls into shadow (lit-vs-shadow asymmetry = the over-read). A razor
+  blade laid on matte card, or a chrome-on-glass reticle, has zero relief — that's the
+  whole point. Verify the target is in the SAME focal plane as the wafer (co-planar)
+  if you want the atlas to still supply M; otherwise read M off a stage micrometer.
+- **Open clearance ≥ ~15 native px each side of the edge** (≈ 2–3× the PSF) with no
+  competing structure, so the ESF tails aren't truncated. At M=1 that's easy on a
+  dedicated target; the wafer failed this too (pads had only ~24–36 px before the next
+  trace, marginal). The estimator's `pad_long_edge.isolation_clearance` gate enforces
+  this automatically.
 
 ### Lighting (this is what bit the wafer)
 - **Diffuse, near-axial / coaxial illumination** to kill the directional specular

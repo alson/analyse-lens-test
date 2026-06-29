@@ -379,6 +379,61 @@ centres. MCON-35 > 6T (centre) therefore stands on the groove ranking as before
   jobs were run with the prebuilt host venv + `PYTHONPATH=.../tile-sharpness/src`
   (worktree src wins over the editable install); `pytest` → 130 passed.
 
+## G. Periodic-FFT metric (the WIN) + isolated-edge closure + the metric suite (2026-06-29)
+
+### G.1 Periodic-FFT — a physically-valid SPANNING relative metric
+On the atlas's FFT-marked features (cyan `use_for_fft` blocks 4B/4C/2B/2C + magenta
+bond-pad arrays — the intent layer no measurement code had consumed), a **bounded
+Michelson contrast `C = 2·|F(f₀)|/|F(0)|`** at the feature's *sub-element* pitch:
+`methods/periodic_fft.py`, `scripts/atlas_periodic_fft.py`, ceiling at arbitrary
+frequency via `optics.diffraction_mtf_at`. Results: **0 / 1664 region-reads over the
+diffraction ceiling** (it physically can't exceed 1 and under-reads to 0 past cutoff
+— the opposite of the groove-LSF's 1.5–1.8× over-read), focus-tracking, discriminates
+sharp/soft (2.6–15×), and **reproduces the groove tiers + MCON-35 > 6T**, now
+physically valid. **This is the cross-config metric to use.** Caveats: it is
+*relative*; compare configs **at a common subject frequency** (raw C is M-confounded:
+higher M samples a lower subject frequency where C is naturally higher); read the
+**sub-element pitch**, not the atlas super-pitch (which sits below cutoff → carries no
+MTF info). Both magenta (broad coverage) and cyan (cleanest separation) work.
+
+### G.2 The isolated-edge / absolute-lp/mm route is definitively CLOSED on this data
+Three honest negatives, all the same root cause — **no clean flat reflectance edge
+exists on the wafer**:
+- **Bond-pad "edges"** (§F): dense periodic arrays → alias → over-read.
+- **Designed 4D bar** (`methods/long_edge.py`, recentred ISO long-edge): the user's
+  height hypothesis was tested and **refuted** — MTF50 is flat with edge length
+  (~0.10 cy/px floor is intrinsic), and the bar is itself a short lit/shadow emboss
+  (over-reads sharp / floors shadow).
+- **2B "bright pads"** (`methods/pad_long_edge.py` + `diag_2b_*`): masking the ROI to
+  the pad edge **worked** (solved the grating distraction), but the pads are **recessed
+  metal plates in a dark trench** — the lit edge carries a specular rim (over-reads
+  0.9–2.1× ceiling), the shadow edge floors and ranks INVERTED, and the open field is
+  only ~24–36 px wide. The estimators + `isolation_clearance`/specular gate are sound
+  (they read the designed edge ≤ ceiling and reject the bad ones); the *target* is the
+  problem. **Absolute lp/mm requires a new acquisition** of a flat, open-field
+  knife/slant edge (see `MTF_TARGET_ACQUISITION.md`).
+
+### G.3 The metric suite — coverage × reliability, and the calibration plan
+| metric | coverage | reliability / interpretability |
+|--------|----------|-------------------------------|
+| **periodic-FFT contrast** | all configs (broad) | bounded, ceiling-valid; **relative**, common-f₀, sub-element pitch — the spanning backbone |
+| diffraction ceiling (`optics`) | all configs | physics-exact **upper bound**, not a measurement |
+| maze-FFT | M ≳ 0.7 | independent periodic check (Tier-B cross-validator) |
+| groove-LSF `min` | all configs | over-reads — cross-check only |
+| masked slant/knife edge → absolute lp/mm | **none yet** (needs new shoot) | most interpretable; will be partial (open-field edge in FOV) |
+
+Design (endorsed): one **spanning** metric (periodic-FFT) carries the full
+cross-config ranking; **partial, more-interpretable** metrics validate it over their
+overlap and could **calibrate** it. Calibration is physically principled because
+`C = k_feature · MTF(f₀)` — k_feature is a *target* constant, so an absolute anchor
+(the future knife-edge MTF curve, and/or the parameter-free ceiling at the
+diffraction-limited end) pins k_feature in the overlap, after which `C/k_feature` is
+absolute MTF(f₀) everywhere that feature appears (multiple features → MTF sampled at
+several frequencies → interpolate to absolute MTF50). **From existing data the only
+absolute anchor is the ceiling (diffraction-limited end); the glass-limited anchor
+awaits the new acquisition.** Flag every config as measured-absolute /
+calibrated-absolute / ranked-only.
+
 ## Artifacts
 
 - `wafer-atlas/scripts/accessory_configs.csv` — config inventory (282 sweeps).
