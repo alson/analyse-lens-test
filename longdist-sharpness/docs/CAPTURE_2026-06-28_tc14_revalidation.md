@@ -38,6 +38,83 @@ at the **centre** (where all FOVs overlap), shoot **wide (≤ f/8)** to dodge
 edge saturation and the f/11–f/16 over-read, and **analyse from linear RAW**,
 not JPEG.
 
+### Clean f/11 + f/16 matched-aperture run — TC-2.0× resolved (2026-06-29)
+
+The f/8 RAW POC above couldn't include the **TC-2.0×** (it's wide-open at f/11,
+so it can't be shot ≤ f/8). The matched-aperture run
+(`scripts/poc_longdist_tc_family_raw_f11f16.py`) measures all three configs at
+**f/11 and f/16** on the same linear, demosaic-only RAW + brick-mortar edges,
+using the **§5.6e `centroid_hann` LSF fix** (the prior f/11–f/16 over-read was
+that analysis bug, now fixed) plus a **diffraction-ceiling validity gate**. It
+measures the **in-focus AF frames only** (Silent=Off, ×3/cell), takes the
+**per-edge median across AF frames**, then the median across edges — never
+max-over-frames (that was the artefact). Parallelised over 27 develop+measure
+jobs on 8 cores (~3.7 min).
+
+**Metric choice (important):** on this clean RAW data **MTF50 is the trustworthy
+primary channel** — bare MTF50 ≈ 0.20 cy/sensor-px sits far below the 0.49
+Nyquist cap (no saturation), and every cell passes the ceiling gate. The
+**MTF@Nyquist channel is confounded here** and is *not* used for the verdict: it
+yields physically impossible orderings (tc14 > bare) because each (config,
+aperture) detects an independent edge population on its own reference and the
+noise-sensitive Nyquist tail amplifies that mismatch. (This is the opposite of
+the f/8 JPEG case, where in-camera sharpening pushed MTF@Nyq > 1 and MTF50
+saturated at the cap — there MTF@Nyq was preferred. On linear RAW with sub-cap
+MTF50, MTF50 wins.)
+
+**All 9 cells pass the diffraction-ceiling gate** (median MTF50 below the
+aperture ceiling → glass/atmosphere-limited, no over-read). The §5.6e fix held.
+
+Median MTF50 (cy/sensor-px), in-focus AF frames:
+
+| config | f/5.6 | f/8 | f/11 | f/16 | ceiling f/11 / f/16 |
+|---|---|---|---|---|---|
+| bare 400 mm | 0.252 | 0.199 | 0.209 | 0.196 | 0.290 / 0.200 |
+| + TC-1.4× 560 mm | — | 0.162 | 0.173 | 0.196 | 0.290 / 0.200 |
+| + TC-2.0× 800 mm | — | — | 0.145 | 0.139 | 0.290 / 0.200 |
+
+**Matched-aperture physical ordering bare ≥ TC-1.4× ≥ TC-2.0× HOLDS** on MTF50
+at both f/11 (0.209 ≥ 0.173 ≥ 0.145) and f/16 (0.196 ≥ 0.196 ≥ 0.139) → the data
+is **not confounded** on the primary channel.
+
+**Retention (MTF50, vs bare at the same f-stop):**
+
+| TC | f/11 | f/16 |
+|---|---|---|
+| TC-1.4× / bare | 0.831 | 0.986 |
+| TC-2.0× / bare | 0.696 | 0.709 |
+
+(TC-1.4× f/16 ≈ 1.0 is partly diffraction convergence — both configs hit the
+f/16 ceiling; the **f/11 figure 0.83 is the more defensible TC-1.4× retention**,
+and it lands on the lost copy's ~0.80.)
+
+**FOM over cropping the bare 400 mm frame** (best TC aperture vs bare f/8, the
+frame you would crop; FOM = MTF50-retention × f_eff/400 − 1; the *ratio*
+cancels common-mode error):
+
+- **TC-1.4× @ f/16:** retention 0.986 (f/11 0.831) → **FOM +38 %** — clears the
+  0.714 break-even, beats cropping. Consistent with the f/8 POC (≈0.80, +8 %)
+  and the old copy.
+- **TC-2.0× @ f/11:** retention **0.731** → **FOM +46 %** — **clears the 0.500
+  break-even, beats cropping the bare 400 frame.**
+
+### ✅ TC-2.0× verdict (clean, resolved)
+
+**The Z TC-2.0× clears its 0.500 break-even (retention 0.73 on MTF50, FOM +46 %)
+— at f/11 it adds real subject resolution over cropping the bare 400 mm frame.**
+Both TC-2.0× cells (f/11, f/16) pass the diffraction-ceiling gate (no over-read),
+and the physical ordering bare ≥ TC-1.4× ≥ TC-2.0× holds at both apertures, so
+the reading is trustworthy. This **supersedes the earlier "tc20 can't join at
+f/8" caveat** — it joins cleanly at f/11.
+
+Versus the **2026-01 foliage** (TC-2.0× ≈ 0 % FOM): that was *scene-floor-
+limited* — the whole Z 100-400 family pinned at 0.20–0.25 cy/px on shrubbery, so
+the TC couldn't separate from the bare lens. The 2026-06-28 brick wall still has
+its own ceiling (bare MTF50 only ≈ 0.20, gust/atmosphere-limited at 45 m, no
+textbook f/8 peak — the sweep is flat across f/5.6–f/16), but here the TCs
+**separate cleanly from bare on MTF50**, so this is a genuine positive TC-2.0×
+result rather than a floor-pinned null.
+
 ## Equipment
 
 | Item | Detail |
