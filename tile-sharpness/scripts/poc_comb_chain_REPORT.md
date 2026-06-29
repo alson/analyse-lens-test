@@ -731,3 +731,159 @@ results are unchanged: **A5** (M-aware maze/band, already promoted) and the **sa
 R−B decode** SNR win (re-confirmed here — it makes the corrected MTF physical and is the
 right channel for these pad features). Use within-M periodic ranking + the diffraction
 ceiling + tolerance-ratios for cross-config comparison, as already recommended.
+
+---
+
+## Stage Targets — survey of ALL candidate periodic targets (2026-06-30)
+
+**Why.** Every prior cross-M conclusion rested on ONE dominant magenta pad pattern
+(`magenta.P11`) + the maze, whose harmonic content proved texture/specular-UNSTABLE
+across configs (Stage T_n self-cal collapse residual 0.79 vs a 0.38 within-config floor).
+That instability might have been PAD-SPECIFIC. This stage surveyed EVERY structured
+region the atlas knows about — all magenta bond-pad patterns (all pad sizes/pitches),
+the cyan `use_for_fft` experimental grids, the cyan slanted-edge bar, and the maze — to
+ask whether ANY of them is clean + cross-M-stable + multi-harmonic enough to reopen
+cross-M ranking.
+
+**Headline: NO target reopens cross-M.** All candidates share the same instability. The
+single cleanest, most multi-harmonic region on the entire wafer self-collapses to 0.62
+(within-config floor 0.19 → cross-M scatter ≈ 3.4× the same-M noise) and the maze does
+not self-collapse on its own either (0.84 vs 0.49 floor, ratio 1.7). There is no
+clean + stable + multi-harmonic target; the standing "cross-M not viable" verdict holds
+across the whole target catalogue, not just `magenta.P11`.
+
+New UNTRACKED scripts/artifacts (no production / committed-lib module modified —
+`atlas_periodic_fft`, `poc_comb_chain_lib`, `poc_comb_chain_tn_analyse` imported
+read-only): `poc_comb_chain_targets_phase1.py` (2D-FFT cleanliness survey on one clean
+low-M shot), `poc_comb_chain_targets_phase2.py` (per-target cross-M self-cal collapse,
+reusing the Stage T_n machinery). Small result CSVs committed under
+`poc_comb_chain_out/targets/` (`phase1_survey.csv`, `phase2_collapse.csv`,
+`phase1_run.log`); the heavy 2D-FFT magnitude PNG dump
+(`poc_comb_chain_out/targets/fft2d/`, ~7 MB) is gitignored (regenerate from phase1).
+
+### Phase 1 — 2D-FFT cleanliness survey (low M)
+
+Bare Sigma 105 @ 1:1 F8, best focus, M=1.054, registered RMSE 3.6 px. Enumerated **53
+in-FOV regions** (49 magenta bond-pad arrays, 2 cyan experimental, 2 cyan slanted-edge).
+For each region the best-focus ROI was de-rotated to the wafer u/v axes, decoded on the
+SATURATION channel (specular-suppressed) + luma, and a full 2D FFT was run; each axis was
+characterised for its fundamental + harmonic comb (peak SNR per harmonic, #harmonics with
+SNR≥3). `phase1_survey.csv` (213 region-axis-channel rows) + 17 2D-FFT PNGs.
+
+**Decisive structural finding: the measurable fundamental is the SUB-element pitch
+(~11–17 lp/mm subject, 0.045–0.069 cy/px), NOT the atlas SUPER-pitch.** Across magenta
+regions whose atlas `pad_pitch_px` spans 17–173 px (i.e. genuinely different pad
+sizes/pitches), the discovered fundamental clusters tightly at ~11–17 lp/mm regardless —
+the FFT locks onto the fine sub-element periodicity, which is the *same* feature class
+the prior `magenta.P11`/`.P16` buckets already tested. So "the magenta class has multiple
+pad patterns" is true at the super-pitch but collapses to ~one measurable comb at the
+sub-element scale. The "different pad sizes" do **not** give a genuinely different MTF
+target.
+
+Cleanest multi-harmonic regions (saturation, ranked by #clean harmonics then fundamental
+SNR):
+
+| rank | region | cls | atlas pitch u/v (px) | axis | f0 (cy/px) | f0 subj (lp/mm) | fund SNR | #clean harm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 9D/(1,3)#2 | magenta | 45.6/51.2 | u | 0.0485 | 11.8 | 28.7 | **6** |
+| 2 | 5D/(1,3)#2 | magenta | 45.6/51.2 | u | 0.0485 | 11.8 | 22.2 | **6** |
+| 3 | 6C/(2,2)#1 | magenta | 80.4/11.6 | u | 0.0487 | 11.8 | 13.7 | 5 |
+| 4 | 5E/(1,0)#0 | magenta | 173/44.7 | v | 0.0683 | 16.5 | 10.7 | 5 |
+| … | (24 magenta regions reach a ≥2-harmonic comb) | | | | | | | |
+| — | 4D/(0,3)#0 | cyan_se | (bar) | v | 0.1209 | **29.3** | 27.7 | 2 |
+| — | 8C/(0,2)#0 | cyan | 58.9/136 | v | 0.0504 | 12.2 | 6.8 | 2 |
+| — | 6C/(2,2)#0 | cyan | 22.6/89 | u | 0.0661 | 16.0 | 3.4 | 2 |
+
+Notes: the cyan `use_for_fft` grids are **scarce in-FOV at M≈1** (only 2 of the 4 cyan
+die types landed inside the frame) and **weak** (2 clean harmonics, fundamental SNR 3–7)
+— no better than magenta. The cyan **slanted-edge bar** (4D) is the only target with a
+genuinely *higher* fundamental (29 lp/mm along v) but it carries only 2 clean harmonics
+(it is a single edge pair, not a deep comb) and is 1-D (the user's "horizontal-line
+block" / vertical-direction use). The maze is 1-pitch (see Q1).
+
+### Phase 2 — cross-M self-calibration stability (the real test)
+
+Reused the Stage T_n self-calibration (isotonic MTF(f_px) × per-order `T_n`, saturation
+channel, all 16 configs, M 0.90–2.09) per target type. The load-bearing number is the
+**collapse residual** (log-contrast units) vs the **per-order-only null** (no MTF
+rolloff) and the **within-single-config floor** (same M → region-replicate + measurement
+scatter only; the cross-M residual cannot beat this, and *approaching* it = stable).
+
+| target | n teeth | configs | orders | collapse resid | per-order null | within-config floor | verdict |
+|---|---|---|---|---|---|---|---|
+| `magenta.P11` (primary) | 1963 | 16 | 1–7 | 0.790 | 0.866 | 0.392 | UNSTABLE |
+| `magenta.P16` | 1463 | 16 | 1–7 | 0.831 | 0.885 | 0.498 | UNSTABLE |
+| `cyan.P11` | 113 | 10 | 1–7 | 0.728 | 0.830 | (thin) | UNSTABLE |
+| `cyan.P16` | 90 | 12 | 1–7 | 0.986 | 1.048 | 0.217 | UNSTABLE |
+| `cyan.P35` | 8 | 2 | 1–3 | 0.360 | 0.409 | 0.267 | UNSTABLE (too thin) |
+| **maze (single-pitch)** | 592 | 16 | 1 | **0.842** | — | **0.490** | UNSTABLE (ratio 1.72) |
+| cleanest die (1,3)#2 | 153 | 12 | — | **0.624** | 0.975 | (0.19 die-level) | UNSTABLE (ratio ≈3.4) |
+
+low-order-only (orders ≤3): `magenta.P11` 0.686 (floor 0.386), `magenta.P16` 0.637
+(floor 0.337) — still ~1.8× the floor, no collapse.
+
+The three user questions, answered explicitly:
+
+1. **Does the maze self-collapse on its own over its resolved range (M≳0.7)?** **NO.**
+   The maze is single-pitch (one M-invariant subject frequency), so its fundamentals at
+   different M sample ONE MTF(f_px) curve directly — the purest possible cross-M test,
+   with NO `T_n` freedom. Its fundamentals span f_px 0.16 (M≈2) → 0.37 (M≈0.9), 592 teeth
+   over all 16 configs. Fitting a single isotonic MTF(f_px) leaves a **collapse residual
+   0.842 against a within-config floor of 0.490 (ratio 1.72)** — i.e. cross-config scatter
+   is ~1.7× the same-M region-to-region noise. The maze does **not** lie on one curve; it
+   is **not** the stable single-pitch anchor hypothesised. (Even-harmonic content is real
+   but only resolvable at high M — 16 order-2 teeth total — so it adds nothing usable.)
+   Even restricting to M≥1.0 the residual is 0.797. The maze's own same-M scatter is also
+   large (floor 0.49, vs 0.39 for `magenta.P11`) because it is read across many field
+   zones with field-dependent sharpness.
+
+2. **Do any cyan regions give clean, stable combs?** **NO.** Cyan is both **thin** (≤12
+   configs, 5–10 teeth/config vs 88–141 for magenta — too few to even define a per-config
+   floor, hence the degenerate 0.000/0.217 floors) and **no cleaner**: `cyan.P11` collapse
+   0.728, `cyan.P16` 0.986 — same order as magenta, both UNSTABLE. The cyan slanted-edge
+   bar (29 lp/mm) is a clean 2-harmonic 1-D target but cannot self-calibrate a comb (only
+   2 orders) and is sparse. No cyan target reopens cross-M.
+
+3. **Do other magenta pad patterns (different pad sizes) behave better than P11?** **NO.**
+   `magenta.P16` is *worse* (0.831 vs 0.790; floor 0.498 vs 0.392). At the sub-element
+   scale that the FFT actually measures, all magenta "pad sizes" reduce to the same
+   ~12–16 lp/mm comb (Phase 1), so they are not really different targets. To be maximally
+   fair we also self-collapsed the SINGLE cleanest Phase-1 region class on its own — die
+   type (1,3), comp #2 (atlas pitch 45.6/51.2, the 6-harmonic winner): collapse **0.624**
+   against a within-config floor of **0.19** (ratio ≈3.4). The cleanest, most
+   multi-harmonic target on the whole wafer is among the *least* cross-M-stable relative
+   to its own noise floor.
+
+### Verdict
+
+**No target reopens cross-M absolute ranking.** Every candidate — the maze on its own,
+all cyan grids, every magenta pad pattern, and the single cleanest multi-harmonic region
+— shares the same pad-style instability: its harmonic content does not collapse onto a
+shared MTF(f_px) curve across configs (collapse residuals 0.62–0.99, all well above their
+0.19–0.50 within-config floors). The residuals do beat the per-order null (the MTF
+rolloff is real and monotone), but they get nowhere near the noise floor a single curve
+would require. The instability is therefore **not pad-pattern-specific** — it is a
+property of these textured/specular metal targets imaged through a focus stack with
+field-dependent sharpness, which saturation suppresses (the channel choice remains right)
+but does not remove.
+
+The maze is the cleanest *physical* idea (single pitch, M-invariant, no `T_n` ambiguity,
+spans f_px 0.16–0.37) but it still fails to self-collapse (1.7× its floor), so it cannot
+anchor a cross-M range either — not even a narrow one. The cyan slanted-edge bar is the
+only higher-frequency clean target but is a single 2-harmonic edge, unusable as a comb.
+
+This **confirms and generalises** the Stage T_n conclusion: there is no M-invariant
+cross-M sharpness axis recoverable from ANY structured target on this wafer with this
+contrast/MTF estimator — the limitation is the targets + estimator, not the choice of the
+one pad pattern. Standing recommendation unchanged: within-M periodic ranking + the
+diffraction ceiling + tolerance-ratios; the salvaged A5 + saturation/R−B decode remain
+the only bankable results. **Do NOT commit** (exploratory POC, per the plan).
+
+### New untracked files
+
+- `poc_comb_chain_targets_phase1.py` — 2D-FFT cleanliness survey (one low-M shot).
+- `poc_comb_chain_targets_phase2.py` — per-target cross-M self-cal collapse.
+- `poc_comb_chain_out/targets/phase1_survey.csv` — 53-region ranked inventory (213 rows).
+- `poc_comb_chain_out/targets/phase2_collapse.csv` — per-target collapse residuals.
+- `poc_comb_chain_out/targets/phase1_run.log` — Phase-1 run log + ranked summary.
+- `poc_comb_chain_out/targets/fft2d/*.png` — 17 2D-FFT magnitude images (GITIGNORED, ~7 MB).

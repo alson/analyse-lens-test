@@ -33,3 +33,6 @@ tile-sharpness/scripts/poc_comb_chain_out/tn_all.csv
 tile-sharpness/scripts/poc_comb_chain_out/tn_shard_*.csv
 tile-sharpness/scripts/poc_comb_chain_out/tn_shard_*.log
 tile-sharpness/scripts/poc_comb_chain_out/tn_run.log
+# Stage Targets (wide periodic-target survey): commit small result CSVs + run log,
+# ignore the heavy 2D-FFT magnitude PNG dump (regenerable from phase1).
+tile-sharpness/scripts/poc_comb_chain_out/targets/fft2d/
