@@ -70,6 +70,33 @@ morphological path fail (anchor RMSE ~6000px):
   + JPEG, near the floor. Includes the nicked-corner (sweep2) and deep-interior
   (sweep3: "absence of a nick is information") cases.
 
+  HIGH-M ROBUSTNESS (2026-06-29). At M~2 a die is ~2475 px so the 8256x5504 frame
+  holds only ~3 col x ~2 row scribes, and the bandpass long-line detector also picks
+  up intra-die structure as "scribes". Two failure modes (REPORT_taskAD §A.2 / §H):
+  (a) SCALE-COLLAPSE — a 6-px doublet (the detector firing on both sides of a wide
+  high-M scribe) or a sub-pitch texture line becomes the smallest spacing, so gap-
+  aware labelling mis-numbers and the affine shrinks scale->0 at a deceptively low
+  residual (AF200+5T+6T 2:1 -> M~0.001); and (b) REG-FAIL on sharp frames (spurious
+  partial col lines). Fix, all in detection/labelling (the working low/mid-M sweeps
+  are untouched — they already sit on one clean lattice):
+    1. _robust_unit_pitch — labelling-INDEPENDENT single-die pitch via doublet
+       pre-merge + snap-quality search (the pitch that divides MOST spacings into
+       near-integer steps). Gives px-per-die hence an approximate M before any label.
+    2. _clean_scribes — merge doublets (0.30*unit) and drop off-lattice partial/
+       texture lines against the dominant single-die lattice (>=60% on-lattice, never
+       below 3 lines). E.g. Sigma150 2:1 cols [20,105,240,537,834] -> [240,537,834].
+    3. register() seeds the LM solver from the pitch-implied scale (not a blind 0.5)
+       and a SCALE-COLLAPSE GUARD rejects any fit with M outside [0.15,3.5] or wildly
+       off the pitch anchor (scale/pitch_scale not in 0.45-2.2x). A collapse is now
+       reported as failure, never silently returned.
+    4. register() allows 2 lines on an axis (>=6 correspondences total) — 3 rows is
+       physically unattainable at M~2 for these stacks.
+  RESULT: AF200+5T+6T, AF200+6T+5T, Sigma150+TC all 2:1 now register at M~2.03-2.07,
+  residual <5 px (were collapse/fail). Sigma105+TC 2:1 stays an HONEST failure
+  (interior 2-row/3-col FOV, two col & two row candidates, no edge/4D-bar to
+  disambiguate — correctly refused, not collapsed). See diag_highm_repro.py /
+  diag_highm_fovmap.py.
+
 Run:  reg_auto.py            # autonomous registration of all sweeps + validation
       reg_auto.py --validate # just the mapping/label sanity probe
 """
@@ -141,6 +168,8 @@ SWEEPS = {
 }
 
 ROT_SIGN = -1.0  # calibrated; see module docstring / --validate
+M_ANCHOR_SCALE = 1.6549   # atlas scale at M=1 (AF200 1:1 anchor); M = scale / this
+M_BOUNDS = (0.15, 3.5)    # absolute sanity bounds on atlas M (REPORT_taskAD §A.2)
 
 
 def _long_line_sig(bp, mask, axis, pct=80.0, frac=0.40):
@@ -203,6 +232,132 @@ def _drop_edge_peaks(pk, dim, margin_frac=0.015):
     return np.array([p for p in pk if m <= p <= dim - 1 - m], dtype=int)
 
 
+def _merge_doublets_coarse(pos):
+    """Merge near-duplicate lines BEFORE pitch estimation. At high M a wide scribe
+    spans several px and the gradient edge detector fires on BOTH its sides ~6 px
+    apart (e.g. Sigma105 2:1: cols [51,57,357,363,662,668]). Such a 6-px doublet,
+    if left in, becomes the smallest spacing and masquerades as the single-die
+    pitch -> scale collapses. Merge anything within 0.18x the largest spacing
+    (well below one die step, well above a doublet gap)."""
+    pos = np.sort(np.asarray(pos, float))
+    if pos.size < 2:
+        return pos
+    sp = np.diff(pos)
+    thr = 0.18 * float(np.max(sp))
+    merged = [pos[0]]
+    for x in pos[1:]:
+        if x - merged[-1] < thr:
+            merged[-1] = 0.5 * (merged[-1] + x)
+        else:
+            merged.append(x)
+    return np.array(merged)
+
+
+def _robust_unit_pitch(positions):
+    """Single-die pitch (de-rotated ds-px) from detected line positions, robust to
+    doublets, spurious partial lines, the +~20% wide super-cell column, and ~2x
+    missing-scribe gaps. The true pitch divides MOST spacings into near-integer
+    step counts, so pick the pitch minimizing the snap residual (mild preference
+    for fewer steps so it locks onto the single-die pitch, not a sub-multiple).
+    Doublets are merged first so they can't define the pitch. Returns None if
+    fewer than two lines. NB this is a labelling-INDEPENDENT scale anchor: it gives
+    px-per-die directly, hence an approximate M, before any (col,row) is assigned;
+    this is what kills the high-M scale-collapse (REPORT_taskAD §A.2 / §H)."""
+    pos = _merge_doublets_coarse(positions)
+    if pos.size < 2:
+        return None
+    sp = np.diff(pos)
+    sp = sp[sp > 1.0]
+    if sp.size == 0:
+        return None
+    smin = float(np.min(sp))            # the single-die step (gaps/wide cols are larger)
+    lo = max(8.0, 0.7 * smin)
+    hi = float(np.max(sp)) * 1.10
+    best = None
+    for p in np.arange(lo, hi + 1.0, 1.0):
+        steps = sp / p
+        rounded = np.round(steps)
+        valid = rounded >= 1
+        if valid.sum() < max(1, 0.5 * sp.size):
+            continue
+        frac = np.abs(steps[valid] - rounded[valid])
+        score = float(frac.mean() + 0.03 * rounded[valid].mean())
+        if best is None or score < best[0]:
+            best = (score, float(p))
+    return best[1] if best else None
+
+
+def _clean_scribes(positions, unit):
+    """Drop spurious detections given the robust single-die pitch `unit`:
+      (1) merge doublets — lines within 0.30*unit are one scribe (the high-M
+          two-sided-edge artefact);
+      (2) drop off-lattice outliers — fit the phase that puts the MOST lines on a
+          single-die lattice, then drop the rest IF a clear majority (>=60%) is on
+          it (e.g. Sigma150 2:1 cols [20,105,240,537,834] -> [240,537,834]). These
+          off-grid lines are partial scribes / texture, and left in they mis-seed
+          gap-aware labelling and collapse the affine.
+    Conservative by design: never returns < 3 lines and only prunes against a
+    DOMINANT lattice, so the working low/mid-M sweeps (whose detections already sit
+    on one lattice, incl. the legitimate wide-column +20% and ~2x missing-scribe
+    gaps) are returned unchanged."""
+    pos = np.sort(np.asarray(positions, float))
+    if pos.size < 3 or unit is None or unit <= 0:
+        return pos
+    merge_thr = 0.30 * unit
+    merged = [pos[0]]
+    for x in pos[1:]:
+        if x - merged[-1] < merge_thr:
+            merged[-1] = 0.5 * (merged[-1] + x)
+        else:
+            merged.append(x)
+    merged = np.array(merged)
+    if merged.size < 3:
+        return merged
+    best_phase, best_n = merged[0], -1
+    for ph0 in merged:
+        offs = (merged - ph0) / unit
+        n_on = int(np.sum(np.abs(offs - np.round(offs)) < 0.28))
+        if n_on > best_n:
+            best_n, best_phase = n_on, ph0
+    offs = (merged - best_phase) / unit
+    on = np.abs(offs - np.round(offs)) < 0.28
+    if on.sum() >= max(3, int(0.6 * merged.size)) and on.sum() < merged.size:
+        return merged[on]
+    return merged
+
+
+def _finalize_det(det):
+    """Attach robust single-die pitches and clean the scribe positions on a
+    detection dict (shared by the primary and low-M detect paths). Stores
+    col_unit/row_unit (de-rotated ds-px) for the labelling-independent scale
+    seed/guard, and replaces col_x/row_y with the cleaned positions."""
+    cu = _robust_unit_pitch(det["col_x"])
+    ru = _robust_unit_pitch(det["row_y"])
+    det["col_unit"], det["row_unit"] = cu, ru
+    det["col_x"] = np.sort(_clean_scribes(det["col_x"], cu)).astype(float)
+    det["row_y"] = np.sort(_clean_scribes(det["row_y"], ru)).astype(float)
+    return det
+
+
+def pitch_implied_scale(det):
+    """Labelling-independent atlas scale from the detected single-die pitch.
+    pitch(ds) / ds_scale = px-per-die (full res); / atlas mean pitch = atlas scale.
+    Returns (scale or None, M or None). Uses whichever axis pitch is available;
+    prefers the SMALLER implied scale when both exist, because a ~2x missing-scribe
+    gap inflates one axis's pitch (e.g. sweep2's row gap reads M~1.9 vs the true
+    1.0) whereas a wide-column only inflates ~20% — so the min is the safer, less
+    gap-contaminated estimate for seeding/bounding the optimiser."""
+    cands = []
+    if det.get("col_unit"):
+        cands.append(det["col_unit"] / det["ds_scale"] / float(np.mean(D_COL)))
+    if det.get("row_unit"):
+        cands.append(det["row_unit"] / det["ds_scale"] / float(np.mean(D_ROW)))
+    if not cands:
+        return None, None
+    s = float(min(cands))
+    return s, s / M_ANCHOR_SCALE
+
+
 def detect(path):
     gray_ds, ds_scale, (H, W) = mm.load_gray_downscaled(path)
     # PRIMARY: proven gradient-tilt + frame-relative long-line (works at M>=1).
@@ -222,10 +377,11 @@ def detect(path):
     col_x = peaks(mm.extract_long_line_columns, Wd)   # x-positions
     row_y = peaks(mm.extract_long_line_rows, Hd)       # y-positions
     if len(col_x) >= 3 and len(row_y) >= 3:
-        return dict(path=path, gray_ds=gray_ds, ds_scale=ds_scale, HW=(H, W),
-                    tilt=tilt, derot=derot, col_x=col_x, row_y=row_y)
+        return _finalize_det(dict(path=path, gray_ds=gray_ds, ds_scale=ds_scale,
+                                  HW=(H, W), tilt=tilt, derot=derot,
+                                  col_x=col_x, row_y=row_y))
     # FALLBACK: low-M path (sweep1).
-    return _detect_lowM(gray_ds, ds_scale, (H, W), path)
+    return _finalize_det(_detect_lowM(gray_ds, ds_scale, (H, W), path))
 
 
 def _sweep_wafer_fullres(path):
@@ -444,7 +600,13 @@ def _labels(positions, first):
 def register(name, det, anchors=None):
     col_x, row_y = det["col_x"], det["row_y"]
     res = {"name": name, "tilt": det["tilt"], "n_col": len(col_x), "n_row": len(row_y)}
-    if len(col_x) < 3 or len(row_y) < 3:
+    # At M~2 a die is ~2475 px so the 5504-px frame holds only ~2 row scribes (and
+    # ~3 col scribes): 3 rows is unattainable for the AF200/Sigma 2:1 stacks (frame
+    # scan: every frame has exactly 2 rows). Allow 2 lines on an axis as long as the
+    # other axis has >=3 and the total >= 6 correspondences pins the 4-DOF affine.
+    # The pitch-implied-scale seed + scale-collapse guard below keep the few-point
+    # fit honest. Below 2 on either axis (or <6 points) there is no grid.
+    if len(col_x) < 2 or len(row_y) < 2 or len(col_x) * len(row_y) < 6:
         res["success"] = False
         res["reason"] = f"insufficient scribes ({len(col_x)} cols, {len(row_y)} rows)"
         return res
@@ -559,7 +721,41 @@ def register(name, det, anchors=None):
             xo, yo = derot_to_orig(float(xd), float(yd), det)
             pairs.append((cl_list[ci], rl_list[ri], xo, yo))
 
-    params = af.fit_sweep_affine(pairs, ATLAS, theta_init_deg=det["tilt"], scale_init=0.5)
+    # Seed the optimiser from the labelling-INDEPENDENT pitch-implied scale (not a
+    # blind 0.5): at high M, few intersections let the affine shrink scale->0 and
+    # still "fit" a handful of points (REPORT_taskAD §A.2). A seed near the true
+    # scale starts the LM solver in the right basin so it converges to the real
+    # grid rather than the collapse minimum.
+    pscale, pM = pitch_implied_scale(det)
+    scale_seed = pscale if pscale else 0.5
+    params = af.fit_sweep_affine(pairs, ATLAS, theta_init_deg=det["tilt"],
+                                 scale_init=scale_seed)
+    res["pitch_scale"] = pscale
+    res["pitch_M"] = pM
+    M_fit = params["scale"] / M_ANCHOR_SCALE
+
+    # SCALE-COLLAPSE GUARD. Reject a fit whose M is outside the absolute sanity
+    # bounds, OR (when we have a pitch anchor) wildly inconsistent with the
+    # pitch-implied scale. The pitch anchor inflates ~2x on a missing-scribe gap
+    # and ~1.2x on a wide column, so the consistency band is generous (0.45-2.2x)
+    # — it catches the order-of-magnitude collapse (M~0.001 / M~0.04 / 2x mislabel)
+    # without rejecting honest fits. A collapse is reported as failure, never
+    # silently returned (REPORT_taskAD §A.2 / §H).
+    lo, hi = M_BOUNDS
+    bad = not (lo <= M_fit <= hi)
+    if not bad and pscale:
+        ratio = params["scale"] / pscale
+        bad = not (0.45 <= ratio <= 2.2)
+    if bad:
+        res["success"] = False
+        res["reason"] = (f"scale-collapse guard: M_fit={M_fit:.4f} "
+                         f"(pitch_M={pM:.3f} scale={params['scale']:.4f} "
+                         f"pitch_scale={pscale})" if pscale else
+                         f"scale-collapse guard: M_fit={M_fit:.4f} out of bounds")
+        res["affine"] = params
+        res["fit_rmse_px"] = params["rmse_px"]
+        return res
+
     res["success"] = True
     res["affine"] = params
     res["fit_rmse_px"] = params["rmse_px"]
