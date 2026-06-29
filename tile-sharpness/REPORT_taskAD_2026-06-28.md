@@ -260,6 +260,125 @@ target. Validate every reading against the diffraction ceiling. This replaces th
 groove-scribe LSF for centre resolution; the groove can stay only as a coarse
 fallback where no true edge is in FOV.
 
+## F. Bond-pad-edge metric — built, validated, and REJECTED (2026-06-28c)
+
+The §E.4 "path forward" (build the resolution metric on bond-pad reflectance
+edges, 14/16 die types) was implemented and **validated against the diffraction
+ceiling on the three known-ceiling configs. It FAILED the validation gate; it is
+not shipped.** The negative result is the deliverable for this follow-up.
+
+### F.1 What was built
+
+- **Single-STEP estimator** (`methods/slanted_edge.py`). A groove is a two-wall
+  TROUGH (`_split_walls`); a metal→substrate pad edge is one monotone STEP. Added
+  `mtf50_step_erf` (crop the super-res ESF to its dominant step, drop a second
+  neighbouring-pad step, fit one erf), `mtf50_step_iso` (ISO-12233 cross-check on
+  the full window), and `mtf50_auto` (dispatch step vs trough from ESF shape).
+  Groove behaviour unchanged. A **step-quality gate** (on the FULL super-res ESF)
+  rejects the artefacts the pad regions produce: bright-trace **ridges**
+  (rise-then-fall), troughs, low-contrast/noise, and erf fits **railing at the
+  σ-floor** (0.30 px → an unresolved/aliased pixel edge). Tests:
+  `tests/test_slanted_edge.py`, 13 cases (σ-recovery, sharp>soft, direction
+  invariance, erf≈iso, step/trough discrimination, auto-dispatch, second-step
+  trim, ridge/noise rejection, groove back-compat). **Full suite 130 passed.**
+- **Pad-edge selector** (`methods/pad_edge.py`). Enumerates in-FOV bond-pad
+  regions from the atlas (`task17` geometry), and within each returns *ranked*
+  slanted contrast-edge candidates (2–15° off axis); the caller takes the longest
+  one that **passes the step gate** — so it skips internal pad-array structure and
+  only accepts a genuine clean step.
+- **Driver + report builder**: `scripts/atlas_rank_padedge.py` (mirrors
+  `atlas_rank_accessory.py`: register-once-per-combo, shard/env support) and
+  `scripts/build_padedge_report.py`. Built but **not run for ranking** (see F.3).
+
+### F.2 The make-or-break validation (the reason it is rejected)
+
+`wafer-atlas/scripts/diag_padedge_explore.py`, gate ON, best-focus per position,
+on the three configs whose ceiling is known. Result — gate-passing pad-edge erf
+MTF50 (cy/px) vs ceiling:
+
+| config | ceiling | gate-passing positions (of 5) | pad-edge erf | vs ceiling |
+|--------|---------|-------------------------------|--------------|------------|
+| AF200 1:1 F11    | 0.145 | **1** (BR) | 0.268 (σ≈0.70 px) | **1.85× OVER** |
+| Sigma150 1:1 F8  | 0.197 | **1** (centre) | 0.294 (σ≈0.64 px) | **1.49× OVER** |
+| 105 VR + 6T F8   | 0.168 | **0** | — | no coverage |
+
+**Both validation criteria fail.** (a) Every reading that survives the step gate
+**over-reads the ceiling 1.5–1.85×** — physically impossible, *worse* than the
+groove (which at these same points reads ≤ ceiling). (b) Discrimination is moot:
+only **2 of 15** field positions yield any reading at all (105VR+6T yields none),
+so there is no broad-coverage signal to discriminate with — the opposite of the
+goal. The remaining positions are rejected because their longest slanted edges are
+either fine periodic structure / bright-trace ridges or flat noise.
+
+**Why** (root cause, with image proof in `wafer-atlas/scripts/diag_padedge_crops/`
+and the raw-pixel/ESF dumps from `diag_padedge_debug.py`): the atlas
+`feature_inventory.bond_pads` "regions" are not large isolated metal plates with a
+single clean boundary — they are **dense periodic pad/line ARRAYS** (catalogued
+pitches 11–173 px in the 0129 frame; the finest are below the lens's resolution at
+these magnifications). The longest straight contrast edge inside such a region is a
+pad-row/trace edge that is **aliased** (sampled below Nyquist → artificially sharp,
+σ≈0.6–0.7 px), so it over-reads exactly like the lit groove wall — the *same*
+specular/aliasing failure mode the task warned about, just from periodicity rather
+than emboss glint. The pad-FIELD outer boundary (a true array→substrate step) is
+lower-contrast than the internal periodicity, so Hough never prefers it.
+
+**The estimator itself is sound** — this is geometry, not a code bug. The same
+`mtf50_step_erf` on the atlas's *designed* slanted-edge feature (the POC's
+known-good true edge, die (0,3)) reads **≤ ceiling on all three configs**
+(`diag_designed_edge_check.py`): AF200 1:1 F11 **0.125** (ceil 0.145), Sigma150 1:1
+F8 **0.130** (ceil 0.197), 105VR+6T F8 **0.099** (ceil 0.168) — matching the POC's
+0.10–0.13 cy/px. A genuine clean reflectance edge reads physical with this exact
+estimator; the pad arrays do not. (As §E.4 noted, that designed feature is itself
+non-discriminating and sparse, so it confirms the mechanism but can't be the metric.)
+
+### F.3 Decision — no re-ranking shipped
+
+Per the task's explicit instruction ("Do not silently ship a metric that fails
+(a)/(b)"), the production unified re-ranking was **not run**: a metric that
+over-reads on 2/15 positions and is blank on 13/15 would be strictly worse than
+the existing groove-`min` ranking, not better. There is no
+`unified_ranking_padedge.csv`; the groove-`min` `unified_ranking.csv` (§E) remains
+the current best, with its documented OVER-READ caveat at sharp macro+diopter
+centres. MCON-35 > 6T (centre) therefore stands on the groove ranking as before
+(§D.3 / §E.3); the pad-edge metric produced no centre numbers to re-confirm it.
+
+### F.4 Honest assessment / what didn't work
+
+- **Bond-pad edges are not viable broad-coverage MTF targets on this wafer.** They
+  are periodic arrays, not isolated reflectance steps. Tried: longest-edge (locks
+  onto ridges → 0.25–0.62 over-read, the σ-floor); + step-quality gate (correctly
+  rejects ridges/noise, but then 13/15 positions go blank and the 2 survivors are
+  aliased array edges that still over-read). Both fail.
+- **Die-boundary / non-metal edges**: the die/cell boundary IS the groove scribe,
+  already known to over-read (§E.4). The only true-reflectance edge that reads
+  physical is the **single designed slanted-edge feature** — but it is sparse
+  (1–2 die types in FOV) and intrinsic-width-limited (≈0.10–0.13 cy/px, **does not
+  discriminate** sharpness; §E.4). So it proves the mechanism but cannot rank.
+- **Conclusion: no clean, broad-coverage, sharpness-discriminating MTF target
+  exists in the current 2026-01/02 wafer dataset.** A physically-calibrated
+  centre/corner resolution metric needs a *new acquisition* with a proper
+  slanted-edge / knife-edge target (a single high-contrast straight metal step,
+  several per field position), not a re-mining of the wafer's periodic structures.
+  The deliverables left behind (single-step estimator + gate + selector + driver,
+  all tested) are the reusable half — they will measure such a target correctly
+  the moment one is captured; what is missing is the target, not the tool.
+
+### F.5 Caveats on the validation itself
+
+- Sigma150's registration rmse was 4.1 px (vs 1.5 px for the others); its M=1.028
+  and ceiling are still reliable to ~few %, and the conclusion (1.49× over) is far
+  outside that band.
+- The gate thresholds (`min_contrast=12 DN`, `max_overshoot_frac=0.25`,
+  σ-floor×1.05) were set to be *permissive* — they let through the 2 aliased
+  survivors rather than over-pruning, so the negative result is not an artefact of
+  an over-tight gate. Loosening them only readmits more ridges (larger over-reads);
+  tightening them drives coverage to 0/15.
+- Tooling note: the worktree's `tile-sharpness/pyproject.toml` pins the sibling
+  `lens-test-detect-core` at `../../`, which doesn't resolve from inside a
+  `.claude/worktrees/` worktree, so `uv run` re-resolution fails there. Tests/CPU
+  jobs were run with the prebuilt host venv + `PYTHONPATH=.../tile-sharpness/src`
+  (worktree src wins over the editable install); `pytest` → 130 passed.
+
 ## Artifacts
 
 - `wafer-atlas/scripts/accessory_configs.csv` — config inventory (282 sweeps).
@@ -271,6 +390,16 @@ fallback where no true edge is in FOV.
 - `wafer-atlas/scripts/enumerate_bare_configs.py` — bare-config inventory → `bare_configs.csv`.
 - `tile-sharpness/out_accessory_atlas/ranking_{validation,resolution}.csv` — accessory tables (mean).
 - `tile-sharpness/out_accessory_atlas/{accessory,bare}_ranking_min.csv`, `unified_ranking.csv` — min-method + unified bare+accessory ranking.
+- **(F) pad-edge metric (built, validated, rejected):**
+  `tile-sharpness/src/tile_sharpness/methods/slanted_edge.py` (single-step path +
+  quality gate), `.../methods/pad_edge.py` (gated selector),
+  `tile-sharpness/tests/test_slanted_edge.py` (13 tests),
+  `tile-sharpness/scripts/atlas_rank_padedge.py` + `build_padedge_report.py`
+  (driver/report, unused — no ranking shipped),
+  `wafer-atlas/scripts/diag_padedge_explore.py` (the validation),
+  `.../diag_padedge_debug.py` (ESF/raw-pixel dump), `.../diag_designed_edge_check.py`
+  (estimator-soundness check), `.../diag_padedge_crops/` (image proof the regions
+  are periodic pad arrays).
 
 ## Follow-ups (remaining)
 
@@ -282,3 +411,9 @@ fallback where no true edge is in FOV.
   (registration collapses/fails) via manual anchors / better fragment disambiguation.
 - Optionally re-measure the bare cohort at **F8 only** with more scribes per position
   to beat the ±5 lp/mm corner noise (the vintage-55mm ordering is within that band).
+- **True-edge metric needs a new capture (§F).** The bond-pad route is exhausted
+  (periodic arrays, not isolated steps → over-read or no coverage). To get a
+  physically-calibrated, sharpness-discriminating centre/corner metric, capture a
+  dedicated slanted-edge / knife-edge target (single high-contrast straight metal
+  steps, several per field zone). The single-step estimator + gate + selector are
+  ready to consume it.

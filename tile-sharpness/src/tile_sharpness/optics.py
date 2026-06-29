@@ -35,8 +35,53 @@ are line-pairs per mm (cy = lp).
 """
 from __future__ import annotations
 
+import math
+
 GREEN_WAVELENGTH_UM = 0.55
 MTF50_CUTOFF_FRACTION = 0.404   # ν/ν_cutoff where the diffraction MTF = 0.5
+
+
+def diffraction_mtf_at(nu_lpmm: float, n_eff: float,
+                       wavelength_um: float = GREEN_WAVELENGTH_UM) -> float:
+    """Incoherent diffraction-limited MTF (contrast in [0,1]) at image-plane spatial
+    frequency ``nu_lpmm`` (lp/mm at the SENSOR) for a circular aperture of effective
+    f-number ``n_eff``.
+
+    For a perfect incoherent system the OTF is the autocorrelation of the circular
+    pupil: ``MTF(s) = (2/π)(arccos(s) - s·sqrt(1 - s²))`` for ``s = ν/ν_cutoff`` in
+    ``[0,1]``, and ``0`` beyond cutoff, where ``ν_cutoff = 1/(λ·N_eff)``. This is the
+    physical ceiling at *any* frequency — a real lens can only do worse — so it is the
+    truth gate for a periodic-contrast MTF read at the structure's fundamental.
+    """
+    if n_eff <= 0 or wavelength_um <= 0:
+        raise ValueError("n_eff>0, wavelength_um>0 required")
+    if nu_lpmm <= 0:
+        return 1.0
+    wavelength_mm = wavelength_um / 1000.0
+    cutoff_lpmm = 1.0 / (wavelength_mm * n_eff)
+    s = nu_lpmm / cutoff_lpmm
+    if s >= 1.0:
+        return 0.0
+    return (2.0 / math.pi) * (math.acos(s) - s * math.sqrt(1.0 - s * s))
+
+
+def diffraction_mtf_subject_at(nu_subject_lpmm: float, n_marked: float,
+                               magnification: float, pupil_mag: float = 1.0,
+                               wavelength_um: float = GREEN_WAVELENGTH_UM) -> float:
+    """Diffraction-limited MTF (contrast in [0,1]) evaluated at a SUBJECT-space
+    frequency ``nu_subject_lpmm`` (lp/mm on the subject), at the effective aperture
+    for ``magnification``.
+
+    A subject-space frequency ``ν_subj`` lp/mm corresponds to image-plane
+    ``ν_subj / M`` lp/mm (the subject is ``M``× smaller, so its detail is ``M``×
+    coarser at the sensor). This is the ceiling to compare a subject-space periodic
+    contrast against — reads above it are artifacts (e.g. aliasing onto sub-element
+    periodicity)."""
+    if magnification <= 0:
+        raise ValueError("magnification>0 required")
+    n_eff = effective_fnumber(n_marked, magnification, pupil_mag)
+    nu_sensor = nu_subject_lpmm / magnification
+    return diffraction_mtf_at(nu_sensor, n_eff, wavelength_um)
 
 
 def effective_fnumber(n_marked: float, magnification: float, pupil_mag: float = 1.0) -> float:

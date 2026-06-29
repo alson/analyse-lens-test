@@ -176,3 +176,287 @@ def _iso_wall(esf: np.ndarray, bins_per_px: float) -> float | None:
             f0, f1 = freqs[k - 1], freqs[k]; m0, m1 = norm[k - 1], norm[k]
             return float(f0 + (f1 - f0) * ((m0 - 0.5) / (m0 - m1))) if m0 != m1 else float(f1)
     return None
+
+
+# ---------------------------------------------------------------------------
+# SINGLE-STEP edges (bond-pad metal→substrate reflectance edges).
+#
+# A groove scribe is a TROUGH (two walls — ``_split_walls``). A bond-pad edge is
+# a single monotone STEP, so the whole super-resolved ESF is one erf: no split,
+# fit it directly. This is the right tool for the true-reflectance-edge metric
+# (REPORT_taskAD §E.4) — a designed groove is a lit/shadow emboss that
+# specular-over-reads; a single metal→substrate step has no second wall to glint.
+# ---------------------------------------------------------------------------
+
+
+def _trim_to_dominant_step(centres: np.ndarray, esf: np.ndarray):
+    """Crop the ESF window to the SINGLE dominant step. The super-res window can
+    overrun a small pad onto a neighbouring pad/edge (→ a second step that would
+    bias the erf fit). We locate the largest-|gradient| transition, then walk out
+    from it until the profile reverses curvature (a second edge) or the window
+    ends, keeping a symmetric-ish span around the step centre."""
+    n = esf.size
+    if n < 8:
+        return centres, esf
+    g = np.gradient(np.asarray(esf, float))
+    pk = int(np.argmax(np.abs(g)))
+    s = float(np.sign(g[pk])) or 1.0
+    sg = s * g                          # step's rise is positive in sg
+    # Walk out from the peak until the gradient falls into the flat band (the
+    # step has ended). Stop there — do NOT walk through a flat gap into a second
+    # step (a neighbouring pad edge), which would bias the erf fit.
+    thr = 0.15 * abs(g[pk])
+    lo = pk
+    while lo > 0 and sg[lo - 1] > thr:
+        lo -= 1
+    hi = pk
+    while hi < n - 1 and sg[hi + 1] > thr:
+        hi += 1
+    # keep a background shoulder on each side for the erf asymptotes
+    pad = 4
+    lo = max(0, lo - pad); hi = min(n - 1, hi + pad)
+    if hi - lo < 6:
+        return centres, esf
+    return centres[lo:hi + 1], esf[lo:hi + 1]
+
+
+_SIGMA_FLOOR = 0.30   # _fit_wall lower bound; a fit here means an UNRESOLVED step
+
+
+def _step_quality_ok(centres: np.ndarray, esf: np.ndarray, *, min_contrast: float = 12.0,
+                     max_overshoot_frac: float = 0.25) -> bool:
+    """Gate a candidate ESF (the FULL super-res window, BEFORE trimming) as a
+    GENUINE single reflectance step.
+
+    Rejects the artefacts the pad-array selector produces (REPORT_taskAD pad-edge
+    validation): a thin bright RIDGE (rise-then-fall), a TROUGH, or a noise-only
+    profile. Must be called on the full window — after ``_trim_to_dominant_step``
+    a ridge already looks monotone, so the rise-then-fall is only visible here.
+    Requirements:
+      * real contrast end-to-end (``|esf[-1]-esf[0]| >= min_contrast`` DN),
+      * the interior must not excurse far BEYOND either endpoint (a ridge peaks
+        above both ends, a trough dips below both) — i.e. monotone-ish, not a bump."""
+    if esf.size < 8:
+        return False
+    a, b = float(esf[0]), float(esf[-1])
+    step = abs(b - a)
+    if step < min_contrast:
+        return False
+    hi_end, lo_end = max(a, b), min(a, b)
+    over = max(0.0, float(esf.max()) - hi_end)      # excursion above the top plateau
+    under = max(0.0, lo_end - float(esf.min()))     # excursion below the bottom plateau
+    # A clean step's interior stays between its plateaus (allow a little noise/ringing).
+    if (over + under) > max_overshoot_frac * step:
+        return False
+    return True
+
+
+def mtf50_step_erf(image_2d: np.ndarray, seg: Segment, *, half_window_px: float = 30.0,
+                   bins_per_px: float = 4.0, quality_gate: bool = True) -> float | None:
+    """PRIMARY single-step readout: erf-fit MTF50 (cy/px) on a monotone bond-pad
+    edge. Unlike ``mtf50_erf`` (groove → two walls) there is ONE edge, so the
+    super-resolved ESF is cropped to its dominant step and fit with a single erf.
+    A shape fit cannot float up off the noise floor, and there is no second
+    (shadow/lit) wall to introduce specular asymmetry.
+
+    ``quality_gate`` (default on) rejects candidates that are NOT a genuine single
+    step — a bright-trace ridge, a trough, a low-contrast/noise profile, or a fit
+    railing at the sigma floor (an unresolved/aliased pixel edge). Such candidates
+    return ``None`` rather than a spurious over-read; the pad-array structure on
+    this wafer produces many of them, so this gate is load-bearing for the metric's
+    validity (see REPORT pad-edge validation)."""
+    out = superres_esf(image_2d, seg, half_window_px=half_window_px, bins_per_px=bins_per_px)
+    if out is None:
+        return None
+    if quality_gate and not _step_quality_ok(*out):   # gate on the FULL window
+        return None
+    c, e = _trim_to_dominant_step(*out)
+    m = _fit_wall(c, e)
+    if m is None:
+        return None
+    if quality_gate:
+        sigma = _MTF50_PER_INV_SIGMA / m
+        if sigma <= _SIGMA_FLOOR * 1.05:    # railed at the floor -> unresolved, reject
+            return None
+    return m
+
+
+def mtf50_step_iso(image_2d: np.ndarray, seg: Segment, *, half_window_px: float = 30.0,
+                   bins_per_px: float = 4.0) -> float | None:
+    """Model-free single-step cross-check: ISO-12233 windowed-derivative MTF50 on
+    the monotone ESF (no wall split). Uses the FULL super-res window — ISO-12233
+    wants generous flat shoulders for an unbiased DC term, so it is NOT trimmed to
+    the step core (unlike the erf path, where a parametric fit prefers a clean
+    single step). The Hamming window centred on the LSF peak suppresses any distant
+    second-step energy."""
+    out = superres_esf(image_2d, seg, half_window_px=half_window_px, bins_per_px=bins_per_px)
+    if out is None:
+        return None
+    return _iso_wall(out[1], bins_per_px)
+
+
+def _is_trough(esf: np.ndarray) -> bool:
+    """True if the ESF looks like a groove (a TROUGH: dips below both ends) rather
+    than a single step. Decision: the interior minimum sits clearly below both
+    endpoints by more than a fraction of the end-to-end change."""
+    if esf.size < 8:
+        return False
+    a, b = float(esf[0]), float(esf[-1])
+    mn = float(esf.min())
+    end = max(a, b)
+    span = float(esf.max() - esf.min())
+    if span <= 0:
+        return False
+    # trough: the dip below the higher endpoint is large vs the |endpoint step|.
+    dip = end - mn
+    step = abs(b - a)
+    return dip > step + 0.25 * span
+
+
+def mtf50_auto(image_2d: np.ndarray, seg: Segment, *, half_window_px: float = 30.0,
+               bins_per_px: float = 4.0, combine: str = "min") -> float | None:
+    """Auto entry point: measure MTF50 (cy/px) whether the feature under ``seg`` is
+    a single STEP (bond-pad / reflectance edge → single-erf path) or a groove
+    TROUGH (two walls → ``mtf50_erf`` with ``combine``). Detected from the ESF
+    shape so a caller need not know the feature type in advance."""
+    out = superres_esf(image_2d, seg, half_window_px=half_window_px, bins_per_px=bins_per_px)
+    if out is None:
+        return None
+    if _is_trough(out[1]):
+        walls = _split_walls(*out)
+        if walls is None:
+            return None
+        vals = [m for m in (_fit_wall(c, e) for c, e in walls) if m is not None]
+        if not vals:
+            return None
+        return {"min": min, "max": max, "mean": lambda xs: float(np.mean(xs))}[combine](vals)
+    c, e = _trim_to_dominant_step(*out)
+    return _fit_wall(c, e)
+
+
+# ---------------------------------------------------------------------------
+# RE-CENTRED single-step ESF for LONG isolated edges.
+#
+# ``superres_esf`` bins pixels by perpendicular distance to ONE fixed straight
+# line (the ``Segment``). That is correct only if the real edge IS that straight
+# line. On the wafer's long designed bar the per-row edge position scatters ~±4 px
+# around the best-fit line (jagged detection + a slight bow); binning to the fixed
+# line then convolves the true ESF with that ±4 px scatter, so the longer the edge
+# the WIDER the ESF and the LOWER the MTF50 — a pure straight-line-model artefact
+# (REPORT longedge §G). Re-centring each row on its own sub-pixel edge position
+# (robust low-order polynomial across rows) removes the scatter: σ then stays flat
+# vs edge length. This is the standard ISO-12233 centroid step done properly for a
+# long edge.
+# ---------------------------------------------------------------------------
+
+
+def _subpix_grad_peak(mag: np.ndarray, k: int) -> float:
+    if k <= 0 or k >= len(mag) - 1:
+        return 0.0
+    denom = mag[k - 1] - 2 * mag[k] + mag[k + 1]
+    return 0.5 * (mag[k - 1] - mag[k + 1]) / denom if denom != 0 else 0.0
+
+
+def superres_esf_recentred(image_2d: np.ndarray, seg: Segment, *,
+                           half_window_px: float = 16.0, bins_per_px: float = 4.0,
+                           poly_deg: int = 2, robust_iter: int = 2, min_count: int = 3
+                           ) -> tuple[np.ndarray, np.ndarray] | None:
+    """Super-resolved single-step ESF that re-centres every along-edge sample on the
+    local sub-pixel edge position (robust polynomial of degree ``poly_deg`` across
+    the edge), instead of a single straight line. Removes the per-row position
+    scatter that otherwise widens the ESF on long, slightly-non-straight edges.
+
+    ``seg`` only needs to be APPROXIMATELY on the edge (atlas/Hough accuracy); the
+    refinement re-finds the edge. Returns ``(d_centres, esf)`` in signed
+    perpendicular distance to the fitted edge curve, or ``None``.
+    """
+    L = seg.length_px
+    if L < 8:
+        return None
+    ux, uy = (seg.x1 - seg.x0) / L, (seg.y1 - seg.y0) / L     # along-edge
+    px, py = -uy, ux                                          # perpendicular
+    H, W = image_2d.shape
+    m = half_window_px + 3
+    xs_b = [seg.x0, seg.x1]; ys_b = [seg.y0, seg.y1]
+    bx0 = max(0, int(min(xs_b) - m)); bx1 = min(W, int(max(xs_b) + m) + 1)
+    by0 = max(0, int(min(ys_b) - m)); by1 = min(H, int(max(ys_b) + m) + 1)
+    if bx1 - bx0 < 4 or by1 - by0 < 4:
+        return None
+    yy, xx = np.mgrid[by0:by1, bx0:bx1]
+    rx = xx - seg.x0; ry = yy - seg.y0
+    t = rx * ux + ry * uy                  # along-edge coord
+    d0 = rx * px + ry * py                 # signed perpendicular to the SEED line
+    vals = image_2d[by0:by1, bx0:bx1].astype(np.float64)
+    inwin = (t >= 0) & (t <= L) & (np.abs(d0) <= half_window_px)
+    if inwin.sum() < 50:
+        return None
+    # Per along-edge ROW (integer t), find the sub-pixel edge offset along d via the
+    # steepest |gradient| of the d-profile. Determine step sign from the global ends.
+    t_int = np.round(t).astype(int)
+    offs_t, offs_off = [], []
+    for tv in range(0, int(np.floor(L)) + 1):
+        sel = inwin & (t_int == tv)
+        if sel.sum() < 6:
+            continue
+        dvals = d0[sel]; vv = vals[sel]
+        order = np.argsort(dvals)
+        dv = dvals[order]; vp = vv[order]
+        g = np.gradient(vp)
+        ag = np.abs(g)
+        k = int(np.argmax(ag))
+        if 1 <= k <= len(vp) - 2:
+            off = _subpix_grad_peak(ag, k)
+            offs_t.append(tv)
+            offs_off.append(dv[k] + (off * (dv[k + 1] - dv[k]) if k + 1 < len(dv) else 0.0))
+    if len(offs_t) < 10:
+        return None
+    tt = np.asarray(offs_t, float); oo = np.asarray(offs_off, float)
+    deg = min(poly_deg, 3)
+    A = np.polyfit(tt, oo, deg)
+    for _ in range(robust_iter):
+        r = oo - np.polyval(A, tt)
+        keep = np.abs(r) < 2.0 * (np.std(r) + 1e-6)
+        if keep.sum() < 10:
+            break
+        A = np.polyfit(tt[keep], oo[keep], deg)
+    # re-centred perpendicular distance: d0 minus the edge curve at each sample's t
+    d = d0[inwin] - np.polyval(A, t[inwin])
+    v = vals[inwin]
+    keep = np.abs(d) <= half_window_px
+    d = d[keep]; v = v[keep]
+    nb = int(round(2 * half_window_px * bins_per_px))
+    edges = np.linspace(-half_window_px, half_window_px, nb + 1)
+    idx = np.clip(np.digitize(d, edges) - 1, 0, nb - 1)
+    sums = np.bincount(idx, weights=v, minlength=nb)
+    cnts = np.bincount(idx, minlength=nb)
+    good = cnts >= min_count
+    if good.sum() < 8:
+        return None
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    return centres[good], sums[good] / cnts[good]
+
+
+def mtf50_long_edge(image_2d: np.ndarray, seg: Segment, *, half_window_px: float = 16.0,
+                    bins_per_px: float = 4.0, poly_deg: int = 2,
+                    min_contrast: float = 12.0) -> float | None:
+    """PRIMARY long-isolated-edge readout: erf-fit MTF50 (cy/px) on a re-centred
+    super-resolved single-step ESF (``superres_esf_recentred``). For a long,
+    slightly-non-straight reflectance edge (the wafer's designed bar) this is the
+    correct estimator — a fixed-line ESF artefactually softens with length.
+
+    Returns ``None`` on low contrast or a failed/railed fit (the same conservative
+    gates as ``mtf50_step_erf``)."""
+    out = superres_esf_recentred(image_2d, seg, half_window_px=half_window_px,
+                                 bins_per_px=bins_per_px, poly_deg=poly_deg)
+    if out is None:
+        return None
+    c, e = out
+    if abs(float(e[-1]) - float(e[0])) < min_contrast and float(e.max() - e.min()) < min_contrast:
+        return None
+    m = _fit_wall(c, e)
+    if m is None:
+        return None
+    sigma = _MTF50_PER_INV_SIGMA / m
+    if sigma <= _SIGMA_FLOOR * 1.05:
+        return None
+    return m
