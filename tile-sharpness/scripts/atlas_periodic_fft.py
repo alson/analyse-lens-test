@@ -147,14 +147,14 @@ def enumerate_regions(p, scale):
     return regions
 
 
-def measure_region(jpgs, region, theta_deg, scale):
+def measure_region(jpgs, region, theta_deg, scale, M=None):
     """Backward-compatible single-region wrapper (used by tests/probes). Prefer
     ``measure_all_regions`` which decodes each frame once for the whole sweep."""
-    out = measure_all_regions(jpgs, [region], theta_deg)
+    out = measure_all_regions(jpgs, [region], theta_deg, M=M)
     return out.get(0)
 
 
-def measure_all_regions(jpgs, regions, theta_deg, topk=5):
+def measure_all_regions(jpgs, regions, theta_deg, topk=5, M=None):
     """One decode per frame; score every region's ROI. For each region keep the
     ``topk`` highest-lapvar (best-focus) frames, discover the sub-element pitch on the
     sharpest, then take the peak Michelson contrast over those frames at that locked
@@ -186,7 +186,13 @@ def measure_all_regions(jpgs, regions, theta_deg, topk=5):
             continue
         frames = sorted(h, reverse=True)            # sharpest first
         der_bf = derotate(frames[0][2].astype(np.float64), theta_deg)
-        d = discover_fundamental(der_bf, band=BAND, exclude=MAZE_EXCLUDE)
+        # Pass M (when known from registration) so the discovery band + maze exclusion
+        # track magnification; at high M the maze otherwise slides into the static band.
+        # M=None falls back to the static BAND/MAZE_EXCLUDE (unchanged low-M behaviour).
+        if M is None:
+            d = discover_fundamental(der_bf, band=BAND, exclude=MAZE_EXCLUDE)
+        else:
+            d = discover_fundamental(der_bf, M=M)
         if d is None:
             continue
         pitch, ax = d["pitch_px"], d["axis"]
@@ -216,7 +222,7 @@ def run(sweep_dir: Path, n_marked: float, *, verbose=True):
     scale = p["scale"]; M = scale / M_ANCHOR_SCALE; theta = p["theta_deg"]
     n_eff = optics.effective_fnumber(n_marked, M)
     regions = enumerate_regions(p, scale)
-    measured = measure_all_regions(jpgs, regions, theta)
+    measured = measure_all_regions(jpgs, regions, theta, M=M)
     rows = []
     for ri, reg in enumerate(regions):
         m = measured.get(ri)

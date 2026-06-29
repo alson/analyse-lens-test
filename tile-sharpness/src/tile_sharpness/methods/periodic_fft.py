@@ -27,14 +27,70 @@ from __future__ import annotations
 
 import numpy as np
 
+from tile_sharpness.methods.maze_fft import (
+    maze_freq_cy_per_px,
+    MAZE_PITCH_UM,
+    SENSOR_PITCH_UM_Z7,
+)
+
 try:  # cv2 only needed for de-rotation; degrade gracefully without it
     import cv2  # type: ignore
 except Exception:  # pragma: no cover
     cv2 = None
 
+# Subject↔sensor frequency conversion (M=1): f_subj(lp/mm) = f_px(cy/px) · LPMM_PER_CYPX · M.
+LPMM_PER_CYPX = 1000.0 / SENSOR_PITCH_UM_Z7   # ≈229.9 lp/mm per cy/px at M=1
+NYQUIST = 0.5
+
 
 def _hann2d(h: int, w: int) -> np.ndarray:
     return np.outer(np.hanning(h), np.hanning(w))
+
+
+def maze_band_cy_per_px(
+    M: float, half_bw_frac: float = 0.10
+) -> tuple[float, float, float] | None:
+    """The universal 13 µm maze's exclusion band ``(f_maze, lo, hi)`` in cy/px for this
+    magnification ``M``, or ``None`` if the maze aliases past Nyquist.
+
+    The maze frequency is M-dependent (``f_px = 4.35/(13·M)`` cy/px: ~0.335 @ M=1 but
+    ~0.167 @ M=2), so at high M it slides DOWN into the static discovery band and a
+    static exclusion misses it. The exclusion half-width is a fraction of the maze
+    frequency so the window tracks the maze as it moves with M."""
+    fz = maze_freq_cy_per_px(M)
+    if fz <= 0 or fz + half_bw_frac * fz > NYQUIST:
+        return None
+    hw = half_bw_frac * fz
+    return fz, max(0.0, fz - hw), min(NYQUIST, fz + hw)
+
+
+STATIC_BAND: tuple[float, float] = (0.06, 0.30)
+
+
+def resolvable_band_cy_per_px(
+    M: float,
+    pad_f1_subj_lpmm: float = 18.0,
+    static_band: tuple[float, float] = STATIC_BAND,
+    f1_margin: float = 0.8,
+) -> tuple[float, float]:
+    """M-aware resolvable discovery band ``(lo, hi)`` in cy/px.
+
+    The static 0.06 cy/px floor is M-naive: the pad fundamental's pixel frequency is
+    ``f_px = f_subj/(229.9·M)``, so at high M (e.g. M≈2) an ~18 lp/mm pad fundamental
+    drops to ~0.039 cy/px — *below* the static 0.06 floor — and would be clipped. The
+    floor is therefore lowered **only when the static floor would actually clip the pad
+    fundamental** (``f1_px < static_lo``); until then it stays *exactly* at the static
+    0.06, so the whole low-M regime (the pad fundamental sits at ≥0.06 for M ≲ 1.16)
+    reproduces the static band unchanged — the regression invariant. Once the static
+    floor would clip f1, the floor drops to ``f1_margin·f1_px`` (a small margin below the
+    pad fundamental). The ceiling is the static 0.30: the pad comb lives below it at every
+    M, and the maze line (when it slides in at high M) is removed by the M-aware
+    ``exclude`` band, not by the ceiling."""
+    f1_px = pad_f1_subj_lpmm / (LPMM_PER_CYPX * M)
+    lo = static_band[0] if f1_px >= static_band[0] else f1_margin * f1_px
+    hi = static_band[1]
+    lo = min(lo, 0.8 * hi)           # never let the floor exceed the ceiling
+    return float(lo), float(hi)
 
 
 def derotate(roi: np.ndarray, theta_deg: float, trim_frac: float = 0.08) -> np.ndarray:
@@ -58,6 +114,7 @@ def discover_fundamental(
     axis: str = "auto",
     band: tuple[float, float] = (0.06, 0.30),
     exclude: tuple[float, float] | None = (0.31, 0.36),
+    M: float | None = None,
 ) -> dict | None:
     """Find the dominant periodic fundamental of ``roi`` inside a discriminating
     frequency ``band`` (cy/px), avoiding DC bleed and (optionally) the universal
@@ -67,8 +124,29 @@ def discover_fundamental(
     carries no MTF information; the *measurable* fundamental is the structure's
     sub-element periodicity (the caveat's "FFT may lock onto sub-element periodicity"
     — which for MTF is exactly the high-frequency target we want). Returns a dict with
-    ``pitch_px``, ``f0_cy_per_px``, ``axis`` and the peak amplitude, or ``None``."""
+    ``pitch_px``, ``f0_cy_per_px``, ``axis`` and the peak amplitude, or ``None``.
+
+    ``M`` (optional magnification): when ``None`` (the default) the static ``band`` and
+    ``exclude`` are used exactly as passed — fully backward-compatible. When ``M`` is
+    given, the band and maze exclusion become M-aware (``resolvable_band_cy_per_px`` and
+    ``maze_band_cy_per_px``), which is what keeps the discovery off the maze at high M
+    where the maze frequency slides DOWN into the static band. By construction the
+    M-aware band/exclusion reproduce the static (0.06,0.30)/(0.31,0.36) picks across the
+    whole low-M regime (the floor only drops once the static 0.06 would clip the pad
+    fundamental, ~M≳1.2, and the maze near 0.32 cy/px stays excluded), so low-M reads do
+    not change — the only intended behaviour change is at high M. An explicitly passed
+    ``band``/``exclude`` still wins over the M-derived defaults if a caller overrides
+    them (i.e. M only supplies the defaults)."""
     if roi.ndim != 2 or roi.size == 0:
+        return None
+    if M is not None:
+        # M-aware defaults; an explicit override of band/exclude (non-default) wins.
+        if band == (0.06, 0.30):
+            band = resolvable_band_cy_per_px(M)
+        if exclude == (0.31, 0.36):
+            mb = maze_band_cy_per_px(M)
+            exclude = (mb[1], mb[2]) if mb is not None else None
+    if band[0] >= band[1]:
         return None
     axes = ("u", "v") if axis == "auto" else (axis,)
     best = None

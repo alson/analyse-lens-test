@@ -9,7 +9,9 @@ import pytest
 
 from tile_sharpness.methods.periodic_fft import (
     periodic_contrast, derotate, discover_fundamental,
+    maze_band_cy_per_px, resolvable_band_cy_per_px, LPMM_PER_CYPX,
 )
+from tile_sharpness.methods.maze_fft import maze_freq_cy_per_px
 from tile_sharpness import optics
 
 
@@ -96,6 +98,111 @@ def test_discover_excludes_maze_band():
 
 def test_discover_none_on_flat():
     assert discover_fundamental(np.full((128, 128), 50.0)) is None
+
+
+# --- M-aware band + maze exclusion (A5 fix) -----------------------------------
+
+def _pad_plus_maze(n, pad_pitch, maze_pitch, axis="u", pad_C=0.5, maze_C=0.6,
+                   mean=128.0, noise=1.0, seed=1):
+    """ROI carrying TWO gratings along ``axis``: a low-frequency pad fundamental and a
+    high-contrast maze line. Used to prove the discovery locks onto the pad, not the
+    (stronger) maze, once the maze is excluded."""
+    rng = np.random.default_rng(seed)
+    x = np.arange(n)
+    line = mean * (1.0 + pad_C * np.cos(2 * np.pi * x / pad_pitch)
+                   + maze_C * np.cos(2 * np.pi * x / maze_pitch))
+    img = (np.tile(line[None, :], (n, 1)) if axis == "u"
+           else np.tile(line[:, None], (1, n)))
+    if noise:
+        img = img + rng.normal(0, noise, img.shape)
+    return img.astype(np.float64)
+
+
+def test_M_none_is_exactly_static():
+    # Backward-compat: M=None must return byte-identical results to the static call.
+    img = _grating(512, pitch=10.0, contrast=0.5, axis="u", noise=2.0)
+    static = discover_fundamental(img, band=(0.06, 0.30), exclude=(0.31, 0.36))
+    default = discover_fundamental(img)            # same static defaults
+    none_M = discover_fundamental(img, M=None)
+    assert default == static
+    assert none_M == static
+
+
+def test_maze_band_tracks_M():
+    # Maze frequency slides DOWN with M; the exclusion window must follow it.
+    f1 = maze_band_cy_per_px(1.0)
+    f2 = maze_band_cy_per_px(2.0)
+    assert f1 is not None and f2 is not None
+    assert f1[0] == pytest.approx(maze_freq_cy_per_px(1.0), rel=1e-9)   # ~0.335
+    assert f2[0] == pytest.approx(maze_freq_cy_per_px(2.0), rel=1e-9)   # ~0.167
+    assert f2[0] < f1[0]
+    # ±10%-of-freq window brackets the maze frequency.
+    assert f2[1] < f2[0] < f2[2]
+    assert f2[2] - f2[1] == pytest.approx(0.2 * f2[0], rel=1e-6)
+
+
+def test_resolvable_band_reproduces_static_at_low_M():
+    # Regression invariant: at M≈1 the M-aware band must equal the static (0.06,0.30)
+    # band exactly — the pad fundamental sits well above 0.06 so the floor is not lowered.
+    lo1, hi1 = resolvable_band_cy_per_px(1.0)
+    assert (lo1, hi1) == pytest.approx((0.06, 0.30))
+    lo105, hi105 = resolvable_band_cy_per_px(1.056)
+    assert (lo105, hi105) == pytest.approx((0.06, 0.30))
+
+
+def test_resolvable_band_floor_drops_only_at_high_M():
+    # The floor lowers only when the static 0.06 would clip the pad fundamental.
+    lo1, hi1 = resolvable_band_cy_per_px(1.0)
+    lo2, hi2 = resolvable_band_cy_per_px(2.0)
+    assert lo2 < lo1                       # higher M -> lower floor (admits ~18 lp/mm)
+    assert hi1 == hi2 == pytest.approx(0.30)   # ceiling unchanged at the static value
+    # f1 of an 18 lp/mm pad at M=2 (~0.039 cy/px) is below static 0.06 but inside the band.
+    f1_px_M2 = 18.0 / (LPMM_PER_CYPX * 2.0)
+    assert f1_px_M2 < 0.06
+    assert lo2 < f1_px_M2 < hi2
+
+
+def test_low_M_matches_static_pick_with_maze_present():
+    # At M≈1 the M-aware path must reproduce the static pick: the maze (~0.335 cy/px) is
+    # outside both ceilings, and a real pad fundamental inside the band is picked the same.
+    n = 512
+    maze_pitch = 1.0 / maze_freq_cy_per_px(1.0)        # ~2.99 px
+    img = _pad_plus_maze(n, pad_pitch=10.0, maze_pitch=maze_pitch, axis="u")
+    static = discover_fundamental(img, band=(0.06, 0.30), exclude=(0.31, 0.36))
+    aware = discover_fundamental(img, M=1.0)
+    assert static is not None and aware is not None
+    # same pad fundamental, not the maze
+    assert aware["f0_cy_per_px"] == pytest.approx(static["f0_cy_per_px"], abs=1e-6)
+    assert aware["pitch_px"] == pytest.approx(10.0, rel=0.05)
+    assert abs(aware["f0_cy_per_px"] - maze_freq_cy_per_px(1.0)) > 0.05
+
+
+def test_high_M_excludes_maze_finds_pad():
+    # The A5 bug: at M≈2 the maze (~0.167 cy/px) slides INTO the static 0.06-0.30 band,
+    # so the static call locks onto the (stronger) maze. The M-aware call must exclude
+    # the maze and return the lower-frequency pad fundamental instead.
+    n = 512
+    M = 2.0
+    maze_px = 1.0 / maze_freq_cy_per_px(M)             # ~5.98 px (0.167 cy/px)
+    # pad fundamental ~18 lp/mm subject -> ~0.039 cy/px -> ~25.5 px pitch at M=2
+    pad_px = 1.0 / (18.0 / (LPMM_PER_CYPX * M))
+    img = _pad_plus_maze(n, pad_pitch=pad_px, maze_pitch=maze_px, axis="u",
+                         pad_C=0.4, maze_C=0.7)
+    static = discover_fundamental(img, band=(0.06, 0.30), exclude=(0.31, 0.36))
+    aware = discover_fundamental(img, M=M)
+    # static path is fooled by the maze (high-contrast line now inside the band)
+    assert static is not None
+    assert static["f0_cy_per_px"] == pytest.approx(maze_freq_cy_per_px(M), abs=0.01)
+    # M-aware path excludes the maze and recovers the pad
+    assert aware is not None
+    assert aware["pitch_px"] == pytest.approx(pad_px, rel=0.08)
+    assert abs(aware["f0_cy_per_px"] - maze_freq_cy_per_px(M)) > 0.02
+
+
+def test_M_aware_degenerate_band_returns_none():
+    # If a band collapses (lo>=hi) the function must bail rather than raise.
+    img = _grating(256, pitch=8.0, contrast=0.5)
+    assert discover_fundamental(img, band=(0.30, 0.10)) is None
 
 
 # --- diffraction ceiling at arbitrary frequency -------------------------------
