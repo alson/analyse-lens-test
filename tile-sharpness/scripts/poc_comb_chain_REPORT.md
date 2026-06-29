@@ -583,3 +583,151 @@ chance of being stable):**
 across the configs/field/focus compared; if the texture/speculars make it vary, it won't
 transfer. The self-calibration collapse test is the direct check. Driver:
 `poc_comb_chain_tn_*.py` (to be added).
+
+---
+
+## Stage T_n — RESULTS (2026-06-29)
+
+**Headline: empirical/self-calibrated `T_n` fixes the SYMPTOMS the prior POC flagged
+(invalid >1 MTF gone; median pad-vs-maze disagreement 5.15× → 0.93×) and CONFIRMS the
+even-harmonic hypothesis (maze `T2/T1 = 0.31`, square-wave predicts 0) — but it does NOT
+rescue the cross-M chain. The decisive self-calibration collapse test FAILS: no
+consistent `{T_n}` + single MTF(f_px) curve exists. The cross-M sharpness chain is
+DEFINITIVELY DEAD on this target.**
+
+New UNTRACKED scripts/data (no production or committed-lib module modified — production
+helpers + the committed `poc_comb_chain_lib`/`atlas_periodic_fft` imported read-only;
+the maze-harmonic read was copied locally into the extractor, not patched into the lib):
+`poc_comb_chain_tn_extract.py` (saturation-channel comb-amplitude extractor: A1 plumbing,
+decode HSV-S per region instead of luma, ALSO reads maze harmonics 2f–4f), 
+`poc_comb_chain_tn_run.sh` (sharded N=8 nufan runner), `poc_comb_chain_tn_analyse.py`
+(structure-typed self-calibration + gates). Heavy regenerable artifacts (`tn_all.csv`,
+`tn_shard_*`, logs) added to `.gitignore`; small results live under
+`poc_comb_chain_out/tn/` (`tn_empirical.csv`, `tn_mtf_samples.csv`).
+
+**Data.** Re-extracted on the SATURATION channel (specular-suppressed; diag-2 winner),
+all 16 configs, M 0.90–2.09, **4766 comb rows** (4251 SNR≥3/ceiling-valid). Teeth grouped
+by STRUCTURE TYPE = (cls, pad-pitch cluster) + maze, so different gratings are never
+pooled. The a1 fundamental histogram has three pad pitch clusters (~11, ~16, ~35 lp/mm
+subject) × {magenta, cyan}, plus the maze. The two data-rich types are `magenta.P11`
+(1963 teeth, all 16 configs) and `magenta.P16` (1463, all 16); cyan and the ~35 lp/mm
+clusters are thin.
+
+### The decisive stability test — DOES A CONSISTENT {T_n}+MTF COLLAPSE EXIST? **NO.**
+
+Self-calibration solves `log A_n(M) = log MTF(f_px) + log T_n` per structure type
+(isotonic-decreasing MTF in f_px × per-order `T_n`, gauge `T_1=1`), pooling all
+configs/regions. The **collapse residual** is the load-bearing number; the meaningful
+baseline is the *per-order-only* null (remove a per-order mean, ignore the MTF rolloff
+entirely): if the MTF curve is real, the collapse residual must fall well below it.
+
+| structure type | n teeth | configs | collapse resid | per-order-only null | square-wave-`T_n` resid |
+|---|---|---|---|---|---|
+| **magenta.P11** (primary) | 1963 | 16 | **0.790** | 0.866 | 2.722 |
+| magenta.P16 | 1463 | 16 | 0.831 | 0.885 | 2.989 |
+| maze | 608 | 16 | 0.842 | 1.000 | 1.158 |
+| cyan.P11 | 113 | 10 | 0.728 | 0.830 | 2.826 |
+| cyan.P16 | 90 | 12 | 0.986 | 1.048 | 3.216 |
+
+Residuals are in **log-contrast units** (0.79 ≈ a factor-2.2 typical miss). The empirical
+`T_n` **massively beats the prior square-wave assumption** (0.79 vs 2.72 for the primary
+structure — the square-wave model is simply wrong, as suspected). **But it barely beats
+ignoring the MTF rolloff at all** (0.79 vs the 0.87 per-order null — a ~9% improvement).
+The teeth do **not** collapse onto a single MTF(f_px) curve.
+
+Restricting to the cleanest case — primary `magenta.P11`, **low orders only** (where the
+saturation signal is strongest and not noise/alias-dominated) — does not help:
+
+| magenta.P11 | collapse resid | per-order null |
+|---|---|---|
+| orders ≤3 | 0.686 | 0.719 |
+| orders ≤4 | 0.689 | 0.721 |
+| orders ≤7 | 0.790 | 0.866 |
+
+Even here the MTF rolloff explains **~5%** of the scatter (0.686 vs 0.719). For
+calibration, the **within-single-config** collapse residual (same M, only region-replicate
++ measurement scatter) is **0.382** — so the cross-M residual (0.69) is ~1.8× the
+single-config noise floor. The configs do **not** share a common MTF curve beyond what one
+config's own region-to-region scatter already imposes. **No `{T_n}` makes the points
+collapse → the harmonic content is texture/measurement-unstable across configs → the
+approach is genuinely dead (definitive negative).**
+
+### Empirical `T_n` vs the square-wave assumption (and the maze N=2 prediction)
+
+| structure | `T_1` | `T_2` | `T_3` | `T_4` | `T_5` | comment |
+|---|---|---|---|---|---|---|
+| **magenta.P11** | 1.00 | 0.23 | 0.18 | 0.15 | 0.17 | physically sensible: monotone-ish decay, **strong even (N=2) content** |
+| magenta.P16 | 1.00 | 0.95 | 1.25 | 2.97 | 5.02 | **rises with order → unphysical** (high orders noise/alias-dominated) |
+| maze | 1.00 | **0.31** | — | — | — | **even N=2 content CONFIRMED** (square-wave predicts 0) |
+| square wave (D=0.5) | 1.00 | 0.00 | 0.33 | 0.00 | 0.20 | odd-only — the prior, wrong assumption |
+
+Two clear conclusions:
+1. **The maze really does carry even (N=2) harmonic content** — `T2/T1 = 0.31`, exactly
+   the report's prediction that the maze "skips/merges cycles." The odd-only square-wave
+   model that forced `T_2 ≡ 0` was wrong, which is *why* the prior pad-vs-maze MTF
+   disagreed ~5× (it mis-weighted the maze). This part of the hypothesis is **vindicated.**
+2. **`T_n` is only stable where signal is strong.** The primary `magenta.P11` low orders
+   give a believable falling spectrum; but `magenta.P16`/cyan `T_n` *rise* with order
+   (`T7` up to 24×) — a tell-tale that at high order the solver is absorbing
+   noise/alias/specular-residual energy into `T_n` because there is no real MTF collapse to
+   constrain it. Saturation suppressed the speculars (the channel choice was right and the
+   contrasts are physical) but did **not** make the content stable enough to self-calibrate.
+
+### Validation gates (re-run with empirical `T_n`)
+
+| gate | prior (square-wave) | empirical `T_n` (saturation) | verdict |
+|---|---|---|---|
+| **Physicality** (MTF ≤ 1) | invalid: shapes like `[1, 26.5, …]` | **0.0% of 4245 samples > 1.0**; median 0.029, p95 0.22 | **PASS** |
+| **Cross-structure** pad/maze MTF @ shared f_px | **5.15× median** | **0.93× median, 0.85× geomean** | median PASSES… |
+| …but its spread | log-spread 0.46 | **log-spread 0.97** (≈ factor-2.6 typical miss) | …**individual pairs scatter worse** |
+| **M de-confounding** corr(M, MTF) | +0.33/+0.78 raw → −0.27/−0.17/+0.03 | **−0.17 / −0.48 / −0.45** @ f_px 0.10/0.15/0.20 | over-corrects to negative, not clean 0 |
+| **Ranking sanity** | empty-mag float | **still floats** (see below) | **FAIL** |
+
+**Physicality is the real win** of empirical `T_n` + DC-normalisation: dividing by the
+*measured* `T_n` and `|F(0)|` keeps every MTF sample ≤ 1, eliminating the impossible >1
+shapes that sank the prior variant. The median cross-structure agreement collapsing from
+5.15× to ~0.93× confirms the 5× was indeed "wrong shared `T_n`," not a real physical gap —
+**but the per-pair log-spread is 0.97**, i.e. a *typical* pad-vs-maze pair still disagrees
+by ~2.6×. The median agrees because the errors are now centred, not because they are
+small. That scatter is the same non-collapse seen in the residuals.
+
+**Ranking still fails** (the empty-magnification fallacy persists):
+
+| f_px | top-3 | empty-mag +TC floats above bare donor? | bare105/bare150 (want ~1) |
+|---|---|---|---|
+| 0.10 | bare Sig150, bare Sig105, bare AF200 | marginal (only ZMC105+5T+6T > bare ZMC105) | 0.67 |
+| 0.15 | bare Sig150, bare AF200, bare ZMC105 | **YES** — Sig105+TC-2001 & +TC-1401 > bare Sig105 | 0.28 |
+| 0.20 | bare Sig150, bare AF200, bare ZMC105 | **YES, badly** — 4 +TC configs > bare Sig105 | 0.08 |
+
+At f_px≈0.10 the bare lenses do lead (good) — but, as in Task 1, that is the knife-edge
+window where everyone is on the pad fundamental (same-subject-feature comparison in
+disguise). Above f_px≈0.15 the empty-magnification +TC configs float above their bare
+donors again, and bare 105 reads 3–12× *below* bare 150 (should be ≈1×). The structure-
+corrected MTF still does not produce a physically sane cross-M ranking. The negative
+M-correlation is over-correction (the high-M teeth now read systematically *low* after
+dividing by a `T_n` fit that the high-M data itself dominated), not a clean de-confounding.
+
+### Verdict & recommendation
+
+**Definitively dead — and now we know precisely why.** The prior POC's caveat ("one
+credible rescue path untested: measure `T_n` empirically") has been tested and closed:
+
+- The empirical/self-calibration `T_n` **does** repair the two artifacts that the prior
+  square-wave model produced — MTF values are now physical (≤1) and the median pad-vs-maze
+  disagreement falls from 5.15× to ~1×. The even-harmonic (maze N=2 = 0.31) hypothesis is
+  confirmed. So the prior 5× was indeed a wrong-model artifact, exactly as suspected.
+- **But the decisive collapse does not exist.** No `{T_n}` + single MTF(f_px) curve makes
+  the teeth collapse (cross-M residual 0.69–0.79 vs a 0.72–0.87 per-order null vs a 0.38
+  within-config floor). The harmonic content is not stable enough across configs to define
+  the shared MTF the cross-M chain needs — the per-pair cross-structure spread (0.97) and
+  the rising-`T_n` instability on the secondary structures are the same failure seen three
+  ways. Saturation removed the speculars but the residual texture/measurement variation
+  still defeats self-calibration.
+
+This makes the report's **standing conclusion final, not merely "untested": there is no
+M-invariant cross-M sharpness axis recoverable from this wafer target.** Do **NOT**
+productionise the comb-chain or any absolute cross-M MTF built on it. The salvageable
+results are unchanged: **A5** (M-aware maze/band, already promoted) and the **saturation/
+R−B decode** SNR win (re-confirmed here — it makes the corrected MTF physical and is the
+right channel for these pad features). Use within-M periodic ranking + the diffraction
+ceiling + tolerance-ratios for cross-config comparison, as already recommended.

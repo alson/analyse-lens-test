@@ -28,3 +28,8 @@ tile-sharpness/scripts/poc_comb_chain_out/a1_shard_*.csv
 tile-sharpness/scripts/poc_comb_chain_out/contrast_inspect/*__roi.png
 tile-sharpness/scripts/poc_comb_chain_out/contrast_inspect/view_*.png
 tile-sharpness/scripts/poc_comb_chain_out/contrast_inspect/padpop/*cellmode_map.png
+# Stage T_n (saturation-channel re-extraction): heavy regenerable artifacts
+tile-sharpness/scripts/poc_comb_chain_out/tn_all.csv
+tile-sharpness/scripts/poc_comb_chain_out/tn_shard_*.csv
+tile-sharpness/scripts/poc_comb_chain_out/tn_shard_*.log
+tile-sharpness/scripts/poc_comb_chain_out/tn_run.log
