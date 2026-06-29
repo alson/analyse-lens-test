@@ -575,3 +575,6 @@ an overlap cross-check, not a calibration. Artifacts: `diag_2b_intermediate_fov.
 
 ### K.4 Resume
 Collect the two §K.1 agent branches, merge into `main` (keep-everything; ff or file-level checkout, scope out longdist/rename WIP), run their report builders, and fold their verdicts into this report. Then the open questions (edge↔FFT consistency, 105-vs-150 sharpness vs TC-tolerance, Sigma105+TC-2001 registration) are answered. Metric suite remains: **periodic-FFT (spanning relative) + diffraction ceiling**; flat-edge absolute is a sharp-config complement gated by acquisition framing.
+
+### K.5 Update (agent #2 done)
+Agent a7d0a7d0 (Sigma105+TC-2001 registration) COMPLETED and is MERGED to main (c204bbd): confirmed the column-only same-mod-4 ambiguity; added `_same_phase()` + `abs_index_unresolved` flag; Sigma105+TC-2001 2:1 now registers M~2.08, no regression (sweeps 1-4 + 2:1 byte-identical, test_reg_auto + 159 tests pass). Confirms the phase insight (your scratch-ID of col 6 is consistent; not needed). ONLY agent #1 (controlled edge<->FFT + bare-vs-TC + 3 edge fixes, branch `task-edgefft-metric-2026-06-29`) still running — collect + merge it on resume; it now has the Sigma105+TC-2001 cell available.
