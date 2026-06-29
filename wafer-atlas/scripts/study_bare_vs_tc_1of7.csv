@@ -1,0 +1,2 @@
+group,config,ok,reason,die,M,n_eff,rmse,f0_cypx,pitch_px,duty,n_harmonics,f_subj_span,mtf_at_common,ceil_at_common,over_at_common,harmonics
+bare,Sigma APO Macro 150mm F2.8 EX DG OS HSM|1_1,True,,6B,1.028,16.22,4.13,0.0488,20.5,0.674,4,"[9.4,51.9]",0.1614,0.802,0.201,n1:f9.4/M0.244/c0.897/snr3;n2:f20.9/M0.134/c0.770/snr1;n4:f51.9/M0.131/c0.447/snr2;n5:f51.9/M0.146/c0.447/snr2

@@ -1,0 +1,2 @@
+group,config,ok,reason,die,M,n_eff,rmse,f0_cypx,pitch_px,duty,n_harmonics,f_subj_span,mtf_at_common,ceil_at_common,over_at_common,harmonics
+bare,Sigma Macro 105mm F2.8 EX DG OS HSM|1_1,True,,9F,1.053,16.42,1.74,0.0419,23.8,0.61,4,"[8.6,34.4]",0.0812,0.8042,0.101,n1:f8.6/M0.100/c0.906/snr1;n2:f18.7/M0.080/c0.796/snr2;n3:f30.5/M0.124/c0.671/snr5;n4:f34.4/M0.035/c0.630/snr2
