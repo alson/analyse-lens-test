@@ -2,11 +2,15 @@
 
 State as of **2026-06-29** (handover updated at the end of a
 2026-06 session that landed §5.1–§5.5 follow-ups, added MTF@Nyquist
-+ MTF10 to the §5.1 algorithm, computed the D7200↔Z7 bridge, and
++ MTF10 to the §5.1 algorithm, computed the D7200↔Z7 bridge,
 **landed the §5.6e slanted-edge MTF over-read fix** — centroid-Hann LSF
-windowing, diffraction-ceiling validated; see §5.6e — and the §5.6f
+windowing, diffraction-ceiling validated; see §5.6e — the §5.6f
 downstream re-run of all five wide/mid `mtf50_known_edge` datasets under
-it, rankings preserved).
+it, rankings preserved, and **excluded the 2026-01-28 telephoto session
+(session-wide ISO-8000 low-SNR) and re-derived the §6 telephoto
+conclusions on the clean 2026-01-30 / 2026-01-18 dates** — see §5.6b
+(CLOSED) and the §4 update; this materially **reversed the +24 %/+65 %
+Z-TC headline to +11 %/≈0 %** and reshuffled the FOM ranking).
 
 This doc is for the next chat session picking up the work. Read it first.
 The detailed numbers and per-lens prose are in [`LONGDIST_TELE_RESULTS.md`](LONGDIST_TELE_RESULTS.md)
@@ -51,17 +55,20 @@ metric-change reasoning is in
 
 **Key conclusions that changed under §5.3** (not just rescaled):
 
-1. Z TC effectiveness over bare-cropping went from +10 % / +15 %
-   (1.4× / 2.0×) to +24 % / +65 %. The old metric capped the bare
-   400 mm at the 0.20 floor, masking the bare-vs-TC gap.
+1. ~~Z TC effectiveness over bare-cropping went from +10 % / +15 %
+   to +24 % / +65 %.~~ **Superseded 2026-06-29:** the +24 %/+65 %
+   was a 2026-01-28 low-SNR artefact. Clean 2026-01-30 gives
+   **+11 % / ≈0 %** centre-cutoff gain (Z 100-400 family all near the
+   metric floor at this distance). See §4.1 and §5.6b.
 2. Z 100-400 bare's "all apertures look the same" still holds, but
    the absolute level is 0.14–0.19 cy/mm-subj (not the blanket 0.20
    the floor was reporting).
 3. 300 PF bare's "best centre aperture" is f/5.6, not f/8 (within
    noise of each other; the f/8 claim was an FFT-bin artefact).
-4. **300 PF + TC-20e III edge/centre on 2026-01-28 reads 1.24** in
-   the new metric (was 1.02) — could be 3D-scene focal-plane
-   artefact, worth visual inspection before publishing.
+4. **300 PF + TC-20e III edge>centre is real, confirmed clean
+   2026-01-18** (edge/centre 1.18 ISO 100) — a 3D-scene pick-sharpest-
+   tile protocol artefact + soft on-axis TC, NOT a 2026-01-28 noise
+   effect. §5.6b CLOSED.
 5. D7200 long-FL TC chains previously all at 0.20 floor now show
    clear ordering: bare 0.183 > Kenko 1.4× 0.158 > TC-20e III
    0.140.
@@ -190,7 +197,7 @@ Encoder presence check is hardcoded in `audit_nef_distance.py`'s
 | 2026-01-18 | Z7 tele | Z 100-400, 300 PF + TC ladder, ISO 100 only | infinity-class | Cross-date v1 + v2 analysed |
 | 2026-01-24 | Z7 wide | 14-60 mm primes / zooms | mostly infinity-class | 4-algorithm comparison done |
 | 2026-01-26 | Z7 wide | Same + Viltrox 16/1.8 + AF-every-pic variants | mostly infinity-class | 4-algorithm comparison done |
-| 2026-01-28 | Z7 tele | Full TC ladder both families | infinity-class | Field-position sweeps + cross-family edge |
+| ~~2026-01-28~~ **EXCLUDED** | Z7 tele | Full TC ladder both families | infinity-class | **Session-wide ISO 8000 (all 320 frames, 16:05–16:34, sun gone); centre luma-std ≈ 16 vs ≈ 29/36 on the clean dates — low-SNR. Dropped from analysis; §6 re-derived on 01-30/01-18.** |
 | 2026-01-30 | Z7 tele | Deeper sampling, ISO ladder, **Kenko Pro 300 (new)** | infinity-class | Cross-date v1 + v2 analysed |
 | 2026-02-07/20mm | Z7 wide | 4 lenses at 20 mm | infinity-class | New scene-content note: grass-dominated centre, less structural |
 | 2026-02-07/tele | Z7 tele | Mid-tele + macros at infinity | infinity-class | 4-algorithm done |
@@ -210,10 +217,15 @@ of LONGDIST_TELE_RESULTS.md were refreshed.
 
 1. **TC vs cropping the bare 400 mm frame** (`LONGDIST_TELE_RESULTS.md` §6a):
    bare-cropped + upsampled cannot exceed the bare-lens cutoff (info
-   theory). Z TC-1.4× delivers **+24 %** (was +10 %), Z TC-2.0×
-   **+65 %** (was +15 %) over the bare-cropped ceiling. The bare
-   ceiling itself is 0.17 cy/mm-subj (was 0.20 — that was the
-   §5.2 metric floor masking the gap).
+   theory). **Re-derived clean on 2026-01-30** (2026-01-28 excluded):
+   Z TC-1.4× (560 mm) centre cutoff 0.21 vs bare-400 0.19 = **+11 %**;
+   Z TC-2.0× (800 mm) 0.19 = **≈0 %** — level with the bare-cropped
+   ceiling. The big **+24 %/+65 % headline was a 2026-01-28 low-SNR
+   artefact** and does not survive the exclusion; on clean data the Z
+   100-400 family centre cutoffs all sit near the metric floor
+   (0.19–0.21 cy/mm-subj) for this 84 m 3D-foliage scene. The Z TCs
+   still win on the FOM (total-detail) ranking and on field flatness —
+   just not on the centre-cutoff gain that headline claimed.
 
 2. **Z 100-400 bare-vs-TC effective focal length labelling fix**: the
    directory `Z 100-400 + Z TC-2.0× / 400.0 mm` is `lens-at-200mm + TC`
@@ -221,18 +233,26 @@ of LONGDIST_TELE_RESULTS.md were refreshed.
    `LONGDIST_TELE_RESULTS_2026-01-28.md` had this wrong; superseded by
    `LONGDIST_TELE_RESULTS.md` which uses EXIF-effective FL consistently.
 
-3. **Distant fixed subject FOM ranking** (FOM = sensor cy/px × f_eff):
-   Z 100-400 + Z TC-2.0× at 800 mm f/11 dominates. Every Nikon F-mount
-   TC on the 300 PF is net-NEGATIVE vs bare 300 PF. Kenko Pro 300 1.4×
-   is competitive with bare 300 PF (new finding from 2026-01-30 deep
-   sampling).
+3. **Distant fixed subject FOM ranking** (FOM = sensor cy/px × f_eff),
+   re-derived clean: the Z 100-400 family still tops, but **Z TC-1.4×
+   @ 560 f/16 (FOM 75) now leads** — the TC-2.0× @ 800 drops to FOM 68
+   (tied with bare-400). The old "TC-2.0× dominates at FOM 103" was a
+   2026-01-28 inflation. F-mount-TC-on-300-PF is **mixed, not uniformly
+   net-negative**: Kenko 1.4× (61) and TC-14e I (58) edge above bare
+   300 PF (55), TC-14e III/TC-17e II level; the clear loser is the
+   TC-20e III (FOM 41, on 01-18). Kenko Pro 300 1.4× remains the best
+   F-mount-class 1.4×.
 
-4. **Z 100-400 family edge/centre ≈ 1.05–1.12** (flat field at all
-   FLs, bare or with Z TCs). **300 PF bare at f/5.6 edge/centre =
-   0.60** (centre-only lens at its centre-best stop; best-centre
-   moved from f/8 → f/5.6 under §5.3). The 300 PF + TC-20e III at
-   f/11 edge/centre 1.24 on 2026-01-28 is **anomalous** — likely a
-   3D-scene focal-plane artefact, worth visual inspection.
+4. **Z 100-400 family edge/centre ≈ 0.90–1.00** on clean 2026-01-30
+   (flat field, centre marginally sharpest; the old 1.05–1.12
+   edge>centre was a 2026-01-28 artefact). **300 PF bare at f/5.6
+   edge/centre = 0.76** on 01-30 (softest off-axis at its wide
+   centre-best stop; flattens to 0.96 by f/11). The **300 PF + TC-20e
+   III edge>centre is real, not noise** — confirmed 1.18 on clean
+   2026-01-18 ISO 100 (its only clean date). It is the pick-sharpest-
+   tile-on-3D-scene protocol artefact + a genuinely soft on-axis TC,
+   not a 2026-01-28 SNR effect; the user's visual read had the centre
+   sharpest. See §5.6b (CLOSED).
 
 5. **Algorithm comparison** (`WIDEANGLE_RESULTS.md` §3): radial_cutoff
    (§5.3) is still the primary; `mtf50_known_edge` (§5.1) is the new
@@ -431,16 +451,29 @@ Recommendation: start with (A) on 2025-07-09 sign-post. The user
 noted that some earlier 2025 and 2026-01/02 telephoto shots may
 have usable edges; the late-2026 shots are pure shrubbery.
 
-#### 5.6b 300 PF + TC-20e III edge/centre anomaly on 2026-01-28
+#### 5.6b 300 PF + TC-20e III edge/centre anomaly — CLOSED 2026-06-29
 
-§6c of `LONGDIST_TELE_RESULTS.md` shows the TC-20e III combo with
-edge/centre **1.24** at f/11 (was 1.02 pre-§5.3). The §5.3 metric
-shows edges peaking *above* centre — possibly a 3D-scene focal-plane
-artefact (centre and edge branches at different depths) or a
-centre-tile-placement issue. **Visual inspection** of the
-2026-01-28 frames at this combo's 5 field positions would confirm
-whether this is real off-axis-better-than-centre behaviour or an
-analysis artefact. Output: brief note added to §6c.
+**Resolved.** The edge/centre 1.24 was first seen on 2026-01-28, which
+is now **excluded** as a session-wide low-SNR shoot (all 320 telephoto
+frames ISO 8000, 16:05–16:34, sun gone; centre contrast-std ≈ 16 ≈ half
+the clean sessions; the user confirmed shooting too late). The natural
+hypothesis was that the anomaly was a 2026-01-28 noise artefact — but
+that turned out **wrong**. The TC-20e III was sold before 2026-01-30,
+so its only clean source is **2026-01-18 (ISO 100)**, and there the
+edge>centre pattern **persists**: edge/centre **1.18** at best-centre
+f/22, and 1.0–1.3 across f/8–f/32 (see
+`poc_longdist_cross_family_edges_clean_out/headline_6a_6b_6c.md`).
+
+So the anomaly is **not** SNR-driven. It is the "pick-the-sharpest-tile
+per field slice on a 3D scene" protocol artefact (off-centre slices
+land on foliage closer to the focal plane than the centre tile) plus
+the TC-20e III's genuinely soft on-axis MTF — the centre cutoff is
+consistently the *lowest* of the 5 slices. The user's own visual read
+had the **centre** sharpest, the opposite of the metric, so this is a
+known limitation of the per-slice protocol on 3D subjects, not an
+off-axis-better-than-centre lens property. Treat the TC-20e III's
+centre cutoff (and its bottom-of-table FOM 41) as the meaningful
+figures. Note added to `LONGDIST_TELE_RESULTS.md` §6c / §7.
 
 #### 5.6c Spot-refresh remaining pre-§5.3 prose
 
@@ -705,8 +738,9 @@ dataset: 2–15 min depending on config count.
     superseded by v2.
   - `poc_longdist_cross_date_v2_2026_01.py` — v2 cross-date with
     distance-class column.
-  - `poc_longdist_{100_400,300pf}_field_2026_01_28.py` — single-day field sweeps.
-  - `poc_longdist_cross_family_edges_2026_01_28.py` — cross-family edge comparison.
+  - `poc_longdist_{100_400,300pf}_field_2026_01_28.py` — single-day field sweeps (2026-01-28 excluded; superseded).
+  - `poc_longdist_cross_family_edges_2026_01_28.py` — cross-family edge comparison on 2026-01-28 (superseded — session excluded).
+  - `poc_longdist_cross_family_edges_clean.py` — **§6a/b/c clean re-derivation** on 2026-01-30 + 2026-01-18, sourced from the v2 per_date CSVs (`top` cutoff). Replaces the 2026-01-28 cross-family-edges output.
   - `audit_nef_distance.py` — EXIF distance audit.
   - `extract_2025_07_05_jpegs.py` — NEF→JPEG via darktable.
 - **Output dirs** (CSVs, MDs, PNGs):

@@ -43,9 +43,14 @@ from poc_longdist_algorithms import find_cutoff_from_spec  # noqa: E402
 OUT = Path(__file__).parent / (Path(__file__).stem + "_out")
 OUT.mkdir(exist_ok=True)
 
+# 2026-01-28 EXCLUDED: that whole session was shot ISO 8000 at 16:05–16:34
+# (sun gone — see LONGDIST_TELE_RESULTS.md §3). All 320 telephoto frames are
+# ISO 8000 and centre luma-std ≈ 16 (vs ≈ 29 on 01-30, ≈ 36 on 01-18, roughly
+# half the contrast of the clean sessions), making the radial_cutoff readings
+# session-wide low-SNR and unreliable. Every telephoto config also exists on a
+# clean date (01-30 or 01-18), so dropping 01-28 loses no coverage.
 DATE_SOURCES = [
     ("2026-01-18", Path("/home/alson/shared/files/pics/digikam/test-raw-data/2026-01-18")),
-    ("2026-01-28", Path("/home/alson/shared/files/pics/digikam/test-raw-data/2026-01-28")),
     ("2026-01-30", Path("/home/alson/shared/files/pics/digikam/test-raw-data/2026-01-30")),
 ]
 
