@@ -48,6 +48,20 @@ periodic-FFT readout at the marked features for the centre/corner cross-config
 ranking (see REPORT §G / the periodic-FFT plan). This may make a new shoot
 unnecessary for *relative* cross-config ranking.
 
+## Cheapest path to an absolute anchor (no special target): re-frame 2B at M≈2
+
+Update 2026-06-29: the 2B **serpent** lines are flat reflectance edges that read
+**≤ ceiling with no specular rim** — the over-read is solved by flatness. They were
+unusable only because (a) at M≈1 the lines are too dense and (b) **no existing 2:1
+frame contains die 2B** (the 2:1 sweeps parked over rows C/D/E; at M≈2 the FOV is ~2
+dies tall, so the serpent's row B is out of frame). High-M registration is now fixed
+(`reg_auto` robust at 2:1, ±3.5%). So the *cheapest* route to a first absolute lp/mm —
+short of a dedicated knife-edge — is simply to **re-shoot the existing wafer with die
+2B (row B) centred at M≈2** (a normal rail sweep; ~22px line gaps clear the Airy disc).
+The full pipeline (reg fix + `route2_flat_edge`/`long_edge` + `harmonic_mtf`) is ready
+to consume it. A dedicated flat knife/slant edge (below) is still better for a clean
+absolute number, but the 2B re-frame needs no new target — just aim and shoot.
+
 ## If/when you do shoot: the target
 
 Goal: a true, sharp, isolated, slightly-slanted reflectance edge at every field

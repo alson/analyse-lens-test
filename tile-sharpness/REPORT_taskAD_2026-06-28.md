@@ -498,3 +498,27 @@ calibrated-absolute / ranked-only.
   dedicated slanted-edge / knife-edge target (single high-contrast straight metal
   steps, several per field zone). The single-step estimator + gate + selector are
   ready to consume it.
+
+## I. UPDATE (2026-06-29c): high-M registration fixed; flat-serpent absolute metric blocked only by acquisition framing
+
+`reg_auto.py` made robust at 2:1 (M≈2): `_robust_unit_pitch` (labelling-independent
+single-die pitch via doublet pre-merge), `_clean_scribes` (merge the 6–7px gradient
+doublets a wide high-M scribe produces + drop off-lattice partials), pitch-seeded LM
+solver + **scale-collapse guard** (reject M∉[0.15,3.5] or scale far from the
+pitch-implied scale — a collapse is now an honest failure, never silently returned),
+and ≥2 lines/axis allowed (3 rows is physically unattainable at M≈2). Result: **3 of 4
+2:1 configs now register at M≈2 ±3.5%** (AF200+5T+6T 2.060, AF200+6T+5T 2.072,
+Sigma150+TC 2.035); Sigma105+TC 2:1 is genuinely under-determined (interior 2×3-die
+FOV, no edge/4D-bar anchor) and is now *honestly refused*, not collapsed. **No
+regression** on sweeps 1–4 / the unseen check; pytest 159. This **adds real 2:1
+coverage to the periodic-FFT / ranking metrics**.
+
+**But the flat-serpent absolute-edge payoff is blocked by FRAMING, not registration:**
+`diag_highm_fovmap.py` shows every registering 2:1 frame sits over die-rows **C/D/E**
+(4D-bar + pad-array rows), never **row B** where the 2B serpent lives — at M≈2 the FOV
+is ~2 dies tall, so row B is out of frame. The existing 2:1 acquisitions simply parked
+the wafer elsewhere. So the first absolute lp/mm from the flat serpent **requires a new
+capture that frames die 2B (row B) at M≈2** (~22px line gaps) — the tooling (reg fix +
+`route2_flat_edge`/`long_edge` + `harmonic_mtf`) is ready to consume it. Net: the
+metric suite is unchanged (periodic-FFT spanning + ceiling); the reg fix extends its
+high-M coverage and readies the absolute route for one targeted re-shoot.
