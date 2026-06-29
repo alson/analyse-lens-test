@@ -82,4 +82,36 @@ Bare cropping reference: **F8** (MTF50 0.199).
 - tc20 F11: median MTF50 0.145 vs ceiling 0.290 -> PASS (glass-limited)
 - tc20 F16: median MTF50 0.139 vs ceiling 0.200 -> PASS (glass-limited)
 
-_Wall-clock 222s on 8 workers; 27 develop+measure jobs._
+_Wall-clock 213s on 8 workers; 27 develop+measure jobs._
+
+
+---
+
+# Gust-shake diagnostic — ISO 100 vs ISO 500 (same aperture, same edge set)
+
+Same fixed pipeline (linear RAW, centroid_hann, in-focus AF frames, per-edge median across frames then median across edges). For each config the SAME edge set (detected once) is measured at both ISOs, so this is a clean within-edge comparison. ISO 500 runs ~5x faster shutter at the same aperture; if gust-shake masks the optical peak, ISO 500 should read sharper and the gap should widen as the aperture stops down (slower ISO-100 shutter). MTF50 in cy/sensor-px.
+
+`frame noise` = max(ISO100, ISO500) range of the per-frame cell median across the 3 AF frames — the delta is only meaningful when it exceeds this.
+
+| config | aperture | shutter ISO100 | shutter ISO500 | speed-up | MTF50 ISO100 | MTF50 ISO500 | delta (500-100) | frame noise | delta > noise? |
+|---|---|---|---|---|---|---|---|---|---|
+| bare | F5.6 | 1/1000 | 1/5000 | 5.0x | 0.252 | 0.279 | +0.027 | 0.148 | no (within noise) |
+| bare | F8 | 1/500 | 1/2500 | 5.0x | 0.262 | 0.220 | -0.042 | 0.054 | no (within noise) |
+| bare | F11 | 1/250 | 1/1250 | 5.0x | 0.223 | 0.264 | +0.041 | 0.117 | no (within noise) |
+| bare | F16 | 1/125 | 1/640 | 5.1x | 0.230 | 0.270 | +0.040 | 0.067 | no (within noise) |
+| tc14 | F8 | 1/500 | 1/1600 | 3.2x | 0.162 | 0.210 | +0.048 | 0.021 | yes |
+| tc14 | F11 | 1/200 | 1/800 | 4.0x | 0.163 | 0.202 | +0.039 | 0.023 | yes |
+| tc14 | F16 | 1/100 | 1/500 | 5.0x | 0.167 | 0.180 | +0.013 | 0.013 | no (within noise) |
+| tc20 | F11 | 1/200 | 1/1000 | 5.0x | 0.145 | 0.132 | -0.013 | 0.012 | yes |
+| tc20 | F16 | 1/100 | 1/500 | 5.0x | 0.155 | 0.145 | -0.010 | 0.015 | no (within noise) |
+
+## Predictions
+
+- **(a) ISO 500 >= ISO 100** (faster shutter freezes gust): 6/9 cells positive, median delta +0.027, and only 3/9 cells have |delta| above their own 3-frame noise -> HOLDS.
+- **(b) delta grows as bare stops down f/5.6->f/16** (slower ISO-100 shutter -> more shake): bare deltas [F5.6 +0.027, F8 -0.042, F11 +0.041, F16 +0.040], Spearman(delta vs aperture)=+0.60 -> does NOT hold (ragged / mid-sweep sign flip).
+
+## Verdict
+
+**SUGGESTIVE of gust-shake, but INCONCLUSIVE on this data.** ISO 500 reads sharper in the majority of cells (6/9, median delta +0.027) — the sign expected if a faster shutter freezes wind motion — and clear + sunny weather (no atmosphere) plus a heavy tripod with VR off (no hand shake) leave wind as the natural explanation for any exposure-time-dependent blur. **But the evidence is weak:** the deltas (~±0.01-0.05) are comparable to the per-cell 3-frame noise (only 3/9 cells clear it), the bare sweep is NOT cleanly aperture-ordered (mid-sweep sign flip at f/8; Spearman +0.60), and both tc20 cells actually go the WRONG way (ISO 500 softer). So gust-shake is the leading hypothesis and likely contributes, but it is not cleanly established as THE cause of the flat bare profile. To settle it: shoot more AF replicates per cell (drive down the 3-frame noise) and/or a deliberate fast-vs-slow shutter pair at one aperture. The earlier 'gust/atmosphere-limited' wording in the conclusion docs should stay hedged until then.
+
+_ISO diagnostic: 56 frames, 8 workers, +369s cumulative._

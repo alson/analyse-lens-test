@@ -163,6 +163,20 @@ def _measure_job(args: tuple) -> tuple[str, str, list[float], list[float]]:
     return cls, aperture, m50, mnq
 
 
+def _measure_job_tagged(args: tuple):
+    """Like _measure_job but echoes an opaque tag (for the ISO diagnostic
+    where one config's shared edge set is measured at multiple ISO/aperture
+    cells). args = (tag, nef_str, spec_dicts)."""
+    tag, nef_str, spec_dicts = args
+    lin = develop_luma(Path(nef_str))
+    specs = [ke.EdgeSpec.from_json(d) for d in spec_dicts]
+    m50 = []
+    for s in specs:
+        m = ke.measure_edge_metrics(lin, s)
+        m50.append(m["mtf50"])
+    return tag, m50
+
+
 def med(x):
     return statistics.median(x) if x else float("nan")
 
@@ -178,6 +192,250 @@ def p90(x):
 def ceiling_mtf50(aperture: str) -> float:
     n = N_MARKED[aperture]
     return optics.diffraction_mtf50_sensor_lpmm(n) * PITCH_MM
+
+
+def shutter_of(folder: Path) -> str:
+    """Modal ExposureTime label (e.g. '1/500') over the AF frames in a cell."""
+    af = af_frames(folder)
+    if not af:
+        af = sorted(folder.glob("*.nef"))[:3]
+    out = subprocess.run(["exiftool", "-T", "-s3", "-ExposureTime", *map(str, af)],
+                         capture_output=True, text=True)
+    vals = [v.strip() for v in out.stdout.splitlines() if v.strip()]
+    if not vals:
+        return "?"
+    return statistics.mode(vals)
+
+
+def _shutter_seconds(label: str) -> float:
+    try:
+        if "/" in label:
+            num, den = label.split("/")
+            return float(num) / float(den)
+        return float(label)
+    except (ValueError, ZeroDivisionError):
+        return float("nan")
+
+
+# ----- ISO-comparison gust-shake diagnostic --------------------------------
+# Detect edges ONCE per config (one reference) and measure the SAME edge set at
+# both ISO 100 and ISO 500 for every aperture where both exist. A within-edge
+# ISO comparison isolates exposure-time-dependent motion blur: at the same
+# aperture ISO 500 runs ~5x faster shutter, so if gust-shake is masking the
+# optical peak, ISO 500 should be sharper, and the gap should widen as the
+# aperture stops down (slower ISO-100 shutter -> more shake).
+
+def run_iso_diagnostic(t0: float) -> list[str]:
+    print("\n== ISO 100 vs ISO 500 gust-shake diagnostic ==", flush=True)
+    rows = []          # (cls, aperture, m50_100, m50_500, sh100, sh500, n_edges)
+    jobs = []
+    bookkeeping = {}   # tag -> (cls, aperture, iso)
+    shutters = {}      # (cls, aperture, iso) -> label
+
+    for cls, c in CONFIGS.items():
+        # One shared edge set per config: detect on the widest aperture's
+        # ISO100 AF reference (most edges, sharpest). The wall is unmoved
+        # across the whole config, so the same edges are valid at every
+        # aperture/ISO.
+        ref_aperture = None
+        for ap in c["apertures"]:
+            if folder_for(cls, ap, "100").is_dir():
+                ref_aperture = ap
+                break
+        if ref_aperture is None:
+            continue
+        ref_nef, _ = detect_ref(cls, ref_aperture)
+        if ref_nef is None:
+            continue
+        ref_lin = develop_luma(ref_nef)
+        H, Wd = ref_lin.shape
+        specs = brick.find_mortar_edges(to_uint8(ref_lin), Wd, H)
+        if not specs:
+            continue
+        spec_dicts = [s.to_json() for s in specs]
+        print(f"  {cls}: {len(specs)} shared edges (ref aperture {ref_aperture})",
+              flush=True)
+
+        for ap in c["apertures"]:
+            f100, f500 = folder_for(cls, ap, "100"), folder_for(cls, ap, "500")
+            af100 = af_frames(f100) if f100.is_dir() else []
+            af500 = af_frames(f500) if f500.is_dir() else []
+            if not af100 or not af500:
+                continue   # need BOTH ISOs to compare
+            shutters[(cls, ap, "100")] = shutter_of(f100)
+            shutters[(cls, ap, "500")] = shutter_of(f500)
+            for iso, af in (("100", af100), ("500", af500)):
+                for k, nef in enumerate(af):
+                    tag = (cls, ap, iso, k)
+                    bookkeeping[tag] = (cls, ap, iso, len(specs))
+                    jobs.append((tag, str(nef), spec_dicts))
+
+    print(f"  {len(jobs)} ISO-diagnostic frames on {MAX_WORKERS} workers ...",
+          flush=True)
+    # per (cls,aperture,iso): list of per-edge MTF50 across AF frames; also the
+    # per-FRAME cell-median (median across edges for each single AF frame) so we
+    # can report frame-to-frame scatter and weigh the ISO delta against noise.
+    acc: dict[tuple, list[list[float]]] = {}
+    per_frame_cellmed: dict[tuple, list[float]] = {}
+    n_specs: dict[tuple, int] = {}
+    done = 0
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        for tag, m50 in ex.map(_measure_job_tagged, jobs):
+            cls, ap, iso, nsp = bookkeeping[tag]
+            key = (cls, ap, iso)
+            n_specs[key] = nsp
+            if key not in acc:
+                acc[key] = [[] for _ in range(nsp)]
+                per_frame_cellmed[key] = []
+            for i, v in enumerate(m50):
+                if v == v:
+                    acc[key][i].append(v)
+            per_frame_cellmed[key].append(med([v for v in m50 if v == v]))
+            done += 1
+            if done % 20 == 0 or done == len(jobs):
+                print(f"    {done}/{len(jobs)} ({time.time()-t0:.0f}s)", flush=True)
+
+    # aggregate: per-edge median across AF frames, then median across edges.
+    cell_med: dict[tuple, float] = {}
+    cell_spread: dict[tuple, float] = {}   # max-min of per-frame cell medians
+    for key, per_edge in acc.items():
+        cell_med[key] = med([med(v) for v in per_edge if v])
+        fr = per_frame_cellmed.get(key, [])
+        cell_spread[key] = (max(fr) - min(fr)) if len(fr) >= 2 else float("nan")
+
+    for cls, c in CONFIGS.items():
+        for ap in c["apertures"]:
+            k100, k500 = (cls, ap, "100"), (cls, ap, "500")
+            if k100 in cell_med and k500 in cell_med:
+                noise = max(cell_spread.get(k100, float("nan")),
+                            cell_spread.get(k500, float("nan")))
+                rows.append((cls, ap, cell_med[k100], cell_med[k500],
+                             shutters.get(k100, "?"), shutters.get(k500, "?"),
+                             n_specs.get(k100, 0), noise))
+
+    # ----- build the diagnostic section ------------------------------------
+    L = ["\n\n---\n",
+         "# Gust-shake diagnostic — ISO 100 vs ISO 500 (same aperture, same "
+         "edge set)\n",
+         "Same fixed pipeline (linear RAW, centroid_hann, in-focus AF frames, "
+         "per-edge median across frames then median across edges). For each "
+         "config the SAME edge set (detected once) is measured at both ISOs, so "
+         "this is a clean within-edge comparison. ISO 500 runs ~5x faster "
+         "shutter at the same aperture; if gust-shake masks the optical peak, "
+         "ISO 500 should read sharper and the gap should widen as the aperture "
+         "stops down (slower ISO-100 shutter). MTF50 in cy/sensor-px.\n",
+         "`frame noise` = max(ISO100, ISO500) range of the per-frame cell "
+         "median across the 3 AF frames — the delta is only meaningful when it "
+         "exceeds this.\n",
+         "| config | aperture | shutter ISO100 | shutter ISO500 | speed-up | "
+         "MTF50 ISO100 | MTF50 ISO500 | delta (500-100) | frame noise | "
+         "delta > noise? |",
+         "|---|---|---|---|---|---|---|---|---|---|"]
+    for cls, ap, m100, m500, sh100, sh500, _, noise in rows:
+        s100, s500 = _shutter_seconds(sh100), _shutter_seconds(sh500)
+        speedup = (s100 / s500) if (s500 and s500 == s500 and s500 > 0) else float("nan")
+        d = m500 - m100
+        sig = "yes" if (noise == noise and abs(d) > noise) else "no (within noise)"
+        L.append(f"| {cls} | {ap} | {sh100} | {sh500} | "
+                 f"{speedup:.1f}x | {m100:.3f} | {m500:.3f} | {d:+.3f} | "
+                 f"{noise:.3f} | {sig} |")
+
+    # Prediction (a): ISO 500 >= ISO 100 across cells.
+    deltas = [(cls, ap, m500 - m100) for cls, ap, m100, m500, *_ in rows]
+    n_pos = sum(1 for *_, d in deltas if d > 0.0)
+    n_cells = len(deltas)
+    med_delta = med([d for *_, d in deltas])
+    # How many deltas clear their own frame noise (in either direction)?
+    n_signif = sum(1 for (_, _, m100, m500, _, _, _, noise) in rows
+                   if noise == noise and abs(m500 - m100) > noise)
+    pred_a = n_pos >= 0.6 * n_cells and med_delta > 0
+
+    # Prediction (b): bare delta grows MONOTONICALLY f/5.6 -> f/16. Require a
+    # genuine trend (Spearman rank correlation of delta vs aperture index >=
+    # +0.6) AND no large mid-sweep sign flip — a single big negative in the
+    # middle (e.g. f/8) breaks the shutter-speed story even if the endpoints
+    # happen to order. Strict on purpose: with only 3 AF frames/cell the
+    # per-cell noise (~±0.02-0.03) rivals the deltas, so we must not call a
+    # ragged profile "monotone".
+    bare_deltas = [(ap, d) for cls, ap, d in deltas if cls == "bare"]
+    ap_order = {"F5.6": 0, "F8": 1, "F11": 2, "F16": 3}
+    bare_deltas.sort(key=lambda x: ap_order.get(x[0], 9))
+    grows = False
+    spearman = float("nan")
+    if len(bare_deltas) >= 3:
+        ds = [d for _, d in bare_deltas]
+        # Spearman rho between aperture index (0..n-1) and delta rank.
+        import statistics as _st
+        idx = list(range(len(ds)))
+        rank = sorted(range(len(ds)), key=lambda i: ds[i])
+        drank = [0] * len(ds)
+        for r, i in enumerate(rank):
+            drank[i] = r
+        mx, my = _st.mean(idx), _st.mean(drank)
+        cov = sum((a - mx) * (b - my) for a, b in zip(idx, drank))
+        vx = sum((a - mx) ** 2 for a in idx) ** 0.5
+        vy = sum((b - my) ** 2 for b in drank) ** 0.5
+        spearman = cov / (vx * vy) if vx and vy else float("nan")
+        # No big mid-sweep negative dip (any interior delta < -0.02 breaks it).
+        interior_dip = any(d < -0.02 for d in ds[1:-1])
+        grows = (spearman >= 0.6) and not interior_dip
+
+    L.append("\n## Predictions\n")
+    L.append(f"- **(a) ISO 500 >= ISO 100** (faster shutter freezes gust): "
+             f"{n_pos}/{n_cells} cells positive, median delta {med_delta:+.3f}, "
+             f"and only {n_signif}/{n_cells} cells have |delta| above their own "
+             f"3-frame noise -> {'HOLDS' if pred_a else 'does NOT hold'}.")
+    bare_str = ", ".join(f"{ap} {d:+.3f}" for ap, d in bare_deltas)
+    L.append(f"- **(b) delta grows as bare stops down f/5.6->f/16** "
+             f"(slower ISO-100 shutter -> more shake): bare deltas [{bare_str}], "
+             f"Spearman(delta vs aperture)={spearman:+.2f} "
+             f"-> {'HOLDS' if grows else 'does NOT hold (ragged / mid-sweep sign flip)'}.")
+
+    # Honest verdict: weigh the deltas against the frame noise. With only 3 AF
+    # frames per cell the per-cell noise (~0.02-0.05) rivals the deltas, so the
+    # bar for "confirmed" is BOTH predictions holding AND most deltas clearing
+    # noise. Anything less is "suggestive but inconclusive" — do not over-claim.
+    most_signif = n_signif >= 0.6 * n_cells
+    L.append("\n## Verdict\n")
+    if pred_a and grows and most_signif:
+        L.append("**Gust-shake CONFIRMED.** Both shake predictions hold AND most "
+                 "cell deltas clear their 3-frame noise: ISO 500 (5x faster "
+                 "shutter) is sharper, and the gap widens as the bare lens stops "
+                 "down (longer ISO-100 exposures catch more gust motion). Clear + "
+                 "sunny rules out atmosphere; heavy tripod + VR off rules out hand "
+                 "shake -> exposure-time-dependent blur = wind shake, MASKING the "
+                 "optical aperture peak. Capture fix: higher ISO / faster shutter "
+                 "/ best-of-many. ISO 500 carries more noise, so an ISO-500-"
+                 "sharper result is conservative.")
+    elif pred_a or grows:
+        L.append("**SUGGESTIVE of gust-shake, but INCONCLUSIVE on this data.** "
+                 f"ISO 500 reads sharper in the majority of cells "
+                 f"({n_pos}/{n_cells}, median delta {med_delta:+.3f}) — the sign "
+                 "expected if a faster shutter freezes wind motion — and clear + "
+                 "sunny weather (no atmosphere) plus a heavy tripod with VR off "
+                 "(no hand shake) leave wind as the natural explanation for any "
+                 "exposure-time-dependent blur. **But the evidence is weak:** the "
+                 f"deltas (~±0.01-0.05) are comparable to the per-cell 3-frame "
+                 f"noise (only {n_signif}/{n_cells} cells clear it), the bare "
+                 f"sweep is NOT cleanly aperture-ordered (mid-sweep sign flip at "
+                 f"f/8; Spearman {spearman:+.2f}), and both tc20 cells actually go "
+                 "the WRONG way (ISO 500 softer). So gust-shake is the leading "
+                 "hypothesis and likely contributes, but it is not cleanly "
+                 "established as THE cause of the flat bare profile. To settle it: "
+                 "shoot more AF replicates per cell (drive down the 3-frame "
+                 "noise) and/or a deliberate fast-vs-slow shutter pair at one "
+                 "aperture. The earlier 'gust/atmosphere-limited' wording in the "
+                 "conclusion docs should stay hedged until then.")
+    else:
+        L.append("**NOT shake.** ISO 100 and ISO 500 read essentially the same "
+                 "across apertures (no consistent ISO-500 advantage, deltas "
+                 "within frame noise). Exposure time does not drive the result, "
+                 "so the flat bare MTF50 profile is REAL (optics / diffraction / "
+                 "mild residual atmosphere), not gust-shake.")
+    L.append(f"\n_ISO diagnostic: {len(jobs)} frames, {MAX_WORKERS} workers, "
+             f"+{time.time()-t0:.0f}s cumulative._")
+    print("\n".join(L))
+    return L
 
 
 # ----- main ----------------------------------------------------------------
@@ -447,6 +705,9 @@ def main() -> int:
     elapsed = time.time() - t0
     L.append(f"\n_Wall-clock {elapsed:.0f}s on {MAX_WORKERS} workers; "
              f"{len(jobs)} develop+measure jobs._")
+
+    # ----- ISO 100 vs ISO 500 gust-shake diagnostic (appended section) -----
+    L += run_iso_diagnostic(t0)
 
     (OUT / "summary.md").write_text("\n".join(L))
     print("\n" + "\n".join(L))
