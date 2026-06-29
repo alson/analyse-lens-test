@@ -77,6 +77,15 @@ HIGHM_CASES = [
     ("Sigma150+TC_2:1", f"{_R}/Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-2001/2_1/F11/"
         "04057|Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-2001|2_1|300.0 mm|F11|"
         "alm-20260131-001612-1022.jpg", dict(M=(1.9, 2.15), rmse_max=8.0, row=2)),
+    # Sigma105+TC 2:1 — recovered 2026-06-29 by the SAME-PHASE EQUIVALENCE fix.
+    # Interior FOV, col_cands [2,6] (≡ mod 4) with no wafer edge to pin the absolute
+    # repeat → measurement-equivalent: register() proceeds (abs_index_unresolved) at
+    # a sane M~2 instead of refusing. row pinned to 3 by the 4D bar; col is the
+    # interior-most same-phase repeat (2).
+    ("Sigma105+TC_2:1", f"{_R}/Sigma Macro 105mm F2.8 EX DG OS HSM + TC-2001/2_1/F11/"
+        "15287|Sigma Macro 105mm F2.8 EX DG OS HSM + TC-2001|2_1|210.0 mm|F11|"
+        "alm-20260204-202935-2917.jpg",
+        dict(M=(1.9, 2.15), rmse_max=8.0, row=3, abs_unresolved=True)),
 ]
 M_ANCHOR_SCALE = 1.6549
 
@@ -94,6 +103,8 @@ def _check_highm(name, path, exp):
         fails.append(f"row_first {p['reg_row_first']} != {exp['row']}")
     if p["reg_fit_rmse_px"] > exp["rmse_max"]:
         fails.append(f"fit_rmse {p['reg_fit_rmse_px']:.2f} > {exp['rmse_max']}")
+    if "abs_unresolved" in exp and bool(p.get("abs_index_unresolved")) != exp["abs_unresolved"]:
+        fails.append(f"abs_index_unresolved {p.get('abs_index_unresolved')} != {exp['abs_unresolved']}")
     return [f"{name}: {m}" for m in fails], p
 
 
@@ -145,7 +156,8 @@ def main():
         if p is not None:
             print(f"  [{tag:4}] {name:<18} M={p['scale']/M_ANCHOR_SCALE:.3f} "
                   f"col={p['reg_col_first']} row={p['reg_row_first']} "
-                  f"fit={p['reg_fit_rmse_px']:.2f}px tilt={p['theta_deg']:.2f}")
+                  f"fit={p['reg_fit_rmse_px']:.2f}px tilt={p['theta_deg']:.2f}"
+                  f"{' abs-unresolved' if p.get('abs_index_unresolved') else ''}")
         else:
             print(f"  [{tag:4}] {name:<18} <no affine>")
     print()
