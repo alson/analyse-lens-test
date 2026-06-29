@@ -1,0 +1,4 @@
+M,agree_ratio,ap,ceil_cypx,ceil_lpmm,falling_med,lens,line_pitch,mag,median_erf,median_lpmm,n_edges,n_eff,n_over,n_pass,n_rim,ok,range_erf,reason,rising_med
+1.002,,F8,0.1995,46.0,0.1704,Nikon AF Micro-Nikkor 200mm f_4D IF-ED + Kenko Pro 300 DG 1.4x,13.0,1_1,0.1704,39.2,43,16.01,0/1,1,0/1,True,"[0.170,0.170]",,
+1.118,,F8,0.1885,48.5,,Nikon AF Zoom-Micro Nikkor 70-180mm f_4.5-5.6D ED + 5T + 6T,,1.14_1,,,1,16.95,0/0,0,0/0,True,,,
+1.399,,F16,0.0832,26.8,,Nikon AF Micro-Nikkor 200mm f_4D IF-ED + Kenko Pro 300 DG 1.4x,11.0,1.4_1,0.2485,79.9,70,38.38,1/1,1,0/1,True,"[0.248,0.248]",,0.2485

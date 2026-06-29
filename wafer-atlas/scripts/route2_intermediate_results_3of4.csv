@@ -1,0 +1,4 @@
+M,agree_ratio,ap,ceil_cypx,ceil_lpmm,falling_med,lens,line_pitch,mag,median_erf,median_lpmm,n_edges,n_eff,n_over,n_pass,n_rim,ok,range_erf,reason,rising_med
+1.057,,F8,0.1941,47.2,,Nikon AF Zoom-Micro Nikkor 70-180mm f_4.5-5.6D ED + Kenko Pro 300 DG 1.4x,11.5,1_1,,,61,16.46,0/0,0,0/0,True,,,
+1.299,,F8,0.1737,51.9,,Sigma APO Macro 150mm F2.8 EX DG OS HSM + 5T,9.0,1.3_1,,,96,18.4,0/0,0,0/0,True,,,
+1.138,,F16,0.0934,24.4,,NIKKOR Z 100-400mm f_4.5-5.6 VR S + Nikon 6T,,1.27_1,,,1,34.21,0/0,0,0/0,True,,,

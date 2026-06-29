@@ -1,0 +1,4 @@
+M,agree_ratio,ap,ceil_cypx,ceil_lpmm,falling_med,lens,line_pitch,mag,median_erf,median_lpmm,n_edges,n_eff,n_over,n_pass,n_rim,ok,range_erf,reason,rising_med
+1.005,1.05,F8,0.1992,46.0,0.1212,Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401,12.0,1_1,0.121,28.0,54,16.04,0/4,4,0/4,True,"[0.088,0.142]",,0.1153
+1.14,1.66,F8,0.1866,48.9,0.0577,NIKKOR Z 100-400mm f_4.5-5.6 VR S + Nikon 6T,14.5,1.27_1,0.0503,13.2,47,17.12,0/6,6,0/6,True,"[0.035,0.081]",,0.0347
+1.301,,F16,0.0868,26.0,,Sigma APO Macro 150mm F2.8 EX DG OS HSM + 5T,6.5,1.3_1,,,87,36.82,0/0,0,0/0,True,,,

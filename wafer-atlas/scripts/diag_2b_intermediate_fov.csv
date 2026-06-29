@@ -1,0 +1,26 @@
+lens,mag,ap,atlasM,regM,rmse,reg,best_cov,best_die,centre_in,line_pitch,clearance,get_block,get_block_is2b,all_2b
+Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-1401,1_1,F8,1.002,1.002,1.57,ok,1.0,6B,True,15.0,15.0,6B,yes,"[('2B', np.float64(0.46), -53, 4243, np.False_), ('6B', np.float64(1.0), 4890, 4639, np.True_), ('6F', np.float64(0.19), 5287, -302, np.False_)]"
+Nikon AF Micro-Nikkor 200mm f_4D IF-ED + Kenko Pro 300 DG 1.4x,1_1,F8,1.003,1.002,1.09,ok,0.88,6B,True,13.0,13.0,6B,yes,"[('6B', np.float64(0.88), 2741, 5138, np.True_), ('6F', np.float64(0.7), 3104, 194, np.True_), ('10B', np.float64(0.48), 7688, 5501, np.True_), ('10F', np.float64(0.67), 8050, 556, np.True_)]"
+Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401,1_1,F8,1.005,1.005,2.19,ok,1.0,6B,True,12.0,12.0,6B,yes,"[('6B', np.float64(1.0), 2806, 5011, np.True_), ('6F', np.float64(0.56), 3177, 54, np.True_), ('10B', np.float64(0.56), 7765, 5382, np.True_), ('10F', np.float64(0.56), 8136, 425, np.True_)]"
+Nikon AF Zoom-Micro Nikkor 70-180mm f_4.5-5.6D ED + 6T norm,1_1,F8,1.01,1.015,1.0,ok,0.82,6B,True,,,8C,no(8C),"[('6B', np.float64(0.82), 2717, 5199, np.True_), ('6F', np.float64(0.7), 3036, 186, np.True_), ('10B', np.float64(0.45), 7732, 5518, np.False_), ('10F', np.float64(0.66), 8051, 505, np.True_)]"
+Nikon AF Zoom-Micro Nikkor 70-180mm f_4.5-5.6D ED + Kenko Pro 300 DG 1.4x,1_1,F8,1.056,1.057,2.98,ok,1.0,6B,True,11.5,11.5,6B,yes,"[('6B', np.float64(1.0), 2796, 3965, np.True_), ('10B', np.float64(0.68), 8023, 4255, np.True_)]"
+NIKKOR Z 100-400mm f_4.5-5.6 VR S + Olympus MCON-35,1_1.16,F8,1.112,1.112,1.56,ok,1.0,6B,True,9.0,9.0,6B,yes,"[('6B', np.float64(1.0), 3892, 4727, np.True_)]"
+Nikon AF Zoom-Micro Nikkor 70-180mm f_4.5-5.6D ED + 6T + 5T,1.14_1,F8,1.121,1.121,2.98,ok,0.68,6B,True,,,8C,no(8C),"[('6B', np.float64(0.68), 2612, 5315, np.True_), ('6F', np.float64(0.24), 2973, -280, np.False_), ('10B', np.float64(0.15), 8271, 5723, np.False_), ('10F', np.float64(0.13), 8646, 41, np.False_)]"
+Nikon AF Zoom-Micro Nikkor 70-180mm f_4.5-5.6D ED + 5T + 6T,1.14_1,F8,1.126,1.118,2.15,ok,1.0,6F,True,,,6F,yes,"[('6F', np.float64(1.0), 2911, 1079, np.True_), ('10F', np.float64(0.35), 8461, 1431, np.False_)]"
+NIKKOR Z 100-400mm f_4.5-5.6 VR S + Nikon 6T,1.27_1,F8,1.14,1.14,1.9,ok,1.0,6B,True,14.5,14.5,6B,yes,"[('6B', np.float64(1.0), 3888, 4814, np.True_)]"
+NIKKOR Z MC 105mm f_2.8 VR S + 5T,1.2_1,F8,1.196,1.196,2.31,ok,0.4,6B,False,,,5E,no(5E),"[('6B', np.float64(0.4), 2653, 5618, np.False_), ('6F', np.float64(0.25), 3095, -284, np.False_)]"
+Sigma Macro 105mm F2.8 EX DG OS HSM + 5T,1.27_1,F8,1.263,1.265,3.85,ok,0.2,6B,False,,,8C,no(8C),"[('6B', np.float64(0.2), 2368, 5860, np.False_), ('6F', np.float64(0.19), 2843, -379, np.False_)]"
+Sigma APO Macro 150mm F2.8 EX DG OS HSM + 5T,1.3_1,F8,1.294,1.299,3.65,ok,1.0,2B,True,9.0,9.0,2B,yes,"[('2B', np.float64(1.0), 2270, 4218, np.True_), ('6B', np.float64(0.23), 8688, 4654, np.False_)]"
+Nikon AF Micro-Nikkor 200mm f_4D IF-ED + 5T,1.4_1,F8,1.37,1.369,4.15,ok,0.23,6B,False,,,4C,no(4C),"[('2B', np.float64(0.2), -347, 5285, np.False_), ('6B', np.float64(0.23), 6407, 5853, np.False_)]"
+NIKKOR Z MC 105mm f_2.8 VR S + 6T,1.4_1,F8,1.373,1.374,1.53,ok,0.06,6B,False,,,5E,no(5E),"[('6B', np.float64(0.06), 2475, 6077, np.False_)]"
+Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-2001,1.4_1,F9.5,1.387,1.39,2.08,ok,0.59,6B,True,,,4C,no(4C),"[('6B', np.float64(0.59), 4986, 5383, np.True_)]"
+Nikon AF Micro-Nikkor 200mm f_4D IF-ED + Kenko Pro 300 DG 1.4x,1.4_1,F8,1.396,1.396,1.97,ok,1.0,6F,True,22.5,22.5,6F,yes,"[('6F', np.float64(1.0), 2629, 734, np.True_)]"
+Sigma APO Macro 150mm F2.8 EX DG OS HSM + TC-1401,1.4_1,F8,1.446,1.447,2.8,ok,0.45,6B,False,,,7C,no(7C),"[('6B', np.float64(0.45), 5141, 5568, np.False_)]"
+Sigma Macro 105mm F2.8 EX DG OS HSM + 6T,1.5_1,F8,1.458,1.458,3.55,ok,0,none,False,,,8C,no(8C),[]
+Sigma Macro 105mm F2.8 EX DG OS HSM + TC-1401,1.4_1,F8,1.485,1.485,2.75,ok,0,none,False,,,8C,no(8C),[]
+Sigma Macro 105mm F2.8 EX DG OS HSM + TC-2001,1.4_1,F9.5,1.496,1.496,3.4,ok,0.06,6B,False,,,8C,no(8C),"[('6B', np.float64(0.06), 2123, 6133, np.False_)]"
+NIKKOR Z MC 105mm f_2.8 VR S + 5T + 6T,1.6_1,F8,1.54,1.538,4.57,ok,0,none,False,,,8C,no(8C),[]
+NIKKOR Z MC 105mm f_2.8 VR S + 6T + 5T,1.6_1,F8,1.547,1.549,2.18,ok,0,none,False,,,5E,no(5E),[]
+Sigma APO Macro 150mm F2.8 EX DG OS HSM + 6T,1.6_1,F8,1.557,,,FAIL,,,,,,,,
+Sigma Macro 105mm F2.8 EX DG OS HSM + 6T + 5T,1.7_1,F8,1.653,1.653,3.11,ok,0,none,False,,,8C,no(8C),[]
+Nikon AF Micro-Nikkor 200mm f_4D IF-ED + 6T,1.7_1,F8,1.717,1.717,3.03,ok,0.47,6B,False,,,7C,no(7C),"[('6B', np.float64(0.47), 4577, 5547, np.False_)]"
