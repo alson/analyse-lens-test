@@ -887,3 +887,162 @@ the only bankable results. **Do NOT commit** (exploratory POC, per the plan).
 - `poc_comb_chain_out/targets/phase2_collapse.csv` — per-target collapse residuals.
 - `poc_comb_chain_out/targets/phase1_run.log` — Phase-1 run log + ranked summary.
 - `poc_comb_chain_out/targets/fft2d/*.png` — 17 2D-FFT magnitude images (GITIGNORED, ~7 MB).
+
+---
+
+## Stage Relock — feature-locking audit (2026-06-30)
+
+**Why.** Every prior cross-M conclusion was read off a comb anchored by
+`discover_pad_fundamental` (`poc_comb_chain_lib`), which discovers the pad fundamental by
+collapsing the ROI to a **1-D profile** and searching a band whose floor is the static
+**0.06 cy/px** (period ~17 px) — lowered to ~0.045 cy/px only once a hard-coded
+`pad_f1_subj_lpmm=18.0` would clip. But the atlas declares pad-grid super-pitches of
+**11.6–192.5 px → f_px ≈ 0.0052–0.086 cy/px**, mostly AT or BELOW that floor. The suspicion:
+the genuine pad-array fundamental is excluded by design, the detector locks a finer
+feature instead, and the resulting "comb" is not a true harmonic series — which would make
+the cross-M instability a feature-locking artifact, not a property of the target.
+
+**Headline: the suspicion is CONFIRMED — the detector is mis-anchored (band floor + a
+1-D-collapse axis-selection bug). Re-anchoring on the true per-axis grid DID lower the
+absolute collapse residuals (e.g. 0.790 → 0.643 for the dominant grid; low-order 0.686 →
+0.34). BUT it did NOT revive cross-M ranking: the residual/floor RATIO only improved from
+~2.0 to ~1.46 (best), never approaching the ~1.0–1.3 a single shared MTF curve needs; the
+maze (single-pitch, no anchoring freedom) is unchanged at 0.845; the empty-magnification
++TC float and the unphysical bare105/bare150 ratios persist; and the two correctly-anchored
+axes now disagree with the maze in OPPOSITE directions (pad_v/maze 0.23×, pad_u/maze 2.0×).
+The committed "cross-M not viable (final)" conclusion therefore STANDS — but the mislocking
+means the prior magnitudes (0.79/0.84) over-stated the residual; the verdict is now
+confirmed for the RIGHT reason (true harmonic series still don't collapse), not the
+feature-locking artifact.**
+
+New UNTRACKED scripts/artifacts (no production / committed-lib module modified — all of
+`atlas_periodic_fft`, `poc_comb_chain_lib`, `poc_comb_chain_tn_analyse` imported read-only):
+`poc_comb_chain_relock_a_audit.py` (Phase A audit), `poc_comb_chain_relock_diag.py`
+(per-axis spectrum dump), `poc_comb_chain_relock_b_extract.py` +
+`poc_comb_chain_relock_b_run.sh` (re-anchored sharded re-extraction),
+`poc_comb_chain_relock_b_analyse.py` (re-anchored cross-M collapse + gates). Small result
+CSVs committed under `poc_comb_chain_out/relock/`; the bulk comb CSV (`relock_all.csv`),
+shards, and the 2D-FFT PNG dump are gitignored (regenerable).
+
+### Phase A — mislocking audit (ground truth vs detector)
+
+Bare Sigma 105 @ 1:1 F8, best focus, M=1.054, registered RMSE 3.6 px. Six magenta regions
+spanning the declared-pitch range, **including dies 5C and 5D**, de-rotated to the wafer
+u/v axes (θ=4.37°). The TRUE per-axis grid fundamental = the strongest periodic peak of the
+axis-collapsed profile searched from a LOW floor (0.004 cy/px, period ~250 px), so the
+coarse grid is visible. Detector = `discover_pad_fundamental` on the same ROI; "det-lo" = the
+same machinery with the floor dropped to 0.004 (what it WOULD lock if the floor weren't
+clipping).
+
+| region | atlas u/v px | true-u px (SNR) | true-v px (SNR) | aniso | det pitch/axis | det-lo pitch/axis | classification |
+|---|---|---|---|---|---|---|---|
+| 5C/(1,2)#2 | 77.4/62.8 | 21.2 (55) | **30.3 (224)** | yes | 21.2 / **u** | 30.3 / v | locks-true-grid[u] (but on the WEAKER axis) |
+| 5D/(1,3)#2 | 45.6/51.2 | 20.6 (54) | **30.1 (177)** | yes | 20.6 / **u** | 30.1 / v | locks-true-grid[u] (weaker axis) |
+| 7D/(3,3)#0 | 173.8/66.3 | 34.3 (91) | 29.0 (128) | no | 22.0 / u | 34.3 / u | finer-subfeature (>1.3× v) |
+| 9C/(1,2)#1 | 97.1/64.5 | 21.3 (177) | **29.8 (254)** | yes | 21.3 / **u** | 29.8 / v | locks-true-grid[u] (weaker axis) |
+| 7E/(3,0)#0 | 40.2/66.0 | 26.3 (52) | 28.7 (117) | no | 21.8 / u | 28.7 / v | off-by 1.2× |
+| 8C/(0,2)#1 | 18.5/22.9 | 133.5 (39) | **41.7 (156)** | yes | 16.9 / v | 41.7 / v | finer-subfeature (>2.5× v) |
+
+**Audit totals (sat channel, 6 regions):** anisotropic (u≠v >1.2×) **4/6**; atlas pad
+fundamental below the static 0.06 floor **6/6**; **the floor changes the lock in 6/6**
+(prod-floor pick ≠ low-floor pick in every region); **the detector misses the strongest
+true axis in 5/6** (it locks the weaker u-axis ~21 px while the strongest periodicity is the
+v-axis ~30 px, SNR 117–254).
+
+**Failure classification — the comb IS mis-anchored, and the band floor is the cause, with a
+second compounding bug:**
+
+1. **Band floor (the suspected cause — CONFIRMED).** All six regions' true grid lines sit
+   *below* the static 0.06 floor (and most below the M-aware 0.045 floor at this M). The
+   dominant v-axis grid (~30 px, f≈0.033 cy/px) is *excluded by construction*, so on the
+   v-axis only finer harmonics survive the band.
+2. **1-D-collapse axis selection (a compounding bug the audit surfaced).** Because the v-axis
+   fundamental is clipped, the cross-axis "auto" argmax in `discover_fundamental` picks
+   whichever axis has its lowest surviving feature *inside* the band — here the weaker u-axis
+   ~21 px line — and reports a single axis. So the detector throws away the single strongest,
+   highest-SNR, most-consistent feature on the wafer (a ~29–30 px v-grid present on nearly
+   every magenta die, SNR up to 254) and combs the wrong axis instead.
+3. **Not "an unrelated fine sub-feature."** Nuance vs the original suspicion: for 5C/5D/9C the
+   detector's 21 px u-pick IS a real u-axis grid line (1.00× of the true u fundamental) — so
+   it is not locking junk, it is locking the *wrong axis* and *missing the dominant grid*. The
+   pick also flips with the floor (det vs det-lo differ in 6/6) and therefore with M, which is
+   exactly the kind of anchor instability that can manufacture cross-M scatter.
+
+### Phase B — re-anchor on the true per-axis grid and re-test
+
+Re-extracted the comb on all 16 configs (M 0.90–2.09, saturation channel) anchored on each
+region's TRUE per-axis low-floor fundamental, predicting n·f0 (n=1..7) and reading
+**axis-locked** bounded Michelson contrast at each rung (u and v never cross-talk).
+8 796 rows; 6 594 valid (SNR≥3, ceiling-valid); the v-axis now carries MORE teeth (3 235)
+than u (2 751) — the dominant grid the production path was discarding. Re-ran the Stage-T_n
+self-calibration collapse (isotonic MTF(f_px) × per-order T_n), structure type =
+(cls, axis, fundamental-pitch cluster) so u and v are never pooled.
+
+| target (re-anchored) | n teeth | configs | collapse | per-order null | within-config floor | ratio | verdict |
+|---|---|---|---|---|---|---|---|
+| magenta.v.C8 (dominant ~29 px v-grid) | 2351 | 16 | **0.643** | 0.669 | 0.423 | 1.52 | UNSTABLE |
+| magenta.u.C8 (~34 px u-grid) | 1561 | 16 | 0.755 | 0.773 | 0.516 | **1.46** | UNSTABLE |
+| magenta.u.C14 (~20 px) | 779 | 16 | 0.682 | 0.767 | 0.356 | 1.92 | UNSTABLE |
+| magenta.v.C14 (~17 px) | 427 | 15 | 0.565 | 0.599 | 0.216 | 2.62 | UNSTABLE |
+| maze (single-pitch) | 608 | 16 | **0.845** | 1.000 | 0.313 | 2.70 | unchanged vs prior 0.842 |
+| magenta v-axis ~30 px (cleanest, pooled) | 1912 | 15 | 0.671 | 0.702 | 0.432 | 1.55 | UNSTABLE |
+
+Low-order-only (orders ≤3) reaches the lowest *absolute* residuals of the whole POC —
+**magenta.v.C14 0.344 (floor 0.121), magenta.u.C14 0.361 (floor 0.183)** — but the floors
+drop in lock-step, so the ratio stays ~2–2.9.
+
+**Did correct anchoring change the cross-M verdict? NO — it stays dead, now for the right
+reason.**
+
+- **Absolute residuals fell** (e.g. dominant grid 0.643 vs prior magenta.P11 0.790; low-order
+  0.34 vs prior 0.686). So the prior 0.79/0.84 *over-stated* the miss — part of that residual
+  was the mislocking. The harmonics of the true grid are genuinely cleaner.
+- **But the residual/floor RATIO did not collapse.** Best ratio 1.46 (magenta.u.C8) vs prior
+  best ~2.0 (magenta.P11) / ~3.4 (cleanest die). A modest improvement, but nowhere near the
+  ~1.0–1.3 a single shared MTF(f_px) curve requires — because re-anchoring also lowered the
+  within-config noise floor (a cleaner anchor → less same-M scatter too).
+- **The single-pitch maze is unchanged** (0.845 vs 0.842): it has zero anchoring freedom, so
+  re-locking cannot touch it — and it still fails to self-collapse. This alone is decisive:
+  the cleanest, most unambiguous cross-M test on the wafer fails regardless of pad anchoring.
+- **Ranking gates still fail the same way.** Empty-magnification float persists — at
+  f_px=0.15, Sig105+TC-1401 > Sig105, Sig150+TC-1401 > Sig150, ZMC105+5T+6T > ZMC105 (the
+  exact fallacy from Stage T_n). bare105/bare150 ratio = 2.54 / 1.19 / 4.17 at f_px
+  0.10/0.15/0.20 (want ~1.0). Cross-structure agreement is actually WORSE, not better: the two
+  correctly-anchored axes disagree with the maze in OPPOSITE directions (pad_v/maze 0.23×
+  median, pad_u/maze 2.01× median, log-spread 0.82/1.45) — definitive evidence that there is
+  no single MTF(f_px) the structures share, even with a true harmonic series on each.
+
+### Verdict
+
+**The committed "cross-M not viable (final)" conclusion STANDS, and the audit strengthens its
+basis.** The comb was indeed mis-anchored — the band floor (0.06 / M-aware 0.045 cy/px)
+excludes the genuine coarse pad grid (atlas pitches 11.6–192.5 px) in 6/6 audited regions,
+and a compounding 1-D-collapse axis-selection bug made the detector lock the *weaker* u-axis
+and discard the dominant ~30 px v-grid (SNR up to 254) on nearly every magenta die. Fixing
+both (per-axis low-floor anchoring + axis-locked harmonic reads) lowered the absolute
+collapse residuals — so the prior 0.79/0.84 numbers were inflated by the artifact — but did
+**not** make the teeth collapse onto a shared MTF(f_px): best ratio 1.46 (vs the ~1.0–1.3
+needed), the single-pitch maze unchanged at 0.845, and the empty-magnification ranking
+fallacy + opposite-sign cross-structure disagreement both persist. So the instability is
+**not** a feature-locking artifact after all; it is the underlying property of these
+textured/specular metal targets (focus-stack + field-dependent sharpness) that saturation
+suppresses but does not remove. The verdict is now confirmed *for the right reason*.
+
+The salvageable results are unchanged (**A5**, **saturation/R−B decode**). NOTE for any future
+production use of `discover_pad_fundamental`: the audit surfaced a real anchoring weakness
+(coarse-grid clipping by the band floor + single-axis "auto" selection on a 2-D lattice) — it
+does not affect the cross-M verdict, but it means the discovered "fundamental" is often the
+*weaker* axis's clipped sub-grid rather than the dominant grid line. Worth fixing if the
+discovery is reused for *within-M* per-axis MTF. **Do NOT commit** (exploratory POC).
+
+### New untracked files
+
+- `poc_comb_chain_relock_a_audit.py` — Phase A mislocking audit (true 2-D grid vs detector).
+- `poc_comb_chain_relock_diag.py` — per-axis low-floor spectrum dump (5C/5D/8C).
+- `poc_comb_chain_relock_b_extract.py` + `poc_comb_chain_relock_b_run.sh` — re-anchored sharded comb re-extraction.
+- `poc_comb_chain_relock_b_analyse.py` — re-anchored cross-M self-cal collapse + ranking/cross-structure gates.
+- `poc_comb_chain_out/relock/phaseA_audit.csv` — per-region audit table (committed).
+- `poc_comb_chain_out/relock/phaseB_collapse.csv` — per-target re-anchored collapse residuals (committed).
+- `poc_comb_chain_out/relock/phaseA_run.log`, `phaseB_run.log` — full run logs (committed).
+- `poc_comb_chain_out/relock/relock_all.csv`, `relock_shard_*` — bulk re-extracted comb (GITIGNORED, regenerable).
+- `poc_comb_chain_out/relock/fft2d/*.png` — 6 audit 2D-FFT images (GITIGNORED, ~2.4 MB).

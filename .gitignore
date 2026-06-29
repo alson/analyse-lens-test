@@ -36,3 +36,10 @@ tile-sharpness/scripts/poc_comb_chain_out/tn_run.log
 # Stage Targets (wide periodic-target survey): commit small result CSVs + run log,
 # ignore the heavy 2D-FFT magnitude PNG dump (regenerable from phase1).
 tile-sharpness/scripts/poc_comb_chain_out/targets/fft2d/
+# Stage Relock (feature-locking audit + re-anchored re-extraction): commit small result
+# CSVs (phaseA_audit, phaseB_collapse) + run logs; ignore the bulk re-extracted comb CSV,
+# the shards, and the 2D-FFT PNG dump (all regenerable from the relock scripts).
+tile-sharpness/scripts/poc_comb_chain_out/relock/relock_all.csv
+tile-sharpness/scripts/poc_comb_chain_out/relock/relock_shard_*.csv
+tile-sharpness/scripts/poc_comb_chain_out/relock/relock_shard_*.log
+tile-sharpness/scripts/poc_comb_chain_out/relock/fft2d/
