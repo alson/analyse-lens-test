@@ -7,41 +7,52 @@ Compute ran on nufan (16 cores) over the shared NFS path. Spanning subset = 16 c
 
 ## Executive summary (bottom line)
 
-**Verdict (caveats-first — see `../../LEADING_WITH_CAVEATS.md`):** a single
-**cross-magnification absolute** sharpness ranking is **negative under** the conditions
-tested — the periodic-comb / harmonic self-calibration estimator, the structured targets
-on this wafer, and the existing focus-stacked acquisitions. It is **not** proven
-impossible in general. **Cause now isolated (Stage Preproc, 2026-06-30):** a linear,
-MTF-preserving **pre-processing** ablation (flat-fielding, specular masking/robust FFT,
-sub-pixel phase-aligned windowing, consistent cross-config focus) does NOT move the
-collapse residual/floor ratio off ~1.5 — so the instability is **genuine target variation,
-not measurement-induced** (the §1 experiment below, now closed). **What could still reopen
-it:** (1) a fundamentally different estimator (deconvolution; same-physical-patch cross-M
-registration); (2) a purpose-shot clean grating/edge chart (new acquisition) — the only
-guaranteed route. **For now**, use within-M rankings + the diffraction ceiling +
-tolerance-ratios (the §L approach that worked).
+**Outcome (caveats-first — see `../../LEADING_WITH_CAVEATS.md`): two distinct cross-M
+questions, two answers.**
+- **ABSOLUTE / subject-resolution cross-M** ("which config resolves more detail per mm
+  on the wafer"), via the periodic-comb / harmonic-content route, is **DEAD — proven, not
+  inferred.** The wafer's periodic targets have genuinely unstable harmonic content
+  (Stage Preproc: linear, MTF-preserving pre-processing cannot move the collapse
+  residual/floor off ~1.5 — it's the target, not the measurement). Only a purpose-shot
+  clean grating/edge chart (new acquisition) would change this.
+- **RELATIVE cross-M glass-MTF ranking** ("which lens has higher MTF at a given pixel
+  scale") **IS achievable and CORROBORATED** (Stages AltEst / AltEst-2). The
+  same-physical-patch **PSD-ratio at a fixed SENSOR frequency**, plus **pad-edge
+  averaged-ESF** and **same-patch relative deconvolution** — three estimators on different
+  physical principles (with a de-confounded through-focus fourth agreeing) — mutually
+  converge on a 38-config ranking that reproduces §L end-to-end. **CAVEATS:** relative not
+  absolute; fixed-sensor-frequency not subject-resolution; trustworthy only
+  f_px ≈ 0.08–0.15; M≈2 configs reached via a (robust) transitive bridge.
 
-**The avenues tested (each was reopened by a distinct buried assumption, then closed —
-see the case study in `../../LEADING_WITH_CAVEATS.md`):**
+**Use which, for what:** "resolves more SUBJECT detail" → within-M + diffraction ceiling
++ tolerance-ratios (§L). "Which glass is sharper at a pixel scale, across M" → the AltEst
+consensus estimator (being productionised).
+
+**The avenues tested (1–5 each reopened by a distinct buried assumption then closed; the
+breakthrough is 6–7 — see the case study in `../../LEADING_WITH_CAVEATS.md`):**
 1. Fixed-subject-frequency contrast → M-confounded (corr +0.33/+0.78).
-2. Fixed-sensor-frequency → *relocates* the confound (corr ~0 only at a degenerate
+2. Fixed-sensor-frequency (comb) → *relocates* the confound (corr ~0 only at a degenerate
    knife-edge that collapses to same-M).
-3. Empirical per-structure `T_n` (Stage T_n) → fixed the symptoms (maze even-harmonic
-   content CONFIRMED, T2/T1=0.31; MTF made physical) but no consistent `{T_n}`+MTF
-   collapse exists (residual 0.79 vs 0.38 floor).
+3. Empirical per-structure `T_n` (Stage T_n) → fixed symptoms (maze even-harmonic content
+   CONFIRMED, T2/T1=0.31) but no consistent `{T_n}`+MTF collapse (residual 0.79 vs 0.38).
 4. Whole-target survey (Stage Targets, all 53 atlas targets) → instability is
    target-general, not pad-pattern-specific; the maze alone doesn't self-collapse (0.84).
-5. Feature-locking audit (Stage Relock) → a real mislocking bug WAS found (band floor +
-   wrong-axis "auto") and it inflated the prior residuals (re-anchored 0.79→0.64), but
-   correct anchoring did **not** revive cross-M (residual/floor ~1.46; maze unchanged).
+5. Feature-locking audit (Stage Relock) → a real mislocking bug found (band floor +
+   wrong-axis "auto"), inflating prior residuals (re-anchored 0.79→0.64), but correct
+   anchoring did **not** revive cross-M (ratio ~1.46).
+6. **Non-comb estimators (Stage AltEst) → BREAKTHROUGH:** the **same-patch PSD-ratio @
+   fixed sensor freq** passes all four gates (incl. repeatability the comb failed);
+   same-patch direct-detail / blind-PSF / SE-edge variants fail, each provably.
+7. **Hardened + corroborated (Stage AltEst-2):** 38 configs → one robust connected graph;
+   three independent-principle estimators agree (+ through-focus de-confounded & agreeing);
+   consensus reproduces §L. → `out/altest2/p_consensus_ranking.csv`.
 
 **Salvaged / banked (committed):** (a) **A5** M-aware maze/band fix (`29a3a80`).
-(b) **Fundamental-detection fix** — `discover_fundamental` was collapsing 2-D
-anisotropic lattices to one wrong axis + clipping the coarse grid; added per-axis
-`discover_fundamental_2d` + opt-in `PER_AXIS=1` in `atlas_periodic_fft`, byte-identical
-default, §L verdict unchanged, 184 tests (`25d9d43`). (c) **Saturation / R−B** decode is
-a real, M-independent SNR win for these pad features (2–3× structural contrast vs luma,
-suppresses achromatic speculars).
+(b) **Fundamental-detection fix** — added per-axis `discover_fundamental_2d` + opt-in
+`PER_AXIS=1`, byte-identical default, §L verdict unchanged, 184 tests (`25d9d43`).
+(c) **Saturation / R−B** decode — M-independent SNR win for pad features (2–3× vs luma,
+suppresses achromatic speculars). (d) **The AltEst consensus relative cross-M estimator**
+— the headline deliverable, being promoted from POC to production.
 
 ## Scripts index (each result references its script)
 
@@ -57,6 +68,12 @@ suppresses achromatic speculars).
 | `poc_comb_chain_t1_hmtf.py` | Task 1: harmonic-MTF intrinsic-correction + cross-structure check |
 | `poc_comb_chain_t1_psd.py` | Task 1: radial-PSD cross-check |
 | `poc_comb_chain_t2_padpop.py` | Task 2: pad-population bimodality |
+| `poc_comb_chain_tn_{extract,analyse}.py` + `tn_run.sh` | Stage T_n: empirical per-structure `T_n` + self-cal collapse |
+| `poc_comb_chain_targets_phase{1,2}.py` | Stage Targets: 53-target 2D-FFT survey + per-target collapse |
+| `poc_comb_chain_relock_{a_audit,diag,b_extract,b_analyse}.py` + `relock_b_run.sh` | Stage Relock: feature-locking audit + re-anchored collapse |
+| `poc_comb_chain_preproc_{extract,analyse}.py` + `preproc_run.sh` | Stage Preproc: linear pre-processing cause-isolation ablation |
+| `poc_altest_{lib,fov,patch_driver,patch_analyse,psf_focus,psf_focus_analyse,edge,edge_analyse,consolidate,smoke}.py` + `poc_altest_run.sh` | Stage AltEst: 5 non-comb estimators + gates |
+| `poc_altest2_*.py` + `poc_altest2_subset.csv` | Stage AltEst-2: hardened same-patch ranking, refined through-focus, new variants, cross-agreement |
 
 **Reproduce:** run on nufan via the per-host venv (`~/.cache/uv-venvs/tile-sharpness/bin/python`,
 `PYTHONPATH=…/tile-sharpness/src`). The heavy/regenerable artifacts under `out/`
