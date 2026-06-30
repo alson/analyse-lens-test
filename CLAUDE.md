@@ -4,6 +4,15 @@ Cross-cutting notes that aren't naturally scoped to a single subproject's
 own README / DESIGN_NOTES. Subproject-specific facts live in their own
 docs and are linked from here.
 
+## Compute hosts
+
+- **Run CPU-bound jobs on ``nufan`` (16 cores), not the local box.** Repos
+  live on an NFS share mounted at the same path on both hosts, so edit
+  locally and run remotely with no syncing. Non-interactive ssh needs a
+  login shell + manual direnv (``ssh nufan 'bash -lc "cd … && direnv exec
+  . uv run …"'``); per-host venvs via ``.envrc``. Full details — share
+  layout, what's *not* on the share, gotchas — in ``COMPUTE.md``.
+
 ## Git
 
 - **Commit author email**: ``git@alm.nufan.net`` for every commit in
