@@ -11,7 +11,12 @@ State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30).
 > commits `5d6810e`/`d5e6a58`). Also fixed a real `discover_fundamental` 2-D-lattice
 > mislocking bug (`25d9d43`). FOLLOW-UPS (see REPORT "Future plans"): (5) extend the
 > relative estimator beyond the 2026-01-29 cohort to the other Z7 wafer sessions
-> (2026-02-xx, 2026-05-12/13, 2025-10-17) — IN PROGRESS; (6) **D7200 wafer cross-camera —
+> (2026-02-xx, 2026-05-12/13, 2025-10-17) — IN PROGRESS. ACQUISITION TIERS (git-confirmed:
+> planner/rail-coverage arrived 2026-05-05): rail-coverage tier 2026-05+ (constant
+> registered step, full focus coverage → P2 valid) vs MANUAL tier ≤2026-02 incl.
+> 2026-01-29 (manual start/stop + fixed step COUNT → non-constant unregistered step,
+> possible incomplete focus-peak coverage → P2 degraded; 2026-05 reshot some under-covered
+> 2026-01/02 configs, so prefer the 2026-05 versions). (6) **D7200 wafer cross-camera —
 > the wafer was shot on the D7200 on 2025-08-06 and 2025-08-19 (DX, 3.91µm, OLPF); bringing
 > it in needs sensor-pitch reparameterization + atlas registration + a cross-camera bridge
 > — DEFERRED, left for later.**

@@ -1107,12 +1107,24 @@ summary), not proven impossible. Live and candidate next steps, in priority orde
    content sidesteps the textured/specular-metal instability entirely. New shoot.
 
 5. **Extend the relative estimator to the other Z7 wafer sessions [IN PROGRESS 2026-06-30].**
-   Production ran on the **2026-01-29** cohort (38 configs) only. Fold in the other Z7
-   wafer/macro sessions — **2026-02-xx** and **2026-05-12/13** (the 2026-05 sessions carry
-   richer metadata: recorded via the rail-coverage script) — and **2025-10-17** (the first
-   post-cutover Z7 wafer session; CAVEAT: same older methodology as the early sets —
-   non-constant, UNREGISTERED rail step — so its rail/focus metadata is weaker than the
-   2026-05 sessions). Requires verifying atlas registration covers each session.
+   Production ran on the **2026-01-29** cohort (38 configs) only. **Acquisition methodology
+   splits into two tiers** (git-confirmed: the runner's planner/rail-coverage acquisition
+   arrived **2026-05-05**; `rail_calibration` back-derivation added 2026-05-17 *because*
+   older sessions lacked recorded rail positions; 2026-05 files are planner step-indexed
+   `step_NNNN_c.jpg` vs older `alm-<timestamp>` names):
+   - **Rail-coverage tier (2026-05-12/13 and later):** constant, registered rail step +
+     full focus-range coverage → through-focus **P2 fully valid**; most trustworthy data.
+   - **Manual tier (2025-10-17, 2026-01-29, 2026-02-xx):** manual start/stop + fixed step
+     COUNT → non-constant, UNREGISTERED step (back-derived via `rail_calibration`), and the
+     focus stack may not span the sharpness peak for all apertures/corners. **P2 is degraded
+     across the WHOLE manual tier — including the current 2026-01-29 production set — not
+     just 2025-10-17.** P1/pad-edge/decon still work where the focus peak was captured.
+   Fold in 2026-02-xx + 2025-10-17 + 2026-05-12/13, BUT: (a) **prefer the 2026-05 reshoots**
+   over their 2026-01/02 counterparts — 2026-05 reshot configs that under-covered the focus
+   range, so supersede (don't double-count); (b) flag configs whose best-focus sits at a
+   stack edge (peak not captured → unreliable for all estimators); (c) verify atlas
+   registration/connectivity per session; (d) report gates on the clean rail-coverage-tier
+   subset separately.
 
 6. **D7200 wafer cross-camera follow-up [DEFERRED — leave for later].** The wafer WAS shot
    on the D7200 on **2025-08-06 and 2025-08-19** (DX, 3.91µm pitch, OLPF/AA filter — vs Z7
