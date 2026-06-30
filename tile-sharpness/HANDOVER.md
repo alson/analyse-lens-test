@@ -19,7 +19,14 @@ State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30).
 > 2026-01/02 configs, so prefer the 2026-05 versions). (6) **D7200 wafer cross-camera —
 > the wafer was shot on the D7200 on 2025-08-06 and 2025-08-19 (DX, 3.91µm, OLPF); bringing
 > it in needs sensor-pitch reparameterization + atlas registration + a cross-camera bridge
-> — DEFERRED, left for later.**
+> — DEFERRED, left for later.** (7) **Field curvature from the stack + focus-coverage
+> flagging** — the location-aware estimator already takes per-die best focus, so emit the
+> P2 Gaussian peak-CENTRE per patch (not just FWHM), map over (x,y) → tilt + curvature
+> surface; and flag patches whose best-focus is truncated at a stack edge (helpers in the
+> parked extension; plus the rail-coverage subproject's existing filesize-based truncation
+> flags in `rail-coverage/output/scan-cache.json` + `reshoot.html`). NB this means the
+> subset's apparent T–B "decentering" is likely an under-coverage artifact, not real
+> decentering — re-examine before trusting it.
 
 > **2026-06-28 — accessory-config M validation + atlas-anchored ranking (the two
 > top 2026-06-27 follow-ups). Full write-up: `REPORT_taskAD_2026-06-28.md`.**

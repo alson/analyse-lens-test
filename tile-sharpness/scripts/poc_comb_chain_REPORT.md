@@ -1135,6 +1135,32 @@ summary), not proven impossible. Live and candidate next steps, in priority orde
    `CROSS_CAMERA_BRIDGE_RESULTS.md`). The relative/fixed-sensor-freq framing helps, but the
    OLPF changes the near-Nyquist MTF, so the bridge is non-trivial. Not started.
 
+7. **Field curvature from the stack + focus-coverage flagging [FOLLOW-UP, 2026-06-30].**
+   Three linked pieces for the field analysis (the location-aware estimator already takes
+   per-die best focus — `seq = argmax(per-patch lapvar)` — so a uniform tilt is *meant* to
+   be compensated):
+   (a) **Extract field curvature from the focus stack** (user-requested): the per-patch
+   best-focus POSITION is half-computed already — the P2 Gaussian-of-defocus fit yields the
+   sub-frame peak CENTRE per patch (only its FWHM is currently emitted). Emit the peak
+   centre per patch, map over frame (x,y), fit the surface per config → linear term =
+   wafer/sensor TILT, radial term = field CURVATURE. Most reliable on the rail-coverage tier
+   (constant registered step + full coverage); degraded on the manual tier (non-constant
+   step distorts the position axis; peaks may fall outside the stack).
+   (b) **Flag focus-coverage (peak truncation).** The current HEAD location-aware build does
+   NOT flag a patch whose best-focus sits at a stack edge (peak not captured); the
+   `focus_peak_at_edge`/`coverage_ok` helpers exist only in the parked
+   `_recovered_extension_2026-06-30/` — fold them into the field analysis at reprocess.
+   ALSO ready to reuse: the **rail-coverage subproject already has per-config/per-corner
+   truncation** ("peak not covered") flags for the pre-2026-05 data in
+   `rail-coverage/output/scan-cache.json` (`scenarios`) + `reshoot.html` (98 "Truncated"
+   flags) — FILESIZE-based (primitive) but a ready cross-check/seed; the per-patch
+   lapvar-at-edge (or the (a) Gaussian peak-centre-at-edge) is the more accurate successor.
+   (c) **Consequence for the subset result — correction:** the apparent T–B "decentering"
+   (tb −0.10..−0.16) is NOT a confirmed rig/optical signature. With per-die best focus a
+   uniform tilt is compensated, so the residual is most likely **under-covered (truncated)
+   patches at one edge**, not real decentering. Re-examine with (a)+(b) before treating it
+   as a finding.
+
 For the standing need ("is this TC/extension/diopter worth it; which config is sharpest"),
 the validated answer remains: within-M rankings + the diffraction ceiling + tolerance-
 ratios (the §L bare-vs-TC method).
