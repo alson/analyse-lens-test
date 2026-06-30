@@ -1,6 +1,20 @@
 # Sharpness assessment POC — session handover
 
-State as of 2026-05-18 (extended 2026-06-27, 2026-06-28).
+State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30).
+
+> **2026-06-30 — cross-M relative-MTF estimator (new) + follow-ups.** A long POC arc
+> (full record: `scripts/poc_comb_chain_REPORT.md`) established that an ABSOLUTE /
+> subject-resolution cross-magnification ranking is dead on this wafer (genuine target
+> instability, proven), BUT a RELATIVE, fixed-sensor-frequency glass-MTF ranking IS
+> achievable and is corroborated by four independent estimators — now PRODUCTION at
+> `src/tile_sharpness/cross_m_relative_mtf.py` (+ CLI `scripts/cross_m_relative_mtf_run.py`,
+> commits `5d6810e`/`d5e6a58`). Also fixed a real `discover_fundamental` 2-D-lattice
+> mislocking bug (`25d9d43`). FOLLOW-UPS (see REPORT "Future plans"): (5) extend the
+> relative estimator beyond the 2026-01-29 cohort to the other Z7 wafer sessions
+> (2026-02-xx, 2026-05-12/13, 2025-10-17) — IN PROGRESS; (6) **D7200 wafer cross-camera —
+> the wafer was shot on the D7200 on 2025-08-06 and 2025-08-19 (DX, 3.91µm, OLPF); bringing
+> it in needs sensor-pitch reparameterization + atlas registration + a cross-camera bridge
+> — DEFERRED, left for later.**
 
 > **2026-06-28 — accessory-config M validation + atlas-anchored ranking (the two
 > top 2026-06-27 follow-ups). Full write-up: `REPORT_taskAD_2026-06-28.md`.**

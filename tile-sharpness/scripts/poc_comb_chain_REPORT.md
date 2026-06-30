@@ -1095,13 +1095,33 @@ summary), not proven impossible. Live and candidate next steps, in priority orde
    LSF/maze-FFT (`peaks_v2.csv`), NOT periodic_fft — so this is a *new* periodic-FFT
    per-axis product, complementary to characterise, not a replacement.
 
-3. **Alternative cross-M estimator** (only if (1) says measurement-induced but the comb
-   still won't behave): deconvolution-based MTF, or registering the *same physical patch*
-   across M to compare resolved detail directly rather than via a harmonic comb.
+3. **Alternative (non-comb) cross-M estimator [DONE 2026-06-30 — Stages AltEst/AltEst-2;
+   PRODUCTIONISED `5d6810e` + `d5e6a58`].** Pursued despite (1)'s negative — the ABSOLUTE
+   route is dead, but a RELATIVE one was open. The **same-physical-patch PSD-ratio at a
+   fixed sensor frequency** works and is corroborated by pad-edge ESF, relative
+   deconvolution, and through-focus. RELATIVE / fixed-sensor-freq only (NOT absolute /
+   subject-resolution); trustworthy f_px≈0.08–0.15. This is the headline deliverable.
 
 4. **Clean grating/edge chart acquisition** — the only guaranteed route to a real cross-M
-   absolute axis. A purpose-shot target with stable, known harmonic content sidesteps the
-   textured/specular-metal instability entirely. New shoot, not a re-analysis.
+   ABSOLUTE / subject-resolution axis. A purpose-shot target with stable, known harmonic
+   content sidesteps the textured/specular-metal instability entirely. New shoot.
+
+5. **Extend the relative estimator to the other Z7 wafer sessions [IN PROGRESS 2026-06-30].**
+   Production ran on the **2026-01-29** cohort (38 configs) only. Fold in the other Z7
+   wafer/macro sessions — **2026-02-xx** and **2026-05-12/13** (the 2026-05 sessions carry
+   richer metadata: recorded via the rail-coverage script) — and **2025-10-17** (the first
+   post-cutover Z7 wafer session; CAVEAT: same older methodology as the early sets —
+   non-constant, UNREGISTERED rail step — so its rail/focus metadata is weaker than the
+   2026-05 sessions). Requires verifying atlas registration covers each session.
+
+6. **D7200 wafer cross-camera follow-up [DEFERRED — leave for later].** The wafer WAS shot
+   on the D7200 on **2025-08-06 and 2025-08-19** (DX, 3.91µm pitch, OLPF/AA filter — vs Z7
+   FX 4.35µm, no OLPF). Bringing these into the cross-M relative ranking needs: (a)
+   sensor-pitch reparameterization (the `229.9 = 1000/4.35` constant is Z7-specific →
+   1000/3.91≈255.8 for D7200); (b) atlas registration of the D7200 wafer frames; (c) a
+   cross-camera bridge to factor out pitch/OLPF/crop (cf. longdist
+   `CROSS_CAMERA_BRIDGE_RESULTS.md`). The relative/fixed-sensor-freq framing helps, but the
+   OLPF changes the near-Nyquist MTF, so the bridge is non-trivial. Not started.
 
 For the standing need ("is this TC/extension/diopter worth it; which config is sharpest"),
 the validated answer remains: within-M rankings + the diffraction ceiling + tolerance-
