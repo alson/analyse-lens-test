@@ -1,0 +1,11 @@
+sid,n_patches,field_height_min,field_height_max,field_height_span,angle_span_deg,n_centre,n_mid,n_corner,zones_populated,n_zones_populated,degenerate_cluster,field_supported
+Z105_1_1_F8,92,0.0675,0.8815,0.814,342.9146,21,50,21,centre;mid;corner,3,False,True
+V55f28287318_1_1_F8,85,0.0704,0.8554,0.7851,340.1933,22,45,18,centre;mid;corner,3,False,True
+S150_1_1_F8,83,0.0507,0.8306,0.7798,339.4801,24,45,14,centre;mid;corner,3,False,True
+AF60_1_1_F8,85,0.0717,0.8512,0.7796,340.4948,20,47,18,centre;mid;corner,3,False,True
+Z100400+MCON-35_1_1.16_F8,69,0.0863,0.8424,0.7561,338.1638,18,40,11,centre;mid;corner,3,False,True
+V55f35209088_1_1_F8,93,0.059,0.8117,0.7527,343.7462,25,50,18,centre;mid;corner,3,False,True
+S105_1_1_F8,85,0.0633,0.811,0.7477,339.5734,19,48,18,centre;mid;corner,3,False,True
+AF200_1_1_F8,92,0.0743,0.8202,0.7459,343.9071,23,52,17,centre;mid;corner,3,False,True
+AF200+6T_1.7_1_F8,28,0.053,0.7457,0.6927,317.0515,8,16,4,centre;mid;corner,3,False,True
+AF200+5T+6T_2_1_F8,16,0.0648,0.6988,0.634,302.252,6,9,1,centre;mid,2,False,True
