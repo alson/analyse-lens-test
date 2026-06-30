@@ -352,6 +352,209 @@ def test_consensus_folds_in_p2_as_fourth_estimator():
     assert list(cons.sid) == ["x", "y", "z", "w", "v", "u"]
 
 
+# --------------------------------------------------------------------------- #
+# LOCATION-AWARE field analysis (distance/angle from frame centre)
+# --------------------------------------------------------------------------- #
+
+IMG_W, IMG_H = 8256, 5504
+CX, CY = IMG_W / 2.0, IMG_H / 2.0
+HALF_DIAG = 0.5 * np.hypot(IMG_W, IMG_H)
+
+
+def test_field_geometry_centre_is_zero():
+    g = X.field_geometry(CX, CY, CX, CY, IMG_W, IMG_H, m=1.0)
+    assert g["dist_px"] == pytest.approx(0.0)
+    assert g["field_height"] == pytest.approx(0.0)
+    assert g["dist_subject_mm"] == pytest.approx(0.0)
+
+
+def test_field_geometry_corner_is_field_height_one():
+    # the extreme image corner is field_height == 1.0 (normalised by half-diagonal).
+    g = X.field_geometry(IMG_W, IMG_H, CX, CY, IMG_W, IMG_H)
+    assert g["field_height"] == pytest.approx(1.0, rel=1e-9)
+
+
+def test_field_geometry_angle_convention():
+    # +x (right) = 0deg; up (smaller image-y) = +90deg; left = 180; down = -90.
+    assert X.field_geometry(CX + 100, CY, CX, CY, IMG_W, IMG_H)["angle_deg"] == pytest.approx(0.0)
+    assert X.field_geometry(CX, CY - 100, CX, CY, IMG_W, IMG_H)["angle_deg"] == pytest.approx(90.0)
+    assert abs(X.field_geometry(CX - 100, CY, CX, CY, IMG_W, IMG_H)["angle_deg"]) == pytest.approx(180.0)
+    assert X.field_geometry(CX, CY + 100, CX, CY, IMG_W, IMG_H)["angle_deg"] == pytest.approx(-90.0)
+
+
+def test_field_geometry_subject_mm_scales_inverse_with_M():
+    # for a fixed pixel offset, subject distance shrinks as 1/M.
+    g1 = X.field_geometry(CX + 1000, CY, CX, CY, IMG_W, IMG_H, m=1.0)
+    g2 = X.field_geometry(CX + 1000, CY, CX, CY, IMG_W, IMG_H, m=2.0)
+    assert g1["dist_subject_mm"] == pytest.approx(2 * g2["dist_subject_mm"])
+    assert g1["dist_subject_mm"] == pytest.approx(1000 * X.SENSOR_PITCH_MM)
+
+
+def test_field_zone_binning():
+    assert X.field_zone(0.0) == "centre"
+    assert X.field_zone(0.32) == "centre"
+    assert X.field_zone(0.33) == "mid"
+    assert X.field_zone(0.65) == "mid"
+    assert X.field_zone(0.66) == "corner"
+    assert X.field_zone(1.0) == "corner"
+    assert X.field_zone(float("nan")) is None
+
+
+def _synthetic_field(sid, fhs, angles, amps, sag=None, tan=None):
+    rows = []
+    for i, (fh, ang, amp) in enumerate(zip(fhs, angles, amps)):
+        r = dict(sid=sid, patch=f"P{i}", field_height=fh, angle_deg=ang, amp=amp)
+        if sag is not None:
+            r["amp_sag"] = sag[i]
+        if tan is not None:
+            r["amp_tan"] = tan[i]
+        rows.append(r)
+    return pd.DataFrame(rows)
+
+
+def test_field_coverage_flags_degenerate_high_M_cluster():
+    # a tight high-M cluster (all patches at nearly the same small field height)
+    # is flagged degenerate -> not a genuine field profile, do not over-interpret.
+    fhs = [0.10, 0.11, 0.12, 0.13]
+    f = _synthetic_field("hiM", fhs, [10, 20, 30, 40], [1.0, 1.0, 1.0, 1.0])
+    cov = X.field_coverage(f)
+    row = cov[cov.sid == "hiM"].iloc[0]
+    assert row.degenerate_cluster
+    assert not row.field_supported
+    assert row.field_height_span == pytest.approx(0.03)
+
+
+def test_field_coverage_reports_zone_population_and_span():
+    # spread across centre..corner with >=2 patches each -> supported, 3 zones.
+    fhs = [0.05, 0.10, 0.45, 0.50, 0.80, 0.90]
+    f = _synthetic_field("rich", fhs, [0, 45, 90, 135, 180, -90], [1.0] * 6)
+    cov = X.field_coverage(f)
+    row = cov.iloc[0]
+    assert row.sid == "rich"
+    assert row.n_zones_populated == 3
+    assert "centre" in row.zones_populated and "corner" in row.zones_populated
+    assert row.field_supported
+    assert row.field_height_span == pytest.approx(0.85)
+    assert row.angle_span_deg > 180  # spread around the circle
+
+
+def test_radial_falloff_recovers_centre_to_corner_direction():
+    # amp DECREASES with field height (classic corner softening) -> corner/centre < 1.
+    fhs = [0.05, 0.10, 0.45, 0.50, 0.80, 0.90]
+    amps = [1.0, 0.98, 0.7, 0.68, 0.4, 0.38]
+    f = _synthetic_field("soft_corners", fhs, [0, 90, 180, -90, 45, 135], amps)
+    zone_tbl, ratio_tbl = X.radial_falloff(f, value_col="amp")
+    r = ratio_tbl.iloc[0]
+    assert r.falloff_supported
+    assert r.corner_centre_ratio < 1.0
+    assert r.mid_centre_ratio < 1.0
+    assert r.corner_centre_ratio < r.mid_centre_ratio  # monotone falloff
+    # the centre zone mean is the mean of the two centre patches
+    cen = zone_tbl[(zone_tbl.sid == "soft_corners") & (zone_tbl.zone == "centre")].iloc[0]
+    assert cen["mean"] == pytest.approx(0.99)
+    assert not cen.is_sparse
+
+
+def test_radial_falloff_flags_sparse_zone_and_nan_ratio():
+    # corner zone has only ONE patch (< MIN_PATCHES_PER_ZONE) -> sparse, ratio NaN.
+    fhs = [0.05, 0.10, 0.45, 0.50, 0.85]
+    f = _synthetic_field("nocorner", fhs, [0, 90, 180, -90, 45], [1.0, 1.0, 0.8, 0.8, 0.5])
+    zone_tbl, ratio_tbl = X.radial_falloff(f, value_col="amp")
+    corner = zone_tbl[(zone_tbl.sid == "nocorner") & (zone_tbl.zone == "corner")].iloc[0]
+    assert corner.n == 1
+    assert corner.is_sparse
+    assert np.isnan(ratio_tbl.iloc[0].corner_centre_ratio)
+    assert not ratio_tbl.iloc[0].falloff_supported
+
+
+def test_azimuthal_asymmetry_recovers_decentering_sign_and_direction():
+    # build a field where the RIGHT side is systematically sharper than the LEFT
+    # (a decentering signature): right patches (|angle|<90) get higher amp.
+    fhs = [0.5, 0.5, 0.5, 0.5, 0.7, 0.7, 0.7, 0.7]
+    angles = [0, 45, -45, 30, 180, 135, -135, -150]  # first four right, last four left
+    amps = [1.0, 1.0, 1.0, 1.0, 0.6, 0.6, 0.6, 0.6]
+    f = _synthetic_field("decentered", fhs, angles, amps)
+    azi = X.azimuthal_asymmetry(f, value_col="amp")
+    r = azi.iloc[0]
+    assert r.supported
+    assert r.lr > 0  # right sharper than left
+    assert r.asymmetry_mag > 0
+    assert abs(r.asymmetry_dir_deg) < 45  # gradient points to the right (~0 deg)
+
+
+def test_azimuthal_asymmetry_unsupported_when_one_sided():
+    # all in-band patches on the right -> no left patches -> lr NaN -> unsupported.
+    f = _synthetic_field("oneside", [0.5, 0.6, 0.7, 0.8], [0, 30, -30, 10], [1.0] * 4)
+    azi = X.azimuthal_asymmetry(f, value_col="amp")
+    assert not azi.iloc[0].supported
+
+
+def test_astigmatism_index_recovers_sagittal_vs_tangential():
+    # sagittal sharper than tangential everywhere in-band -> index > 0.
+    fhs = [0.5, 0.6, 0.7, 0.8]
+    sag = [1.0, 1.0, 1.0, 1.0]
+    tan = [0.5, 0.5, 0.5, 0.5]
+    f = _synthetic_field("astig", fhs, [0, 90, 180, -90], [1.0] * 4, sag=sag, tan=tan)
+    astig = X.astigmatism_index(f, sag_col="amp_sag", tan_col="amp_tan")
+    r = astig.iloc[0]
+    assert r.supported
+    assert r.astig_index == pytest.approx(np.log(2.0), rel=1e-6)
+
+
+def test_astigmatism_index_unsupported_without_axis_columns():
+    f = _synthetic_field("noaxis", [0.5, 0.6, 0.7], [0, 90, 180], [1.0] * 3)
+    astig = X.astigmatism_index(f, sag_col="amp_sag", tan_col="amp_tan")
+    assert not astig.iloc[0].supported
+    assert np.isnan(astig.iloc[0].astig_index)
+
+
+def test_field_resolved_ranking_runs_per_zone():
+    # two configs, sharp vs soft, fully covering centre + corner zones; the per-zone
+    # ranking must order sharp above soft in each populated zone.
+    freqs = np.linspace(0.0, 0.4, 40)
+    rows = []
+    # patches P0,P1 -> centre (fh 0.1); P2,P3 -> corner (fh 0.8)
+    fh_map = {"P0": 0.1, "P1": 0.1, "P2": 0.8, "P3": 0.8}
+    for sid, sigma in (("sharp", 0.6), ("soft", 1.4)):
+        psd_c = _blurred_psd_curve(sigma, freqs)
+        for pk in fh_map:
+            for fr, ps in zip(freqs, psd_c):
+                rows.append(dict(sid=sid, patch=pk, f_grid=fr, psd=ps))
+    psd = pd.DataFrame(rows)
+    meta = pd.DataFrame([dict(sid=s, M=1.0, px_per_unit=X.SAMPLES_PER_UNIT)
+                         for s in ("sharp", "soft")])
+    field = pd.DataFrame([dict(sid=s, patch=pk, field_height=fh)
+                          for s in ("sharp", "soft") for pk, fh in fh_map.items()])
+    zrank = X.field_resolved_ranking(psd, meta, field, f_px=0.10)
+    assert "centre" in zrank and "corner" in zrank
+    for z in ("centre", "corner"):
+        order = list(zrank[z].table.sid)
+        assert order.index("sharp") < order.index("soft")
+
+
+def test_field_radial_falloff_agrees_with_characterise_uniformity_sign():
+    # AGREEMENT-WITH-CHARACTERISE sanity: characterise reports uniformity =
+    # corner_MTF50/centre_MTF50 (< 1 when corners soften) and decentering L-R as a
+    # signed peak-value asymmetry. Build ONE synthetic field that softens to the
+    # corners AND is sharper on the right, and confirm the new field products report
+    # the SAME signs: radial corner/centre < 1, and azimuthal lr > 0 (right sharper),
+    # matching characterise's uniformity<1 + a positive L-R decentering.
+    fhs = [0.05, 0.10, 0.45, 0.50, 0.80, 0.85, 0.80, 0.85]
+    angles = [0, 180, 30, 150, 20, -20, 160, -160]
+    # corner softening + right-bias: amp falls with fh, and right (|ang|<90) > left.
+    base = {0.05: 1.0, 0.10: 1.0, 0.45: 0.75, 0.50: 0.75, 0.80: 0.5, 0.85: 0.5}
+    amps = []
+    for fh, ang in zip(fhs, angles):
+        a = base[fh]
+        a *= 1.15 if abs(ang) < 90 else 0.85  # right sharper (decentering)
+        amps.append(a)
+    f = _synthetic_field("realistic", fhs, angles, amps)
+    _, ratio_tbl = X.radial_falloff(f, value_col="amp")
+    azi = X.azimuthal_asymmetry(f, value_col="amp")
+    assert ratio_tbl.iloc[0].corner_centre_ratio < 1.0   # uniformity_fx < 1 (agrees)
+    assert azi.iloc[0].lr > 0                            # L-R decentering: right sharper
+
+
 def test_caveats_header_states_the_fence():
     h = X.caveats_header(0.10)
     assert "RELATIVE" in h

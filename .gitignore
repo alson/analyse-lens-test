@@ -71,3 +71,8 @@ tile-sharpness/scripts/poc_comb_chain_out/altest2/*.log
 tile-sharpness/scripts/cross_m_relative_mtf_out/patches/
 tile-sharpness/scripts/cross_m_relative_mtf_out/*_shard_*.csv
 tile-sharpness/scripts/cross_m_relative_mtf_out/log_shard_*.txt
+
+# Location-aware subset validation: commit the small derived field products under
+# scripts/cross_m_relative_mtf_out/loctest_field/ (CSVs + REPORT + field_map.png) and
+# the subset CSV; ignore the heavy regenerable extract scratch dir entirely.
+tile-sharpness/cross_m_relative_mtf_loctest_out/

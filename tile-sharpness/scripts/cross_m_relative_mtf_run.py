@@ -256,6 +256,56 @@ def radial_psd(patch, nbins=64):
     return fcen, psd
 
 
+def directional_psd(patch, radial_angle_deg, nbins=64, wedge_deg=35.0):
+    """Radial PSD split into SAGITTAL vs TANGENTIAL wedges (for astigmatism).
+
+    ``radial_angle_deg`` is the patch's field azimuth (the direction from the FRAME
+    CENTRE to the patch, in the same flipped-y math convention as
+    ``cross_m_relative_mtf.field_geometry``). The sagittal axis is ALONG that radial
+    direction; the tangential axis is perpendicular. The 2D PSD is averaged only over
+    the frequency-plane wedge within ``wedge_deg`` of each axis (both lobes), so the
+    sagittal curve carries the spatial frequencies oriented along the field radius and
+    the tangential curve those across it. Returns ``(fcen, psd_sag, psd_tan)`` with the
+    SAME frequency bins as :func:`radial_psd` (cy per common-grid px; units cancel in
+    the ratio). NaN bins where a wedge has no samples.
+    """
+    a = patch - patch.mean()
+    h, w = a.shape
+    a = a * _hann2d(h, w)
+    F = np.fft.fftshift(np.fft.fft2(a))
+    P = F.real ** 2 + F.imag ** 2
+    cy, cx = h / 2.0, w / 2.0
+    yy, xx = np.mgrid[0:h, 0:w]
+    fxn = (xx - cx) / w
+    fyn = (yy - cy) / h
+    fr = np.sqrt(fxn ** 2 + fyn ** 2)
+    # frequency-plane azimuth, flipped-y to match field_geometry's convention.
+    fang = np.degrees(np.arctan2(-fyn, fxn))
+    # angular distance to the sagittal (radial) axis, folded to [0, 90].
+    def _axis_mask(axis_deg):
+        d = np.abs(((fang - axis_deg + 90.0) % 180.0) - 90.0)
+        return d <= wedge_deg
+    sag = _axis_mask(radial_angle_deg)
+    tan = _axis_mask(radial_angle_deg + 90.0)
+    bins = np.linspace(0, 0.5, nbins + 1)
+    idx = np.digitize(fr.ravel(), bins) - 1
+    Pf = P.ravel()
+    sagf = sag.ravel()
+    tanf = tan.ravel()
+    psd_sag = np.full(nbins, np.nan)
+    psd_tan = np.full(nbins, np.nan)
+    for b in range(nbins):
+        m = idx == b
+        ms = m & sagf
+        mt = m & tanf
+        if ms.any():
+            psd_sag[b] = Pf[ms].mean()
+        if mt.any():
+            psd_tan[b] = Pf[mt].mean()
+    fcen = 0.5 * (bins[:-1] + bins[1:])
+    return fcen, psd_sag, psd_tan
+
+
 # pad-edge averaged ESF (cross-check P3.1) ----------------------------------- #
 HALF, BPP = 8.0, 4.0
 TILT_LO, TILT_HI = 1.0, 14.0
@@ -364,8 +414,17 @@ def amp_radial(patch, nbins=48):
 # extract stage
 # --------------------------------------------------------------------------- #
 
+def _apply_out_override(args):
+    """Point the module-global OUT at ``--out`` so a subset run uses its own subdir."""
+    global OUT
+    if getattr(args, "out", None):
+        OUT = Path(args.out)
+
+
 def cmd_extract(args):
-    with SUBSET.open() as fh:
+    _apply_out_override(args)
+    subset_path = Path(args.subset) if getattr(args, "subset", None) else SUBSET
+    with subset_path.open() as fh:
         configs = list(csv.DictReader(fh))
     if args.shard:
         i, n = (int(x) for x in args.shard.split("/"))
@@ -374,6 +433,10 @@ def cmd_extract(args):
     (OUT / "patches").mkdir(exist_ok=True)
     patches = patch_layout()
     psd_rows, meta_rows, padedge_rows, psffoc_rows = [], [], [], []
+    fieldtag_rows = []
+    # frame centre = registration/optical centre (~ image centre).
+    cx_frame, cy_frame = reg_auto.DIST_CENTER
+    FIELD_FPX = (0.10, 0.15)  # operating points the field amps are read at
     for c in configs:
         cid = config_id(c); sid = short_id(c)
         sd = Path(c["sample"]).parent
@@ -446,6 +509,35 @@ def cmd_extract(args):
                     if np.isfinite(ps):
                         psd_rows.append(dict(config=cid, sid=sid, patch=plab, M=M,
                                              n_marked=n_marked, f_grid=fg, psd=ps))
+                # ---- LOCATION-AWARE field tag for this patch -------------------- #
+                # patch grid centre -> image px -> distance/angle from frame centre.
+                pcx, pcy = reg_auto.grid_xy_distorted(0.5 * (a + a1),
+                                                      0.5 * (b + b1), p)
+                geo = X.field_geometry(pcx, pcy, cx_frame, cy_frame,
+                                       IMAGE_W, IMAGE_H, m=M)
+                ft = dict(config=cid, sid=sid, patch=plab, M=M,
+                          px=float(pcx), py=float(pcy),
+                          dist_px=geo["dist_px"], field_height=geo["field_height"],
+                          angle_deg=geo["angle_deg"],
+                          dist_subject_mm=geo["dist_subject_mm"])
+                # isotropic per-patch amplitude at each operating sensor frequency.
+                amp_iso = np.sqrt(np.clip(psd, 1e-30, None))
+                # sagittal / tangential amplitude wedges (relative to field radial dir).
+                fsag, psd_sag, psd_tan = directional_psd(patch, geo["angle_deg"])
+                amp_sag = np.sqrt(np.clip(psd_sag, 1e-30, None))
+                amp_tan = np.sqrt(np.clip(psd_tan, 1e-30, None))
+                for fpx in FIELD_FPX:
+                    fg_sensor = fpx * px_per_unit / SAMPLES_PER_UNIT
+                    def _read(fcurve, vcurve):
+                        ok = np.isfinite(vcurve)
+                        if ok.sum() < 2 or not (fcurve[ok].min() <= fg_sensor
+                                                <= fcurve[ok].max()):
+                            return float("nan")
+                        return float(np.interp(fg_sensor, fcurve[ok], vcurve[ok]))
+                    ft[f"amp_fpx{fpx}"] = _read(f_grid, amp_iso)
+                    ft[f"amp_sag_fpx{fpx}"] = _read(fsag, amp_sag)
+                    ft[f"amp_tan_fpx{fpx}"] = _read(fsag, amp_tan)
+                fieldtag_rows.append(ft)
                 # pad-edge ESF cross-check on the sensor-space crop
                 if gray is not None:
                     x0, y0, x1, y1 = box
@@ -475,8 +567,10 @@ def cmd_extract(args):
     pd.DataFrame(meta_rows).to_csv(OUT / f"meta_shard_{tag}.csv", index=False)
     pd.DataFrame(padedge_rows).to_csv(OUT / f"padedge_shard_{tag}.csv", index=False)
     pd.DataFrame(psffoc_rows).to_csv(OUT / f"psffoc_shard_{tag}.csv", index=False)
+    pd.DataFrame(fieldtag_rows).to_csv(OUT / f"fieldtag_shard_{tag}.csv", index=False)
     print(f"WROTE shard {tag}: {len(psd_rows)} psd, {len(meta_rows)} meta, "
-          f"{len(padedge_rows)} padedge, {len(psffoc_rows)} psffoc", flush=True)
+          f"{len(padedge_rows)} padedge, {len(psffoc_rows)} psffoc, "
+          f"{len(fieldtag_rows)} fieldtag", flush=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -551,6 +645,7 @@ def p2_scores(meta):
 # --------------------------------------------------------------------------- #
 
 def cmd_analyse(args):
+    _apply_out_override(args)
     psd = pd.concat([pd.read_csv(f) for f in OUT.glob("psd_shard_*.csv")],
                     ignore_index=True)
     meta = pd.concat([pd.read_csv(f) for f in OUT.glob("meta_shard_*.csv")],
@@ -677,6 +772,227 @@ def cmd_analyse(args):
                  rho, ncommon, jk, sweep_rows, med_rank, p2_selfcheck)
     print(f"\nWROTE {OUT / 'cross_m_relative_mtf_ranking.csv'} and the markdown report")
 
+    # ---- LOCATION-AWARE field analysis (additive; needs fieldtag shards) ----- #
+    run_field_analysis(meta, f_px=f_px)
+
+
+# --------------------------------------------------------------------------- #
+# LOCATION-AWARE field analysis stage (additive)
+# --------------------------------------------------------------------------- #
+
+def _load_fieldtags():
+    files = list(OUT.glob("fieldtag_shard_*.csv"))
+    frames = [pd.read_csv(f) for f in files]
+    frames = [d for d in frames if not d.empty and "field_height" in d.columns]
+    if not frames:
+        return None
+    return pd.concat(frames, ignore_index=True)
+
+
+def run_field_analysis(meta=None, f_px=X.FPX_DEFAULT):
+    """Derive + emit the location-aware field products from the fieldtag shards.
+
+    Emits (under OUT):
+      * per-patch field-tagged record CSV (the raw deliverable),
+      * field-coverage descriptor CSV (per-config; where patches exist),
+      * radial-falloff zone + ratio CSVs,
+      * azimuthal-asymmetry (decentering) CSV,
+      * astigmatism-index CSV,
+      * field-resolved relative ranking CSV (centre/mid/corner),
+      * a field-map PNG for a sharp and a soft config,
+      * a markdown field note with the caveats header.
+    """
+    ft = _load_fieldtags()
+    if ft is None:
+        print("\n[field] no fieldtag shards found — run extract to produce them; "
+              "skipping location-aware analysis.")
+        return
+    if meta is None:
+        meta = pd.concat([pd.read_csv(f) for f in OUT.glob("meta_shard_*.csv")],
+                         ignore_index=True).drop_duplicates("config")
+    # The fieldtag shards only carry amps at the operating points the extract stage
+    # emitted (FIELD_FPX = 0.10, 0.15). If the requested f_px lacks a column, fall
+    # back to 0.10 AND relabel f_px to that fallback so every caveat / header / print
+    # matches the data actually used (no mislabelling, e.g. an --fpx 0.12 request).
+    if f"amp_fpx{f_px}" not in ft.columns:
+        fallback = 0.10
+        print(f"\n[field] no per-patch amp column for f_px={f_px}; the fieldtag shards "
+              f"only carry {sorted(c.split('amp_fpx')[1] for c in ft.columns if c.startswith('amp_fpx'))} "
+              f"-> using f_px={fallback} for the field analysis.")
+        f_px = fallback
+    amp_col = f"amp_fpx{f_px}"
+    sag_col = amp_col.replace("amp_", "amp_sag_")
+    tan_col = amp_col.replace("amp_", "amp_tan_")
+    ft = ft.rename(columns={amp_col: "amp", sag_col: "amp_sag", tan_col: "amp_tan"})
+
+    print("\n" + "=" * 72 + "\nLOCATION-AWARE field analysis "
+          f"(f_px={f_px}; per-patch frame position)\n" + "=" * 72)
+
+    # raw per-patch field-tagged record (the core deliverable)
+    raw = X.assign_field_zones(ft)
+    with (OUT / "field_per_patch.csv").open("w", newline="") as fh:
+        fh.write(_field_caveats(f_px) + "\n")
+        raw.round(5).to_csv(fh, index=False)
+
+    cov = X.field_coverage(ft)
+    cov.round(4).to_csv(OUT / "field_coverage.csv", index=False)
+    print("\nField coverage (richest first; field_supported=False => do NOT "
+          "over-interpret):")
+    print(cov[["sid", "n_patches", "field_height_min", "field_height_max",
+               "field_height_span", "angle_span_deg", "zones_populated",
+               "field_supported"]].round(3).to_string(index=False))
+
+    zone_tbl, ratio_tbl = X.radial_falloff(ft, value_col="amp")
+    zone_tbl.round(4).to_csv(OUT / "field_radial_zone.csv", index=False)
+    ratio_tbl.round(4).to_csv(OUT / "field_radial_ratio.csv", index=False)
+    print("\nRadial falloff (corner/centre amp ratio; <1 = softens to corner; "
+          "NaN = corner or centre not sampled):")
+    print(ratio_tbl.round(3).to_string(index=False))
+
+    azi = X.azimuthal_asymmetry(ft, value_col="amp")
+    azi.round(4).to_csv(OUT / "field_azimuthal.csv", index=False)
+    print("\nAzimuthal asymmetry / decentering (lr>0 => right sharper; "
+          "supported=False => too few in-band patches):")
+    print(azi[["sid", "n_in_band", "lr", "tb", "asymmetry_mag",
+               "asymmetry_dir_deg", "supported"]].round(3).to_string(index=False))
+
+    astig = X.astigmatism_index(ft, sag_col="amp_sag", tan_col="amp_tan")
+    astig.round(4).to_csv(OUT / "field_astigmatism.csv", index=False)
+    n_astig = int(astig["supported"].sum())
+    print(f"\nAstigmatism index (log(sag/tan); >0 sag sharper; "
+          f"{n_astig}/{len(astig)} configs supported):")
+    print(astig[["sid", "n_in_band", "astig_index", "supported"]]
+          .round(3).to_string(index=False))
+
+    # field-resolved relative ranking (per zone)
+    psd = pd.concat([pd.read_csv(f) for f in OUT.glob("psd_shard_*.csv")],
+                    ignore_index=True)
+    zrank = X.field_resolved_ranking(psd, meta, ft[["sid", "patch", "field_height"]],
+                                     f_px=f_px)
+    zr_rows = []
+    for z, rk in zrank.items():
+        for i, row in rk.table.iterrows():
+            zr_rows.append(dict(zone=z, rank=i + 1, sid=row.sid,
+                                score=row.score, M=row.M, n_cells=int(row.n_cells)))
+    if zr_rows:
+        pd.DataFrame(zr_rows).to_csv(OUT / "field_resolved_ranking.csv", index=False)
+        print("\nField-resolved relative ranking (which configs hold their corners):")
+        for z in X.FIELD_ZONES:
+            zz = [r for r in zr_rows if r["zone"] == z]
+            if zz:
+                top = ", ".join(r["sid"] for r in zz[:3])
+                print(f"  {z:7s} ({len(zz)} configs): top-3 {top}")
+
+    _write_field_maps(raw, cov, f_px)
+    _write_field_report(cov, ratio_tbl, azi, astig, zrank, f_px)
+    print(f"\nWROTE location-aware field products under {OUT}")
+
+
+def _field_caveats(f_px):
+    lines = [
+        "LOCATION-AWARE (field-position) sharpness — companion to the cross-M relative",
+        "glass-MTF ranking. Per-patch sharpness is the RELATIVE, FIXED-SENSOR-FREQUENCY",
+        f"amplitude at f_px={f_px} cy/px (same axis + fence as the ranking; NOT absolute",
+        "MTF, NOT subject resolution). Position is DISTANCE + ANGLE from the FRAME CENTRE;",
+        "field_height = dist / frame half-diagonal (0=centre, 1=corner).",
+        "COVERAGE IS M-DEPENDENT + INCOMPLETE: high-M patches cluster (small field span,",
+        "see field_coverage.field_supported); low-M wafer covers only PART of the frame so",
+        "the true corners may be unsampled. Field maps are meaningful ONLY where patches",
+        "exist — do NOT extrapolate into empty zones; trust configs with the richest",
+        "coverage. Subset only; production-ready for the full reprocess.",
+    ]
+    return "\n".join("# " + ln for ln in lines)
+
+
+def _write_field_maps(raw, cov, f_px):
+    """Per-patch field-map scatter (frame x,y coloured by relative amp) for a sharp
+    and a soft config with decent coverage."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as e:  # pragma: no cover - plotting optional
+        print(f"[field] matplotlib unavailable ({e}); skipping field-map PNGs")
+        return
+    supported = cov[cov.field_supported]
+    sids = list(supported.sid) if not supported.empty else list(cov.sid)
+    if not sids:
+        return
+    # pick the sharpest- and softest-mean-amp supported configs
+    mean_amp = (raw[raw.sid.isin(sids)].groupby("sid")["amp"].mean()
+                .sort_values(ascending=False))
+    if mean_amp.empty:
+        return
+    picks = [mean_amp.index[0], mean_amp.index[-1]]
+    fig, axes = plt.subplots(1, len(picks), figsize=(6 * len(picks), 5.2),
+                             squeeze=False)
+    for ax, sid in zip(axes[0], picks):
+        g = raw[raw.sid == sid]
+        sc = ax.scatter(g.px, g.py, c=g.amp, s=140, cmap="viridis",
+                        edgecolors="k", linewidths=0.4)
+        ax.scatter([IMAGE_W / 2], [IMAGE_H / 2], marker="+", s=240, c="red")
+        ax.set_xlim(0, IMAGE_W); ax.set_ylim(IMAGE_H, 0)  # image y down
+        ax.set_aspect("equal")
+        ax.set_title(f"{sid}\nrel amp @ f_px={f_px} (frame map)", fontsize=9)
+        ax.set_xlabel("x px"); ax.set_ylabel("y px")
+        fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+    fig.suptitle("Location-aware sharpness field map (sharp vs soft) — subset; "
+                 "relative/fixed-sensor-freq", fontsize=10)
+    fig.tight_layout()
+    out = OUT / "field_map.png"
+    fig.savefig(out, dpi=110)
+    plt.close(fig)
+    print(f"[field] wrote {out} for {picks}")
+
+
+def _write_field_report(cov, ratio_tbl, azi, astig, zrank, f_px):
+    lines = ["# Location-aware (field-position) sharpness — subset\n"]
+    lines.append("> " + _field_caveats(f_px).replace("# ", "").replace("\n", "\n> "))
+    lines.append("")
+    lines.append("## Field coverage (where patches actually exist)\n")
+    lines.append("| config | n | fh_min | fh_max | fh_span | az_span° | zones | supported |")
+    lines.append("|---|---|---|---|---|---|---|---|")
+    for _, r in cov.iterrows():
+        lines.append(f"| {r.sid} | {int(r.n_patches)} | {r.field_height_min:.2f} | "
+                     f"{r.field_height_max:.2f} | {r.field_height_span:.2f} | "
+                     f"{r.angle_span_deg:.0f} | {r.zones_populated} | {r.field_supported} |")
+    lines.append("")
+    lines.append("## Radial falloff (corner/centre relative-amp ratio; <1 softens to corner)\n")
+    lines.append("| config | corner/centre | mid/centre | supported |")
+    lines.append("|---|---|---|---|")
+    for _, r in ratio_tbl.iterrows():
+        cc = "" if pd.isna(r.corner_centre_ratio) else f"{r.corner_centre_ratio:.3f}"
+        mc = "" if pd.isna(r.mid_centre_ratio) else f"{r.mid_centre_ratio:.3f}"
+        lines.append(f"| {r.sid} | {cc} | {mc} | {r.falloff_supported} |")
+    lines.append("")
+    lines.append("## Azimuthal asymmetry / decentering "
+                 "(lr>0 right sharper; tb>0 top sharper)\n")
+    lines.append("| config | n_band | lr | tb | mag | dir° | supported |")
+    lines.append("|---|---|---|---|---|---|---|")
+    for _, r in azi.iterrows():
+        if not r.supported:
+            lines.append(f"| {r.sid} | {int(r.n_in_band)} | | | | | False |")
+            continue
+        lines.append(f"| {r.sid} | {int(r.n_in_band)} | {r.lr:+.3f} | {r.tb:+.3f} | "
+                     f"{r.asymmetry_mag:.3f} | {r.asymmetry_dir_deg:+.0f} | True |")
+    lines.append("")
+    lines.append("## Astigmatism index (mean log(sag/tan); >0 sagittal sharper)\n")
+    lines.append("| config | n_band | astig_index | supported |")
+    lines.append("|---|---|---|---|")
+    for _, r in astig.iterrows():
+        ai = "" if pd.isna(r.astig_index) else f"{r.astig_index:+.3f}"
+        lines.append(f"| {r.sid} | {int(r.n_in_band)} | {ai} | {r.supported} |")
+    lines.append("")
+    if zrank:
+        lines.append("## Field-resolved relative ranking (top configs per zone)\n")
+        for z in X.FIELD_ZONES:
+            if z not in zrank:
+                continue
+            tops = ", ".join(zrank[z].table.sid.head(5))
+            lines.append(f"- **{z}** ({len(zrank[z].table)} configs): {tops}")
+        lines.append("")
+    (OUT / "field_REPORT.md").write_text("\n".join(lines))
+
 
 def _df_to_markdown(df, index_name=""):
     """Minimal markdown table (no tabulate dependency)."""
@@ -772,13 +1088,27 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     pe = sub.add_parser("extract", help="register + resample + PSD/pad-edge (sharded)")
     pe.add_argument("--shard", help="i/N shard selector")
+    pe.add_argument("--subset", help="override the subset CSV (default the validated 38)")
+    pe.add_argument("--out", help="override the output dir (default cross_m_relative_mtf_out)")
     pe.set_defaults(func=cmd_extract)
     pa = sub.add_parser("analyse", help="pool shards, run estimator core, write outputs")
     pa.add_argument("--fpx", type=float, default=X.FPX_DEFAULT,
                     help=f"sensor frequency cy/px (window {X.FPX_WINDOW}); default "
                          f"{X.FPX_DEFAULT}")
     pa.add_argument("--n-boot", dest="n_boot", type=int, default=120)
+    pa.add_argument("--out", help="override the output dir")
     pa.set_defaults(func=cmd_analyse)
+    pf = sub.add_parser("field", help="location-aware field analysis from existing "
+                                      "fieldtag/psd shards (no re-extract)")
+    pf.add_argument("--fpx", type=float, default=X.FPX_DEFAULT,
+                    help=f"sensor frequency cy/px (window {X.FPX_WINDOW}); default "
+                         f"{X.FPX_DEFAULT}")
+    pf.add_argument("--out", help="override the output dir")
+
+    def _field_cmd(a):
+        _apply_out_override(a)
+        run_field_analysis(f_px=a.fpx)
+    pf.set_defaults(func=_field_cmd)
     args = ap.parse_args(argv)
     args.func(args)
 

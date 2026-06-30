@@ -111,6 +111,41 @@ P2_DECONFOUND_MAX_ABS_CORR = 0.30
 #: One AltEst-2 config (S105+5T+6T) produced FWHM~200 and was excluded this way.
 P2_MAX_VALID_FWHM = 60.0
 
+# --------------------------------------------------------------------------- #
+# LOCATION-AWARE (field-position) constants
+# --------------------------------------------------------------------------- #
+#
+# Every per-patch read already has a frame pixel location (the production
+# registration maps the patch's atlas-grid centre to image x,y). We tag each
+# per-patch measurement with its DISTANCE and ANGLE from the FRAME CENTRE and bin
+# it into field zones to resolve sharpness across the frame (radial falloff,
+# azimuthal decentering, astigmatism, field-resolved relative ranking).
+#
+# CAVEAT — field coverage is intrinsically M-dependent and incomplete; sparse
+# coverage is NOT a failure. At high M (~2) the wafer is hugely magnified so the
+# registered patches cluster with little positional spread (limited field-height
+# range + azimuth); at low M the wafer occupies only PART of the frame so the true
+# frame CORNERS may simply not be sampled. Location-aware results are only
+# meaningful where patches actually exist; we emit a per-config COVERAGE descriptor
+# and flag sparse/unsupported maps rather than extrapolating into empty regions.
+
+#: Z7 sensor pixel pitch (mm). Subject distance(mm) = dist_px * pitch / M.
+SENSOR_PITCH_MM = 4.35e-3
+
+#: Field-zone edges in FRACTION OF THE FRAME HALF-DIAGONAL (0 = centre, 1 = frame
+#: corner). centre = [0, 0.33), mid = [0.33, 0.66), corner = [0.66, inf).
+FIELD_ZONE_EDGES = (0.33, 0.66)
+FIELD_ZONES = ("centre", "mid", "corner")
+
+#: A field zone is reported "populated" for a config only if at least this many
+#: patches fall in it; below this the zone aggregate is flagged sparse.
+MIN_PATCHES_PER_ZONE = 2
+
+#: A per-config field map is flagged degenerate (not a true field profile, just a
+#: tight cluster) when the sampled field-height SPAN is below this fraction of the
+#: half-diagonal — the high-M clustering case the caller warned about.
+MIN_FIELD_HEIGHT_SPAN = 0.10
+
 
 # --------------------------------------------------------------------------- #
 # the validated estimator core (pure numeric — fully unit-tested)
@@ -613,6 +648,269 @@ def consensus_ranking(series, members):
     cons = pd.DataFrame(rows).sort_values("mean_rank").reset_index(drop=True)
     cons.insert(0, "consensus_rank", range(1, len(cons) + 1))
     return cons
+
+
+# --------------------------------------------------------------------------- #
+# LOCATION-AWARE field analysis (pure numeric — fully unit-tested)
+# --------------------------------------------------------------------------- #
+#
+# A per-patch read at frame pixel (px, py) is tagged with its position RELATIVE TO
+# THE FRAME CENTRE: distance (field height) + azimuth angle. The per-patch sharpness
+# the field analysis consumes is the SAME per-patch amplitude (sqrt-PSD) read at the
+# fixed sensor frequency that the cross-M relative chain uses — so the field maps and
+# the global ranking are the same physical quantity, just resolved by position.
+
+
+def field_geometry(px, py, cx, cy, image_w, image_h, *, m=None,
+                   pitch_mm=SENSOR_PITCH_MM):
+    """Position of a patch centre relative to the FRAME CENTRE.
+
+    ``(px, py)`` patch centre in image pixels; ``(cx, cy)`` frame centre (the
+    registration/optical centre, ~image centre); ``image_w/h`` frame size in px.
+    Returns a dict with:
+
+    * ``dist_px`` — radial distance from centre (image px),
+    * ``field_height`` — ``dist_px`` normalised by the frame HALF-DIAGONAL, so 0.0
+      is dead centre and 1.0 is the extreme frame corner (the sensible field-height
+      normalisation: aspect-independent and 1.0 at the corner),
+    * ``angle_deg`` — azimuth in degrees, math convention with image-y FLIPPED so
+      +x (right) = 0deg, up = +90deg, left = 180deg, down = -90deg,
+    * ``dist_subject_mm`` — ``dist_px`` mapped to SUBJECT mm via ``pitch/M`` (only if
+      ``m`` is given and > 0; else NaN). Subject mm shrinks with M for a fixed pixel
+      offset, which is why field height (the pixel/frame fraction) is the primary axis.
+    """
+    dx = float(px) - float(cx)
+    dy = float(py) - float(cy)
+    dist_px = float(np.hypot(dx, dy))
+    half_diag = 0.5 * float(np.hypot(image_w, image_h))
+    field_height = dist_px / half_diag if half_diag > 0 else float("nan")
+    # image y grows downward; flip so "up" is +90deg (standard math azimuth).
+    angle_deg = float(np.degrees(np.arctan2(-dy, dx)))
+    if m is not None and np.isfinite(m) and m > 0:
+        dist_subject_mm = dist_px * pitch_mm / m
+    else:
+        dist_subject_mm = float("nan")
+    return dict(dist_px=dist_px, field_height=field_height, angle_deg=angle_deg,
+                dist_subject_mm=dist_subject_mm)
+
+
+def field_zone(field_height, *, edges=FIELD_ZONE_EDGES):
+    """Bin a field height (fraction of half-diagonal) into centre/mid/corner."""
+    if not np.isfinite(field_height):
+        return None
+    lo, hi = edges
+    if field_height < lo:
+        return "centre"
+    if field_height < hi:
+        return "mid"
+    return "corner"
+
+
+def assign_field_zones(field, *, edges=FIELD_ZONE_EDGES):
+    """Add a ``zone`` column to a per-patch field DataFrame (``field_height`` col)."""
+    field = field.copy()
+    field["zone"] = field["field_height"].map(lambda h: field_zone(h, edges=edges))
+    return field
+
+
+def field_coverage(field):
+    """Per-config field-COVERAGE descriptor — where patches actually exist.
+
+    ``field`` = per-patch DataFrame with ``{sid, field_height, angle_deg}`` (and
+    optionally ``dist_subject_mm``). For each config returns one row with the sampled
+    field-height range, the azimuthal span, the per-zone patch counts, which zones are
+    populated (>= MIN_PATCHES_PER_ZONE), and a ``sparse`` / ``degenerate`` flag set when
+    the field-height span is too small to be a genuine field profile (the high-M tight
+    cluster) — so downstream code does NOT over-interpret a cluster or extrapolate into
+    empty zones. Returns a DataFrame, one row per config (richest coverage = most
+    trustworthy for field analysis).
+    """
+    field = assign_field_zones(field)
+    rows = []
+    for sid, g in field.groupby("sid"):
+        fh = g["field_height"].to_numpy(float)
+        fh = fh[np.isfinite(fh)]
+        ang = g["angle_deg"].to_numpy(float)
+        ang = ang[np.isfinite(ang)]
+        counts = {z: int((g["zone"] == z).sum()) for z in FIELD_ZONES}
+        populated = [z for z in FIELD_ZONES if counts[z] >= MIN_PATCHES_PER_ZONE]
+        span = float(fh.max() - fh.min()) if fh.size else float("nan")
+        # azimuthal span: max gap on the circle subtracted from 360 (covered arc).
+        if ang.size >= 2:
+            s = np.sort(ang % 360.0)
+            gaps = np.diff(np.concatenate([s, [s[0] + 360.0]]))
+            angle_span = float(360.0 - gaps.max())
+        else:
+            angle_span = 0.0
+        degenerate = (not np.isfinite(span)) or span < MIN_FIELD_HEIGHT_SPAN
+        rows.append(dict(
+            sid=sid, n_patches=int(g.shape[0]),
+            field_height_min=float(fh.min()) if fh.size else float("nan"),
+            field_height_max=float(fh.max()) if fh.size else float("nan"),
+            field_height_span=span, angle_span_deg=angle_span,
+            n_centre=counts["centre"], n_mid=counts["mid"], n_corner=counts["corner"],
+            zones_populated=";".join(populated) or "none",
+            n_zones_populated=len(populated),
+            degenerate_cluster=bool(degenerate),
+            field_supported=bool((not degenerate) and len(populated) >= 2),
+        ))
+    return (pd.DataFrame(rows).sort_values(["n_zones_populated", "field_height_span"],
+                                           ascending=False).reset_index(drop=True))
+
+
+def radial_falloff(field, *, value_col="amp", edges=FIELD_ZONE_EDGES):
+    """Per-config relative sharpness vs field-height zone — the centre->corner curve.
+
+    ``field`` = per-patch DataFrame with ``{sid, field_height, <value_col>}`` where
+    ``value_col`` is the per-patch sharpness (default ``amp`` = sqrt-PSD at the fixed
+    sensor frequency; also used with the pad-edge per-patch MTF). For each config and
+    each populated zone returns the mean/median value and patch count, plus a
+    ``corner_centre_ratio`` (corner mean / centre mean) — < 1 means the lens softens
+    toward the corner (the expected falloff DIRECTION). Zones with fewer than
+    MIN_PATCHES_PER_ZONE patches are emitted with ``is_sparse=True`` and not used in the
+    ratio. Returns ``(zone_table, ratio_table)``.
+    """
+    field = assign_field_zones(field, edges=edges)
+    zrows, rrows = [], []
+    for sid, g in field.groupby("sid"):
+        zmean = {}
+        for z in FIELD_ZONES:
+            gz = g[g["zone"] == z]
+            vals = gz[value_col].to_numpy(float)
+            vals = vals[np.isfinite(vals)]
+            n = int(vals.size)
+            sparse = n < MIN_PATCHES_PER_ZONE
+            mean = float(np.mean(vals)) if n else float("nan")
+            zrows.append(dict(sid=sid, zone=z, n=n, mean=mean,
+                              median=float(np.median(vals)) if n else float("nan"),
+                              is_sparse=bool(sparse)))
+            if not sparse:
+                zmean[z] = mean
+        ratio = (zmean["corner"] / zmean["centre"]
+                 if "corner" in zmean and "centre" in zmean and zmean["centre"] > 0
+                 else float("nan"))
+        mid_ratio = (zmean["mid"] / zmean["centre"]
+                     if "mid" in zmean and "centre" in zmean and zmean["centre"] > 0
+                     else float("nan"))
+        rrows.append(dict(sid=sid, corner_centre_ratio=ratio,
+                          mid_centre_ratio=mid_ratio,
+                          falloff_supported=bool(np.isfinite(ratio))))
+    return pd.DataFrame(zrows), pd.DataFrame(rrows)
+
+
+def azimuthal_asymmetry(field, *, value_col="amp", radius_band=(0.33, 1.0),
+                        min_patches=4):
+    """Decentering / tilt signature: per-config MTF asymmetry vs azimuth at matched radius.
+
+    Within an annulus (``radius_band`` in field-height units, default the mid+corner
+    field where decentering shows) the per-patch sharpness is projected onto a
+    left-right and a top-bottom axis. ``lr = (mean_right - mean_left)/mean`` and
+    ``tb = (mean_top - mean_bottom)/mean`` (signed, same construction as
+    characterise's peak-value L-R / T-B). The asymmetry MAGNITUDE is ``hypot(lr, tb)``
+    and the DIRECTION is the azimuth ``atan2(tb, lr)`` of the soft->sharp gradient.
+    Configs with fewer than ``min_patches`` in-band patches (or no opposing patches on
+    an axis) get NaN and ``supported=False``. Returns a DataFrame, one row per config.
+
+    Sign convention (matches :func:`field_geometry` azimuth): right = +x, top = +y;
+    a POSITIVE ``lr`` means the RIGHT side is sharper than the LEFT, a POSITIVE ``tb``
+    means the TOP is sharper than the BOTTOM. NOTE for cross-checking against
+    ``characterise``: its ``decentering_*_lr`` is ``(left - right)/mean`` so its lr is
+    the NEGATIVE of this one (its ``tb`` = ``(top - bottom)/mean`` AGREES in sign).
+    """
+    lo, hi = radius_band
+    rows = []
+    for sid, g in field.groupby("sid"):
+        band = g[(g["field_height"] >= lo) & (g["field_height"] < hi)]
+        band = band[np.isfinite(band[value_col].astype(float))]
+        ang = band["angle_deg"].to_numpy(float)
+        val = band[value_col].to_numpy(float)
+        n = int(val.size)
+
+        def _axis(mask_pos, mask_neg):
+            vp, vn = val[mask_pos], val[mask_neg]
+            if vp.size == 0 or vn.size == 0:
+                return float("nan")
+            mp, mn = vp.mean(), vn.mean()
+            m = 0.5 * (mp + mn)
+            return float((mp - mn) / m) if m != 0 else float("nan")
+
+        # right: |angle|<90 ; left: |angle|>90 ; top: angle>0 ; bottom: angle<0
+        right = np.abs(ang) < 90.0
+        left = np.abs(ang) > 90.0
+        top = ang > 0.0
+        bottom = ang < 0.0
+        lr = _axis(right, left)
+        tb = _axis(top, bottom)
+        supported = (n >= min_patches and np.isfinite(lr) and np.isfinite(tb))
+        mag = float(np.hypot(lr, tb)) if supported else float("nan")
+        direction = (float(np.degrees(np.arctan2(tb, lr)))
+                     if supported else float("nan"))
+        rows.append(dict(sid=sid, n_in_band=n, lr=lr, tb=tb,
+                         asymmetry_mag=mag, asymmetry_dir_deg=direction,
+                         supported=bool(supported)))
+    return pd.DataFrame(rows)
+
+
+def astigmatism_index(field, *, sag_col="amp_sag", tan_col="amp_tan",
+                      radius_band=(0.33, 1.0), min_patches=3):
+    """Sagittal vs tangential sharpness -> a per-config astigmatism index.
+
+    Requires per-patch SAGITTAL and TANGENTIAL amplitudes (``sag_col``/``tan_col``),
+    computed by the driver from the 2D PSD in wedges aligned to each patch's RADIAL
+    direction (sagittal = along the field radius, tangential = perpendicular). Within
+    the ``radius_band`` annulus (astigmatism vanishes at the centre) the index is
+    ``mean(log(amp_sag / amp_tan))`` — 0 = no astigmatism, >0 = sagittal sharper,
+    <0 = tangential sharper. Configs lacking the per-axis columns or with too few
+    in-band patches get NaN and ``supported=False`` (then report as follow-up).
+    Returns a DataFrame, one row per config.
+    """
+    lo, hi = radius_band
+    rows = []
+    has_cols = sag_col in field.columns and tan_col in field.columns
+    for sid, g in field.groupby("sid"):
+        if not has_cols:
+            rows.append(dict(sid=sid, n_in_band=0, astig_index=float("nan"),
+                             supported=False))
+            continue
+        band = g[(g["field_height"] >= lo) & (g["field_height"] < hi)]
+        s = band[sag_col].to_numpy(float)
+        t = band[tan_col].to_numpy(float)
+        ok = np.isfinite(s) & np.isfinite(t) & (s > 0) & (t > 0)
+        s, t = s[ok], t[ok]
+        n = int(s.size)
+        supported = n >= min_patches
+        idx = float(np.mean(np.log(s / t))) if supported else float("nan")
+        rows.append(dict(sid=sid, n_in_band=n, astig_index=idx,
+                         supported=bool(supported)))
+    return pd.DataFrame(rows)
+
+
+def field_resolved_ranking(psd, meta, field, f_px=FPX_DEFAULT, *,
+                           edges=FIELD_ZONE_EDGES):
+    """Cross-config relative-MTF ranking run PER FIELD ZONE (centre / mid / corner).
+
+    Restricts the same-patch chain to the patches whose field zone matches, then runs
+    the validated estimator on each zone independently. ``field`` = per-patch DataFrame
+    with ``{sid, patch, field_height}``; ``psd``/``meta`` as for :func:`rank_configs`.
+    Answers "which configs hold their corners across M". A zone is skipped (with a note)
+    if too few configs/patches survive the restriction to form a connected graph.
+    Returns ``{zone: Ranking}`` for the zones that produced a ranking.
+    """
+    field = assign_field_zones(field, edges=edges)
+    zone_of = {(r.sid, r.patch): r.zone for r in field.itertuples()}
+    out = {}
+    for z in FIELD_ZONES:
+        keep = psd.apply(lambda r: zone_of.get((r["sid"], r["patch"])) == z, axis=1)
+        zpsd = psd[keep]
+        if zpsd.empty or zpsd.sid.nunique() < 2:
+            continue
+        zmeta = meta[meta.sid.isin(zpsd.sid.unique())]
+        try:
+            ranking = rank_configs(zpsd, zmeta, f_px, n_boot=0, strict=False)
+        except ValueError:
+            continue
+        out[z] = ranking
+    return out
 
 
 # --------------------------------------------------------------------------- #
