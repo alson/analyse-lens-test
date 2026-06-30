@@ -1,0 +1,31 @@
+arm_tag,arm_label,target,collapse_resid,per_order_null,within_config_floor,ratio
+baseline,baseline (sat + per-axis anchor),magenta.v.C8,0.6428,0.6695,0.4231,1.5195
+baseline,baseline (sat + per-axis anchor),magenta.u.C8,0.755,0.7733,0.5159,1.4635
+baseline,baseline (sat + per-axis anchor),magenta.v.C14,0.5655,0.5985,0.2159,2.6192
+baseline,baseline (sat + per-axis anchor),magenta.u.C14,0.6818,0.7671,0.3557,1.9167
+baseline,baseline (sat + per-axis anchor),maze,0.8417,1.0001,0.3126,2.6921
+flat,+ flat-fielding,magenta.v.C8,0.6619,0.6899,0.4337,1.5261
+flat,+ flat-fielding,magenta.u.C8,0.7462,0.7677,0.5058,1.4752
+flat,+ flat-fielding,magenta.v.C14,0.5577,0.5874,0.2247,2.482
+flat,+ flat-fielding,magenta.u.C14,0.6691,0.7572,0.343,1.9508
+flat,+ flat-fielding,maze,0.8198,0.9773,0.3207,2.5563
+flat_spec,+ specular masking / robust FFT,magenta.v.C8,0.6308,0.6616,0.417,1.5128
+flat_spec,+ specular masking / robust FFT,magenta.u.C8,0.7298,0.752,0.5082,1.4362
+flat_spec,+ specular masking / robust FFT,magenta.v.C14,0.5305,0.5545,0.2111,2.5127
+flat_spec,+ specular masking / robust FFT,magenta.u.C14,0.6535,0.7372,0.3124,2.0921
+flat_spec,+ specular masking / robust FFT,maze,0.8292,0.9781,0.343,2.4176
+flat_spec_win,+ phase-aligned windowing,magenta.v.C8,0.6331,0.6637,0.4216,1.5018
+flat_spec_win,+ phase-aligned windowing,magenta.u.C8,0.73,0.7526,0.5059,1.4428
+flat_spec_win,+ phase-aligned windowing,magenta.v.C14,0.5351,0.56,0.2115,2.5302
+flat_spec_win,+ phase-aligned windowing,magenta.u.C14,0.6546,0.7383,0.3145,2.0814
+flat_spec_win,+ phase-aligned windowing,maze,0.825,0.9691,0.347,2.3772
+flat_spec_win_foc,+ fixed cross-config focus,magenta.v.C8,0.6355,0.6663,0.4319,1.4715
+flat_spec_win_foc,+ fixed cross-config focus,magenta.u.C8,0.7314,0.7538,0.5062,1.445
+flat_spec_win_foc,+ fixed cross-config focus,magenta.v.C14,0.5288,0.5516,0.2123,2.4912
+flat_spec_win_foc,+ fixed cross-config focus,magenta.u.C14,0.6531,0.7405,0.3145,2.0765
+flat_spec_win_foc,+ fixed cross-config focus,maze,0.8249,0.969,0.347,2.3771
+clip_NEGCTRL,+ clip [NEGATIVE CONTROL — INVALID],magenta.v.C8,0.5648,0.5871,0.3899,1.4485
+clip_NEGCTRL,+ clip [NEGATIVE CONTROL — INVALID],magenta.u.C8,0.7082,0.7267,0.497,1.4249
+clip_NEGCTRL,+ clip [NEGATIVE CONTROL — INVALID],magenta.v.C14,0.4894,0.5013,0.2124,2.3046
+clip_NEGCTRL,+ clip [NEGATIVE CONTROL — INVALID],magenta.u.C14,0.6021,0.6781,0.3139,1.9179
+clip_NEGCTRL,+ clip [NEGATIVE CONTROL — INVALID],maze,0.7794,0.909,0.3635,2.1442

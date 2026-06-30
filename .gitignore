@@ -43,3 +43,9 @@ tile-sharpness/scripts/poc_comb_chain_out/relock/relock_all.csv
 tile-sharpness/scripts/poc_comb_chain_out/relock/relock_shard_*.csv
 tile-sharpness/scripts/poc_comb_chain_out/relock/relock_shard_*.log
 tile-sharpness/scripts/poc_comb_chain_out/relock/fft2d/
+# Stage Preproc (linear pre-processing cause-isolation): commit the small ablation summary
+# CSV (preproc_ablation.csv); ignore the per-arm bulk comb CSVs, shards, and run logs.
+tile-sharpness/scripts/poc_comb_chain_out/preproc/*_all.csv
+tile-sharpness/scripts/poc_comb_chain_out/preproc/*_shard_*.csv
+tile-sharpness/scripts/poc_comb_chain_out/preproc/*_shard_*.log
+tile-sharpness/scripts/poc_comb_chain_out/preproc/run.log

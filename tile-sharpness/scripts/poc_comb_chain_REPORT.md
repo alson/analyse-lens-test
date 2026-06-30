@@ -11,15 +11,15 @@ Compute ran on nufan (16 cores) over the shared NFS path. Spanning subset = 16 c
 **cross-magnification absolute** sharpness ranking is **negative under** the conditions
 tested — the periodic-comb / harmonic self-calibration estimator, the structured targets
 on this wafer, and the existing focus-stacked acquisitions. It is **not** proven
-impossible in general. **Not yet tested / what would reopen it:** (1) a linear
-**pre-processing** pass that removes *measurement-induced* instability (phase-aligned
-windowing, consistent cross-config focus criterion, flat-fielding, specular masking) —
-this doubles as the experiment that isolates whether the instability is measurement
-artifact vs genuine target variation [IN PROGRESS]; (2) a fundamentally different
-estimator (deconvolution; same-physical-patch cross-M registration); (3) a purpose-shot
-clean grating/edge chart (new acquisition) — the only guaranteed route. **For now**, use
-within-M rankings + the diffraction ceiling + tolerance-ratios (the §L approach that
-worked).
+impossible in general. **Cause now isolated (Stage Preproc, 2026-06-30):** a linear,
+MTF-preserving **pre-processing** ablation (flat-fielding, specular masking/robust FFT,
+sub-pixel phase-aligned windowing, consistent cross-config focus) does NOT move the
+collapse residual/floor ratio off ~1.5 — so the instability is **genuine target variation,
+not measurement-induced** (the §1 experiment below, now closed). **What could still reopen
+it:** (1) a fundamentally different estimator (deconvolution; same-physical-patch cross-M
+registration); (2) a purpose-shot clean grating/edge chart (new acquisition) — the only
+guaranteed route. **For now**, use within-M rankings + the diffraction ceiling +
+tolerance-ratios (the §L approach that worked).
 
 **The avenues tested (each was reopened by a distinct buried assumption, then closed —
 see the case study in `../../LEADING_WITH_CAVEATS.md`):**
@@ -1062,15 +1062,14 @@ discovery is reused for *within-M* per-axis MTF. **Do NOT commit** (exploratory 
 State: cross-M absolute ranking is *negative under the conditions tested* (see Executive
 summary), not proven impossible. Live and candidate next steps, in priority order:
 
-1. **Linear pre-processing cause-isolation POC [NEXT].** Re-run the Stage-T_n collapse
-   after MTF-*preserving* (linear) pre-processing only: sub-pixel phase-aligned windowing,
-   a consistent cross-config focus criterion, flat-fielding, and specular masking /
-   robust FFT. **Decision rule (set in advance):** if the collapse residual drops toward
-   the 0.38–0.49 within-config floor, the instability was *measurement-induced* and
-   cross-M revives; if it barely moves, it is *genuine target variation* and cross-M is
-   dead for these targets. Explicitly NOT thresholding/gamma/histogram-eq — nonlinear ops
-   stabilize by destroying the MTF signal. This experiment isolates the cause that Stages
-   T_n/Targets/Relock left inferred-but-unproven.
+1. **Linear pre-processing cause-isolation POC [DONE 2026-06-30 — see "Stage Preproc"].**
+   Re-ran the Stage-T_n collapse after MTF-preserving (linear) pre-processing only
+   (flat-fielding, specular masking/robust FFT, sub-pixel phase-aligned windowing, a
+   consistent cross-config focus criterion). **Result: the collapse residual/floor ratio
+   held at ~1.5 through every step (no descent toward the floor), so per the decision rule
+   the instability is GENUINE TARGET VARIATION, not measurement-induced — cross-M does NOT
+   revive.** The clip negative control behaved as flagged (invalid; worsened the gates).
+   This closes the cause that Stages T_n/Targets/Relock left inferred-but-unproven.
 
 2. **Within-M per-axis MTF via the new `PER_AXIS=1` path.** The fundamental-detection fix
    (`25d9d43`) exposes correct per-axis (u≠v) fundamentals + a `true_below_floor` flag.
@@ -1090,3 +1089,160 @@ summary), not proven impossible. Live and candidate next steps, in priority orde
 For the standing need ("is this TC/extension/diopter worth it; which config is sharpest"),
 the validated answer remains: within-M rankings + the diffraction ceiling + tolerance-
 ratios (the §L bare-vs-TC method).
+
+---
+
+## Stage Preproc — cause isolation (2026-06-30)
+
+**Headline (caveats-first): the cross-M instability is GENUINE TARGET VARIATION, not a
+measurement artifact — now PROVEN, not inferred.** Stacking LINEAR / MTF-preserving
+pre-processing (flat-fielding → specular masking/robust FFT → sub-pixel phase-aligned
+windowing → a consistent cross-config focus criterion) onto the correctly-anchored
+saturation-channel comb moves the Stage-T_n collapse residual essentially **not at all**:
+the dominant-grid residual/floor RATIO holds at **~1.5 across every step** (1.52 → 1.53 →
+1.51 → 1.50 → 1.47), never descending toward the ~1.0–1.3 a shared MTF(f_px) curve needs.
+Absolute residual barely moves (0.643 → 0.636) and the within-config floor moves in
+lockstep, so the ratio is flat. Per the decision rule set in advance, this lands on the
+**"residual barely moves → genuine target variation → cross-M is dead for these targets"**
+branch. The gates never recover (empty-magnification +TC float persists in every arm;
+bare105/bare150 stays 3.7–4.2× at f_px=0.20). The standing "cross-M not viable" verdict is
+therefore confirmed *for the deepest available reason*: removing the measurement-induced
+sources does not rescue it, so the cause is the textured/specular metal target itself
+(field-dependent, region-to-region sharpness variation), not registration/phase/focus
+jitter or illumination.
+
+This is the experiment Future-plans §1 named. It was run UNTRACKED on nufan over SSH; no
+production or committed-lib module was modified (all helpers imported read-only). New
+untracked scripts: `poc_comb_chain_preproc_extract.py` (the ablation extractor — mirrors
+the Relock per-axis low-floor anchoring on the saturation channel, adds a `PREPROC` ladder
+of linear ops + a `FOCUS=fixed` criterion), `poc_comb_chain_preproc_run.sh` (sharded N=8
+runner, one arm per pre-processing combination), `poc_comb_chain_preproc_analyse.py` (the
+ablation analysis — reuses the Stage-T_n `self_calibrate` + the Relock structure typing).
+
+### Method — only LINEAR / MTF-preserving ops, added cumulatively
+
+Starting point = the **Relock baseline** (saturation channel + correct per-axis low-floor
+anchoring on the TRUE coarse grid, so this POC is NOT re-contaminated by the mislocking bug
+Relock found). Each step is linear at the comb frequencies (f0..7f0), so it cannot fake a
+collapse by destroying the MTF signal:
+
+- **flat-fielding** — divide by a low-pass (Gaussian, σ capped so its cutoff sits *well
+  below* the comb fundamental, ~0.0025 cy/px vs f0≈0.033–0.069): removes the slow
+  illumination / field-brightness gradient. Linear per-pixel gain.
+- **specular masking / robust FFT** — replace achromatic-specular / outlier pixels
+  (flagged on luma p99.5 + the channel's own upper tail) with the local low-pass value
+  before the transform: excludes outliers rather than thresholding the signal.
+- **sub-pixel phase-aligned windowing** — crop each 1-D profile to an INTEGER number of
+  periods phase-anchored on the grid before the Hann window, so window scalloping / leakage
+  at the fundamental does not vary config-to-config. Pure re-sampling of the same data.
+- **fixed cross-config focus** — instead of a per-region best-focus argmax, select frames
+  by the PEAK of the GLOBAL (mean-over-regions) through-focus curve — the same relative
+  focus position for every config — to remove residual-defocus variability.
+- **clip [NEGATIVE CONTROL — INVALID]** — a hard p2/p98 intensity clip + rescale. NONLINEAR;
+  included only to show whether destroying modulation falsely "collapses." Flagged invalid.
+
+The load-bearing number is the residual/within-config-FLOOR **ratio**, NOT the bare
+residual: a step that lowers residual and floor in lockstep (ratio flat) is not progress.
+
+### Ablation table — dominant grid `magenta.v.C8` (the ~30 px v-grid, 2.3–2.4k teeth, all 16 configs)
+
+| arm (cumulative) | collapse resid | per-order null | within-config floor | **ratio** |
+|---|---|---|---|---|
+| baseline (sat + per-axis anchor) | 0.643 | 0.670 | 0.423 | **1.52** |
+| + flat-fielding | 0.662 | 0.690 | 0.434 | **1.53** |
+| + specular masking / robust FFT | 0.631 | 0.662 | 0.417 | **1.51** |
+| + phase-aligned windowing | 0.633 | 0.664 | 0.422 | **1.50** |
+| + fixed cross-config focus | 0.636 | 0.666 | 0.432 | **1.47** |
+| + clip [NEG CTRL — INVALID] | 0.565 | 0.587 | 0.390 | 1.45 |
+
+Low-order-only (orders ≤3) on the same grid tells the identical story: ratio 1.46 → 1.53 →
+1.51 → 1.53 → 1.53 (resid 0.573 → 0.604). The other structure types confirm it — across all
+arms `magenta.u.C8` holds ratio ~1.44–1.48, `magenta.u.C14` ~1.9–2.1, `magenta.v.C14`
+~2.5–2.6, and the single-pitch **maze ratio stays 2.4–2.7** (resid ~0.82–0.84, essentially
+unchanged from the Relock 0.845 — as expected, the maze has no anchoring or windowing
+freedom and is the purest test). Full per-arm/per-type numbers in
+`poc_comb_chain_out/preproc/preproc_ablation.csv`.
+
+**The baseline arm reproduces the Relock Phase-B numbers to the digit** (magenta.v.C8
+0.643/floor 0.423/ratio 1.52; magenta.u.C8 0.755/1.46; maze 0.842/0.313/2.69) — confirming
+the ablation's starting point is faithful and the deltas below are attributable to the
+pre-processing alone.
+
+### Against the decision rule
+
+- **The ratio does not fall toward 1.0–1.3.** It is flat at ~1.5 (dominant grid) through
+  the entire linear ladder. The largest move, fixed-focus, nudges it 1.50 → 1.47 — within
+  noise, and driven as much by a floor wobble as by the residual.
+- **Residual and floor move in lockstep.** Where a step does lower the residual (e.g.
+  specmask 0.643 → 0.631), it lowers the within-config floor by a similar fraction
+  (0.423 → 0.417), so the ratio is unchanged. This is exactly the "not progress" case the
+  rule flagged — report the ratio, not the residual.
+- **No single step is the culprit, because there is no culprit.** None of flat-fielding,
+  specular masking, phase-aligned windowing, or a consistent focus criterion meaningfully
+  closes the cross-M gap. If the instability were measurement-induced, at least one of these
+  four well-targeted linear removals should have collapsed it; none does.
+- **The maze (zero pre-processing freedom) is unchanged** at ratio ~2.4–2.7 — the cleanest
+  single-pitch cross-M test fails identically with or without the pad-oriented steps.
+
+Therefore: **measurement-induced sources are NOT what drives the instability.** It is
+genuine target variation, consistent with the Targets/Relock finding that these are
+textured/specular metal cells with field-dependent, region-to-region sharpness that
+saturation suppresses but does not remove.
+
+### Gate re-check (does cross-M revive?) — NO
+
+Because the residual did not collapse, cross-M does not revive; the gates confirm it. Across
+**every** linear arm:
+
+| arm | empty-mag +TC float? | bare105/bare150 @ f_px 0.10/0.15/0.20 (want ~1) |
+|---|---|---|
+| baseline | YES (1–3 floats) | 2.53 / 1.19 / 4.15 |
+| + flat | YES (2–3) | 0.85 / 1.07 / 3.72 |
+| + specmask | YES (2–3) | 0.91 / 1.11 / 3.85 |
+| + phasewin | YES (1–3) | 0.90 / 1.09 / 3.78 |
+| + fixed focus | YES (2–3) | 0.91 / 1.11 / 3.77 |
+
+The empty-magnification fallacy (e.g. Sig105+TC-1401@1.4 > bare Sig105, ZMC105+5T+6T >
+bare ZMC105 at f_px≥0.15) persists in all arms; bare105/bare150 stays far from 1.0 at
+f_px=0.20 (3.7–4.2×). `corr(M, MTF)` hovers near 0 only because the per-order T_n fit
+re-centres it — not a clean de-confounding (same over-correction noted in Stage T_n).
+
+### Negative control — the clip arm "improves" but is INVALID, and even it doesn't collapse
+
+The nonlinear clip lowers the absolute residual most (0.565 on the dominant grid) — the
+expected artifact of compressing modulation — but (a) its within-config floor drops too, so
+its **ratio (1.45) is no better than the linear arms**, and (b) it actively *worsens* the
+gates: 5 empty-mag floats at f_px=0.10 (vs 1–3 for linear arms) and bare105/bare150 = 4.06
+at f_px=0.20. So even destroying the MTF signal does not manufacture a cross-M collapse
+here, which is itself further evidence the gap is structural target variation, not leakage
+or dynamic-range artefacts a clip would mask. **Do not read anything positive into the clip
+arm.**
+
+### Verdict & recommendation
+
+**Cross-M absolute ranking is DEAD for these targets — now proven measurement-robust, not
+inferred.** Linear, MTF-preserving pre-processing that removes the plausible
+measurement-induced sources (illumination gradient, speculars, window-phase scalloping,
+inconsistent focus) does not move the collapse ratio off ~1.5; the instability is genuine
+region-to-region/field-dependent variation of the textured-metal target. This closes
+Future-plans §1: the cause Stages T_n / Targets / Relock left inferred is now isolated to
+the **target**, not the **measurement**. The only remaining routes that could change the
+verdict are the *other* Future-plans items — a fundamentally different estimator
+(deconvolution / same-physical-patch cross-M registration) or, the guaranteed one, a
+purpose-shot clean grating/edge chart (new acquisition). Standing recommendation unchanged:
+within-M periodic ranking + the diffraction ceiling + tolerance-ratios; the salvaged **A5**
++ **saturation/R−B decode** remain the bankable results. **Do NOT commit** (exploratory POC,
+per the plan).
+
+### New untracked files
+
+- `poc_comb_chain_preproc_extract.py` — ablation comb extractor (per-axis low-floor anchor,
+  saturation channel, `PREPROC` linear-op ladder + `FOCUS=fixed` criterion).
+- `poc_comb_chain_preproc_run.sh` — sharded N=8 nufan runner, one arm per pre-processing combo.
+- `poc_comb_chain_preproc_analyse.py` — ablation analysis (Stage-T_n self-cal collapse +
+  ratio/floor + gate re-check per arm).
+- `poc_comb_chain_out/preproc/preproc_ablation.csv` — per-arm/per-type collapse residuals +
+  ratios (committed).
+- `poc_comb_chain_out/preproc/{baseline,flat,flat_spec,flat_spec_win,flat_spec_win_foc,clip_NEGCTRL}_all.csv`,
+  `*_shard_*.csv`, `*_shard_*.log`, `run.log` — bulk re-extracted combs + logs
+  (GITIGNORED, regenerable from the run script; mirrors the Relock/T_n patterns).
