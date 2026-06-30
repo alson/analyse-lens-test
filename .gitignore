@@ -64,3 +64,10 @@ tile-sharpness/scripts/poc_comb_chain_out/altest2/patches/
 tile-sharpness/scripts/poc_comb_chain_out/altest2/*_shard_*.csv
 tile-sharpness/scripts/poc_comb_chain_out/altest2/*_shard_*.log
 tile-sharpness/scripts/poc_comb_chain_out/altest2/*.log
+
+# PRODUCTION cross-M relative glass-MTF estimator: commit the ranking CSV, the cross-
+# estimator agreement matrix, the fpx sweep, and the generated REPORT; ignore the heavy
+# regenerable artifacts (resampled patch arrays, per-shard bulk CSVs, per-shard logs).
+tile-sharpness/scripts/cross_m_relative_mtf_out/patches/
+tile-sharpness/scripts/cross_m_relative_mtf_out/*_shard_*.csv
+tile-sharpness/scripts/cross_m_relative_mtf_out/log_shard_*.txt

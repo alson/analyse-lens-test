@@ -1,0 +1,8 @@
+f_px,n_nodes,n_edges,ncomp,resid,corr_M,empty_mag,in_window,passed
+0.08,38,29679,1,0.315,-0.762,none,True,True
+0.1,38,29679,1,0.273,-0.677,none,True,True
+0.12,38,29679,1,0.278,-0.582,none,True,True
+0.15,35,28403,1,0.283,-0.366,none,True,True
+0.18,32,27139,1,0.312,0.231,S150+TC-1401_1.4_1_F8,False,False
+0.2,30,25102,1,0.368,-0.022,none,False,False
+0.25,26,21429,1,0.358,0.19,none,False,False
