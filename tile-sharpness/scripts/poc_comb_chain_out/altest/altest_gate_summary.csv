@@ -1,0 +1,9 @@
+approach,variant,m_corr,empty_mag_float,known_orders,repeatable,gates_passed,verdict
+1 same-patch PSD-ratio relMTF,SUBJECT-freq (credits M),+0.38..+0.45,YES (5T+6T floats),partial,n/a,1/4,M-confounded as expected (credits magnification)
+1 same-patch PSD-ratio relMTF,SENSOR-freq f_px=0.10,-0.41,NO,"YES (macros lead, diopters tail)",YES (Spearman 0.96),4/4,VIABLE under stated conditions — best non-comb estimator
+1 same-patch PSD-ratio relMTF,SENSOR-freq f_px=0.15,-0.14,NO,YES,YES (Spearman 0.99),4/4,VIABLE (best de-confound point)
+2 same-patch detail (tenengrad),-,+0.40,"NO (tenengrad) / YES (lap,hf,var)",partial (diopters tail OK; macros not separated),n/a,2/4,"M-confounded; system-MTF metric, credits M"
+3 blind PSF (Gaussian sigma),-,-0.23,YES (badly: diopters rank sharpest),NO (diopters sharpest = inverted),poor (IQR ~ value),1/4,FAIL — beta/sigma degeneracy; low-contrast=small-sigma artifact
+3 blind PSF (cepstral),-,nan,-,NO (all railed to 3px),degenerate,0/4,FAIL — cepstral peak floors; no discrimination
+4 through-focus FWHM,-,-0.04,NO,partial (AF200 sharpest; macros tie at 8),coarse (quantized 5/7/8/11/14),3/4 (weak),Directionally sane + de-confounded (corr N_eff=0.00) but coarse; tie among macros
+5 SE-edge MTF50 fixed-sensor,-,-1.0 (n=4),n/a (no bare macros covered),UNTESTABLE,n/a,0/4,"FAIL on COVERAGE — only 4/16 configs, no bare modern macro survives"

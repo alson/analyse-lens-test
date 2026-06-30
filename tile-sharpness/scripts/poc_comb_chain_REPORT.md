@@ -1246,3 +1246,202 @@ per the plan).
 - `poc_comb_chain_out/preproc/{baseline,flat,flat_spec,flat_spec_win,flat_spec_win_foc,clip_NEGCTRL}_all.csv`,
   `*_shard_*.csv`, `*_shard_*.log`, `run.log` — bulk re-extracted combs + logs
   (GITIGNORED, regenerable from the run script; mirrors the Relock/T_n patterns).
+
+---
+
+## Stage AltEst — non-comb cross-M estimators (2026-06-30)
+
+**Why.** The periodic-comb cross-M route is dead because the wafer's periodic targets
+have genuinely unstable harmonic content (Stage Preproc proved it is the *target*, not
+the *measurement*). This stage tries a WIDE VARIETY of estimators that do NOT depend on
+that harmonic content — where the unstable target spectrum **cancels** (compare the SAME
+physical patch), is **estimated per-image** (blind PSF), is read from **through-focus
+behaviour**, or is **sidestepped** with a true edge. Exploratory, UNTRACKED
+(`poc_altest_*`), no production-module edits (all production + committed-lib helpers
+imported read-only). Compute ran on nufan (16 cores). All 16 subset configs, M 0.90–2.09.
+
+**Headline (caveats-first):** ONE non-comb estimator yields a **viable cross-M absolute
+ranking under stated conditions** — the **same-physical-patch PSD-ratio relative MTF read
+at a fixed SENSOR frequency** (Approach 1, sensor-freq mode). It is the first estimator in
+this whole arc to pass **all four gates at once**: M de-confounded (corr(M,score)
+−0.41/−0.14/−0.02 at f_px 0.10/0.15/0.20, vs +0.4 for every comb variant), **no
+empty-magnification float at any sensor frequency**, the §L known orderings reproduced
+(bare modern macros lead, 100-400+diopter tail, TC/diopter degrade, no empty-mag credit),
+and — the gate the comb-chain definitively *failed* — **repeatable across independent
+patch halves (Spearman ρ = 0.96 / 0.99)**. The strict condition (the caveat that must
+lead): it works **only when read at a fixed SENSOR (pixel) frequency, not a fixed subject
+frequency** — the same estimator read at fixed subject frequency is M-confounded and
+floats empty-mag exactly like the comb. Physically: at a fixed sensor cy/px the sensor
+MTF is identical for every config (same body), so the same-patch PSD ratio isolates the
+**glass MTF** (incl. the bellows-aperture N_eff effect) and correctly refuses to credit
+bare magnification. This is a *fixed-sensor-frequency* axis — it ranks "which lens has the
+better MTF at this pixel frequency", NOT "which resolves more subject detail" (the latter
+legitimately credits M and is what the subject-freq mode / Approach 2 measure).
+
+The other four approaches FAIL, each in a distinct, *proven* way (not inferred):
+
+| # | approach | M-deconfound corr(M,·) | empty-mag float | known orders | repeatable | gates | verdict |
+|---|---|---|---|---|---|---|---|
+| **1** | **same-patch PSD-ratio relMTF — SENSOR-freq** | **−0.41/−0.14/−0.02** | **NO** | **YES** | **YES (ρ 0.96/0.99)** | **4/4** | **VIABLE (fixed-sensor-freq only)** |
+| 1 | same-patch PSD-ratio relMTF — SUBJECT-freq | +0.38…+0.45 | YES (5T+6T) | partial | (n/a) | 1/4 | M-confounded (credits magnification, as expected) |
+| 2 | same-patch direct detail (tenengrad/lap/hf/var) | +0.30…+0.43 | tenengrad NO; lap/hf/var YES | partial (diopter tail OK; macros not separated) | (n/a) | 2/4 | system-MTF metric → credits M; non-spectral cross-check of #1 only |
+| 3 | blind PSF — Gaussian σ (subject µm) | −0.23 | **YES, badly** (diopters rank *sharpest*) | **NO (inverted)** | poor (IQR≈value) | 1/4 | FAIL — β/σ degeneracy; low-contrast diopter patches fake a small σ |
+| 3 | blind PSF — cepstral radius | nan | — | NO (all railed 3 px) | degenerate | 0/4 | FAIL — cepstral peak floors; zero discrimination |
+| 4 | through-focus FWHM (frames) | −0.04 | NO | partial (AF200 narrowest; bare macros tie at 8) | coarse (quantised 5/7/8/11/14) | 3/4 (weak) | de-confounded (corr with N_eff = 0.00!) + sane direction but too COARSE to separate the modern macros |
+| 5 | SE-edge MTF50 — fixed sensor cy/px | −1.0 (n=4) | (untestable) | UNTESTABLE | (n/a) | 0/4 | FAIL on COVERAGE — 4/16 configs, **no bare modern macro** survives the quality gate |
+
+### Reusable infrastructure built (the substrate the rest reuse)
+
+`poc_altest_lib.py` registers each config once via `atlas_periodic_fft.register`
+(`reg_auto`), then resamples the **SAME physical atlas rectangle** onto a **COMMON
+subject-space grid** for any config: a fixed atlas die-grid line-pair rectangle `(cl,rl)`
+is the same physical wafer region in every config (atlas grid units are M-invariant), so
+sampling it at a fixed `samples_per_unit` (700 px/grid-unit) and `cv2.remap`-ing each
+config's pixels onto it gives two patches that share the intrinsic target spectrum `S(f)`
+exactly. A vectorised `_cum_vec` mirrors `anchor_fit_sweep._cum` (validated to 1e-12) so
+the distortion-aware forward model runs over a dense lattice. Channel = **saturation**
+(the comb-POC SNR win). Each frame is decoded once for the through-focus lapvar scan; only
+the distinct per-patch best-focus frames are colour-decoded (O(frames), scalable).
+
+**A structural finding that shaped the design:** there is **NO single atlas patch in-FOV
+for all 16 configs** (`poc_altest_fov.py`: the common rect is empty — the M≈2 configs were
+shot on a *different* die region than the bare/low-M ones, cl≈[1.8,5.0] vs ≈[4.1,10.9]).
+So a single universal patch is impossible; instead a **fixed GLOBAL atlas lattice** of
+0.5-grid-unit cells is laid down (label = atlas cell = same physical patch), each config
+contributes its in-FOV cells (83–94 per config, 171 distinct cells total), and the cross-M
+comparison rides on the cells each PAIR shares — bridged transitively. This is exactly why
+Approach 1 connects all 16 into **one component (4539 pairwise edges, chain residual
+0.22–0.49)** where the comb's cross-M link rode on the single maze frequency.
+
+### Approach 1 — same-physical-patch PSD-ratio relative MTF (TOP) [poc_altest_patch_*]
+
+For every atlas cell two configs share, both best-focus saturation patches are resampled
+to the common grid; the **amplitude (√PSD) ratio** is the relative MTF (the shared `S(f)`
+cancels). Pairwise log-ratios → a weighted-LS transitive chain (gauge = zero mean) → a
+global score, read two ways:
+- **SUBJECT-freq** (fixed `f_grid`): compares the same physical detail's end-to-end system
+  contrast. corr(M,score) +0.38…+0.45 and the +5T+6T / TC-2001@2:1 configs float above
+  bare lenses — **the empty-magnification confound, reproduced**. Correct physics (more M
+  *does* put a subject feature at an easier sensor frequency) but not a glass-quality axis.
+- **SENSOR-freq** (fixed cy/sensor-px; per-config `f_grid = f_px·px_per_unit/SPU`): isolates
+  glass MTF (sensor MTF is common). **This is the viable axis.** At **f_px=0.10 (all 16
+  configs)** the ranking is:
+  `Z105 (0.56) > S150 (0.51) > S105+TC-1401@1:1 (0.39) > S105 (0.36) > AF200 (0.29) >
+  S150+TC-1401@1:1 (0.08) > {+5T+6T, +TC mid, diopters} > … > S105+5T+6T (−0.34) >
+  MCON-35 (−0.64)`. Bare modern macros take 4 of the top 5; the 100-400+diopter and
+  +5T+6T stacks sink to the tail; **no accessory config outranks the best bare lens at any
+  sensor frequency**. Gate evidence: M-deconfound ✓ (negative, not the comb's +0.4),
+  empty-mag ✓, known orders ✓, repeatability ✓ (split-half Spearman 0.96 @0.10, 0.99
+  @0.15). Coverage thins at f_px≥0.20 (the M≈2 + diopter configs drop out → 11-node chain),
+  so **f_px≈0.10–0.15 is the trustworthy band**.
+  Caveat vs §L: AF200 lands a touch low at f_px=0.10 (#5, but within 0.07 of S105 — a near
+  tie, consistent with §L's "AF200≈S105"; it rises to #2 at f_px=0.20), and
+  S105+TC-1401@1:1 sits just above bare S105/AF200 at f_px=0.10 (a mild over-credit that
+  vanishes higher up). The macro/diopter separation and the no-empty-mag property are
+  robust across the band.
+
+### Approach 2 — same-patch direct detail [poc_altest_patch_*]
+
+On the SAME common-grid patch (scene cancels), Tenengrad / Laplacian / variance /
+HF-wavelet energy per cell, chained like #1. These are **system-MTF** (glass×sensor)
+energy measures, so like the subject-freq #1 they **credit magnification**: corr(M,score)
++0.30…+0.43, and lap/hf/variance float empty-mag (e.g. S105+TC-2001@2:1 #1 on
+Laplacian/HF energy). Tenengrad happens not to float the *very* top but still correlates
++0.40 with M and does not separate the bare macros. Useful only as a non-spectral
+*confirmation* of #1's same-patch registration (the diopter/100-400 tail is consistent
+across all four detail metrics), not as a cross-M axis.
+
+### Approach 3 — blind PSF / spectrum-falloff [poc_altest_psf_focus_*]
+
+Per config per patch: fit `log PSD(f) = c − β·log f − (2π²σ²)f²` (natural f^−β spectrum ×
+Gaussian-PSF MTF²) → σ in sensor px → σ_subject µm = σ_px·4.35/M; plus a cepstral
+blur-radius cross-check. **Both FAIL.** The Gaussian σ ranks the **100-400+diopter configs
+as the SHARPEST** (smallest σ_subj: C500D 0.76 µm, MCON-35 0.89 µm) — physically inverted
+(§L's resolution tail) — because their low-contrast, low-texture patches have a *flat*
+high-frequency PSD that the fit reads as a tiny σ; the β/σ trade-off is degenerate on these
+targets. Empty-mag floats badly (5 accessory configs above the best bare). The cepstral
+estimate is **degenerate — every config rails to 3 px** (the cepstral peak floors on the
+specular/texture noise), zero discrimination. Per-patch σ IQR ≈ the σ value itself
+(not repeatable). The blind-PSF family does not work on these textured metal patches.
+
+### Approach 4 — through-focus response shape [poc_altest_psf_focus_*]
+
+From the FULL focus stack (data the single-frame analyses discarded): per patch, the
+lapvar-vs-frame curve's half-max width (FWHM in frames). A sharper optic should have a
+tighter peak. **Partially works and is genuinely de-confounded** — corr(M,FWHM) = −0.04
+**and corr(FWHM, N_eff) = +0.001** (so the width is NOT merely diffraction DOF/aperture,
+the obvious confound), no empty-mag float, and the direction is sane: **AF200 narrowest
+(sharpest), the +5T+6T diopter stacks widest (softest)**. BUT the metric is **too coarse**:
+FWHM quantises to 5/7/8/11/14 frames and the four bare modern macros (S105, S150, Z105,
+plus several +TC) all tie at 8 frames — it cannot resolve the near-ties §L cares about, and
+two diopter configs (C500D, S150+TC-2001@1:1) land mid-pack rather than at the tail. A real,
+de-confounded signal lives here (rail-step-calibrated, finer focus sampling, or curvature
+instead of FWHM could sharpen it) but as implemented it is a coarse tie-breaker, not a
+standalone ranking. Passes 3/4 gates weakly (repeatability is the soft one — quantisation).
+
+### Approach 5 — robust edge MTF at fixed sensor frequency [poc_altest_edge_*]
+
+Direction-aware MTF50 (production `slanted_edge.mtf50_step_erf` + `edge_aggregate`
+min-direction) on the atlas's **true** cyan slanted-edge die feature (die (0,3) — NOT the
+groove scribe, which over-reads via emboss, §E.4). MTF50 is sensor cy/px by construction.
+**FAILS on coverage: only 4 of 16 configs yield a valid SE-edge MTF50**, and — decisively —
+**none of the bare modern macros (S105/Z105/AF200/S150) do** (the SE bar is in-FOV but the
+single-step quality gate rejects them: "bars present but no valid edge MTF"). The 4 that
+survive are accessory/diopter configs; they read *below* the diffraction ceiling (0/4 over,
+so the true edge behaves, unlike the groove), but with one edge each and no bare-macro
+anchor the §L orderings are **untestable**. This confirms the historical caveat: the
+designed SE feature is too sparse to be a cross-config metric. (Bond-pad reflectance edges
+have broader coverage but rebuild the §L edge study, which already answered the edge
+question at fixed *subject* frequency — out of scope here.)
+
+### Verdict & how it sits with the standing conclusion
+
+**A non-comb cross-M absolute ranking IS achievable — narrowly.** The same-physical-patch
+PSD-ratio relative MTF, read at a fixed **sensor** frequency in the f_px≈0.10–0.15 band, is
+the first estimator in this entire investigation to clear all four gates simultaneously,
+including the repeatability gate the comb-chain failed. It works precisely *because* it
+sidesteps the unstable harmonic content (the shared target spectrum cancels in the
+same-patch ratio) and because reading at a fixed sensor frequency holds the common sensor
+MTF constant so the ratio is pure glass MTF — which is exactly why it refuses to credit
+empty magnification. This does **not** contradict the comb verdict: the comb compared
+*different* physical features at fixed sensor frequency (M-confounded harmonic bookkeeping
+that only degenerated to "same fundamental" at f_px≈0.10); Approach 1 compares the *same*
+physical patch, so the fixed-sensor-frequency read is a genuine relative-MTF, not an alias.
+
+**Strict caveats (lead with these):** (1) it is a **fixed-sensor-frequency / relative**
+ranking — it answers "which lens has the higher MTF at this pixel frequency", which is the
+right glass-quality question but is NOT the same as "resolves more subject detail" (that
+credits M); (2) trustworthy only in **f_px≈0.10–0.15** (higher f_px loses the M≈2/diopter
+configs to coverage); (3) it requires shared in-FOV patches, and the M≈2 configs share only
+a thin overlap region — the chain bridges them transitively but their scores rest on fewer
+edges; (4) it is **relative** (a chain of pairwise ratios with a zero-mean gauge), not an
+absolute MTF tied to the diffraction ceiling — use the §L diffraction-ceiling for absolute
+calibration. Under those conditions it reproduces bare-macros-lead / diopter-tail /
+no-empty-mag-credit. For the standing need it **complements** (does not replace) the §L
+recommendation: within-M periodic ranking + diffraction ceiling + tolerance-ratios remain
+the absolute references; Approach 1 (sensor-freq) is now a viable *cross-M relative* check
+that the comb could never provide. Approaches 3 and 5 are dead ends on these targets;
+Approach 4 is a coarse but real, de-confounded signal worth refining (rail-calibrated
+through-focus) if a second cross-M axis is wanted. **Do NOT commit** (exploratory POC,
+per the plan).
+
+### New untracked files
+
+- `poc_altest_lib.py` — registration + same-physical-patch common-grid resampler
+  (`_cum_vec`, `atlas_rect_to_common_grid`), saturation decode, focus-stack scan,
+  radial PSD, detail metrics, ceiling helper.
+- `poc_altest_fov.py` — per-config in-FOV atlas-rect probe (found the empty common rect).
+- `poc_altest_patch_driver.py` + `poc_altest_patch_analyse.py` — Approach 1 & 2: same-patch
+  PSD-ratio relMTF chain (subject + sensor freq) + direct detail, with the four gates +
+  split-half repeatability.
+- `poc_altest_psf_focus.py` + `poc_altest_psf_focus_analyse.py` — Approach 3 (blind PSF:
+  Gaussian-σ + cepstral) & 4 (through-focus FWHM/curvature), with gates.
+- `poc_altest_edge.py` + `poc_altest_edge_analyse.py` — Approach 5: SE-die direction-aware
+  edge MTF50 at fixed sensor cy/px vs the diffraction ceiling.
+- `poc_altest_run.sh` — sharded N-way nufan runner (patch | psffoc | edge).
+- `poc_altest_consolidate.py` — the approaches×gates summary table.
+- `poc_comb_chain_out/altest/a1_sensor_scores.csv`, `psffoc_summary.csv`, `edge_summary.csv`,
+  `altest_gate_summary.csv` — small committed result CSVs.
+- `poc_comb_chain_out/altest/{patches/,*_shard_*.csv,*.log,smoke_*.png}` — GITIGNORED:
+  the 487 MB resampled-patch `.npy` cache, per-shard bulk CSVs, logs, smoke PNGs
+  (regenerable from the drivers; mirrors the existing poc_comb_chain_out patterns).
