@@ -1655,3 +1655,36 @@ tolerance-ratios as the absolute references.
   mirrors the `altest/` patterns). The small `p*_*.csv` result files are committed.
 
 **Do NOT commit** (exploratory POC, per the plan).
+
+---
+
+## M-resolved cross-estimator agreement (2026-06-30)
+
+`poc_altest2_corr_vs_m.py` → `out/altest2/corr_vs_m.png`. Pairwise Spearman of the four
+estimators **within M bands**, per-pair coverage (each pair uses the configs it both
+covers; higher-score=sharper sign-aligned).
+
+| pair | M<1.0 | M 1.0–1.4 | M≥1.4 |
+|---|---|---|---|
+| P1 ↔ pad-edge | +0.41 (10) | +0.84 (18) | +0.18 (10) |
+| P1 ↔ decon | +0.65 (10) | +0.70 (17) | — (0) |
+| P1 ↔ through-focus | +0.68 (10) | +0.10 (18) | +0.61 (10) |
+| pad-edge ↔ decon | +0.67 (10) | +0.81 (17) | — (0) |
+| pad-edge ↔ through-focus | +0.55 (10) | +0.22 (18) | +0.71 (10) |
+| decon ↔ through-focus | +0.83 (10) | +0.39 (17) | — (0) |
+
+**Robust facts:** (1) every pair is **positive in every band** — the consensus never
+inverts along M. (2) **Deconvolution has no M≥1.4 coverage** — a low/mid-M corroborator
+only; P1/pad-edge/through-focus reach M≈2.1. (3) **Two complementary regimes:** the
+*in-focus-image* family (P1, pad-edge, decon) cohere best at **mid-M (1.0–1.4)**, while
+**through-focus** agrees at the **M extremes** and is weakest mid-M — it carries the most
+independent (defocus-axis) information. (4) At **high M the in-focus estimators diverge**
+(P1↔pad-edge 0.84→0.18, where the TC/diopter/stack targets are worst) and **through-focus
+becomes the cross-link** (P1↔P2 0.61, pad-edge↔P2 0.71).
+
+**Caveat:** 3 coarse bands; n≈10 (low/high) / ~17 (mid) → Spearman SE ~0.2–0.3, so only
+large band-to-band swings are meaningful; configs cluster near M≈1.
+
+**Net:** the four estimators are **complementary, not redundant** — each is strongest in
+a different M regime. That's favorable: cross-M corroboration that holds *because* the
+methods cover for each other where individually weakest.
