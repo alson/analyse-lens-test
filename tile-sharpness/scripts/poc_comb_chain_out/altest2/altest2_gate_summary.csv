@@ -1,0 +1,15 @@
+approach,coverage,m_deconf,empty_mag,known_orders,repeatable,gates,verdict
+P1 same-patch PSD-ratio relMTF (SENSOR f_px=0.10),"38/38 (1 component, 29679 edges)",corr(M)=-0.68,NO float,YES (macro<vintage<diopter; med 7/11/31),YES (Spearman 0.99),4/4,HARDENED WINNER — bridge ROBUST (M~2 jackknife <=0.07)
+P1 same-patch PSD-ratio relMTF (SENSOR f_px=0.12),38/38,corr(M)=-0.58,NO float,YES (med 8/11/30),YES (0.98),4/4,HARDENED WINNER (window centre)
+P1 same-patch PSD-ratio relMTF (SENSOR f_px=0.15),35/38 (M~2 drop),corr(M)=-0.37,NO float,YES (med 7.5/13/30),YES (1.00),4/4,VIABLE; window edge (loses M~2 coverage)
+P1 SENSOR f_px>=0.18,<=32/38,corr(M) flips +,float appears,degrades,-,<4/4,WINDOW BREAKS — M~2/diopter coverage loss + rising noise
+P1 SUBJECT-freq (control),38/38,corr(M)=+0.17,YES (diopters float),partial,-,1/4,M-confound RETURNS — confirms sensor-freq does the work
+P2 through-focus Gaussian sub-frame FWHM,38/38,"corr(M)=-0.22, corr(N_eff)=-0.10",~NO (1 borderline),YES (med 8/23/31),finer (sub-frame; ties BROKEN),3.5/4,"REFINED A4 — de-confounded, ties broken; agrees P1 (rho 0.40-0.58)"
+P2 log-parabola curvature,38/38,corr(M)=+0.13..+0.40,YES (accessories float),NO,noisy,1/4,FAIL — 2nd-deriv noise-dominated
+P3.1 pad-edge averaged-ESF MTF @ f_px=0.10,38/38 (vs 4/16 for SE-edge!),corr(M)=+0.01,NO float (f_px=0.10),YES (med 8/26),100k+ edges/config,4/4 (relative only),COVERAGE SOLVED; ranking de-confounded & agrees P1 (rho 0.52-0.79). CAVEAT: absolute MTF over-reads (>1) -> relative/ranking read only
+P3.1 pad-edge ERF sigma,38/38,corr(M)=-0.18,NO float,YES (med 8.5/24),floors at sharp end,3/4,Discriminates the soft tail; saturates (0.2px floor) at the sharp end
+P3.2 relative deconvolution (whole-spectrum kernel),27/38 (high-M drop),corr(M)=+0.40,1 float (S105+5T),"YES direction (macros top, tail OK)",resid 0.21 px^2,2.5/4,Independent (different math); agrees P1 (rho 0.73-0.85). Mild M-confound from whole-spectrum fit; high-M coverage thin
+P3.3 edge-mask x same-patch ratio,38/38,corr(M)=-0.61,NO float,YES,resid 0.29,4/4,PASS — 'reproducible-distortion' idea works; ~=P1 (rho 0.96-0.97)
+P3.4 matched-filter (synthetic lattice template),38/38,corr(M)=+0.13,NO float,partial (TC configs float mid),resid 1.60 (noisy),2/4,WEAK — single-freq template partly credits M; noisy
+P3.5 full-amp ratio (P1 sibling),38/38,corr(M)=-0.62,NO float,YES,resid 0.26,4/4,~=P1 (rho 0.97-0.98); sanity sibling
+P3.5 gradient-energy ratio,38/38,corr(M)=+0.08,NO float,"partial (tail OK, mid scrambled)",resid 0.43,2/4,system-MTF (credits M like Approach 2); cross-check only

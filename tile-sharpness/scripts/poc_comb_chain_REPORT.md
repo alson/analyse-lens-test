@@ -1445,3 +1445,196 @@ per the plan).
 - `poc_comb_chain_out/altest/{patches/,*_shard_*.csv,*.log,smoke_*.png}` — GITIGNORED:
   the 487 MB resampled-patch `.npy` cache, per-shard bulk CSVs, logs, smoke PNGs
   (regenerable from the drivers; mirrors the existing poc_comb_chain_out patterns).
+
+---
+
+## Stage AltEst-2 — hardening + variants (2026-06-30)
+
+**Why.** Stage AltEst found ONE viable non-comb cross-M estimator (same-physical-patch
+PSD-ratio relative MTF at a fixed SENSOR frequency, P1). This stage (a) HARDENS P1 on a
+much wider config set and stress-tests its weak points, (b) REFINES the de-confounded
+through-focus signal (P2) to break the macro ties, and (c) EXPLORES five new variants
+built on the established principles. A reshoot is weeks away and compute is cheap, so
+every approach was run to completion on the full data and is reported even when negative.
+Exploratory, UNTRACKED (`poc_altest2_*`), no production edits (all helpers — incl. the
+committed `poc_altest_lib` and production `tile_sharpness.*` — imported read-only). Compute
+on nufan (16 cores). **Widened subset = 38 configs** (`poc_altest2_subset.csv`; up from 16):
+adds the vintage 55mm primes (f/2.8 AIS ×2, f/3.5 Auto ×2) + the 60mm AF-D + a bare 70-180
++ extra apertures (F5.6/F11) on the bare modern macros + more mid-M TC/diopter fills.
+M now spans **0.75 → 2.09**. All 38 register cleanly (rmse 0.9–5.4 px, 0 drops).
+
+**Headline (caveats-first).** The Stage-AltEst finding is now **CORROBORATED and
+strengthened**: a cross-magnification *relative* (fixed-sensor-frequency) glass-MTF ranking
+is real on this data, and **three estimators built on DIFFERENT physical principles
+converge on it** — same-patch spectral ratio (P1), spatial averaged-edge ESF (P3.1), and
+through-focus defocus response (P2) — plus a whole-spectrum relative deconvolution (P3.2).
+P1 hardened: on the 38-config set it links **all configs into ONE component** (29 679
+pairwise edges, up from the 16-config chain), stays **M-de-confounded with no
+empty-magnification float** through f_px≈0.15, the M≈2 transitive bridge is **ROBUST**
+(worst single-anchor jackknife shift ≤0.07), and it is **repeatable** (split-half Spearman
+0.98–1.00). The same strict caveats stand and must lead: it is a **fixed-sensor-frequency /
+relative** ranking ("which lens has the higher MTF at this pixel frequency"), **NOT** a
+subject-resolution ranking (that legitimately credits M — and the subject-freq control
+re-introduces the confound, corr +0.17, exactly as before); it is trustworthy only in
+**f_px≈0.08–0.15** (above that the M≈2/diopter configs drop out and corr flips positive);
+it is relative (zero-mean gauge), not tied to the diffraction ceiling — use §L for absolute
+calibration. **This does NOT revive the absolute cross-M ranking** (still negative; Stage
+Preproc) and does NOT replace §L; it is a corroborated *cross-M relative* cross-check that
+the comb could never provide, now backed by independent estimators.
+
+### Approaches × gates (widened set)
+
+| approach | coverage | M-deconfound | empty-mag | known orders | repeatable | gates | verdict |
+|---|---|---|---|---|---|---|---|
+| **P1 PSD-ratio relMTF, SENSOR f_px=0.10** | **38/38 (1 comp, 29 679 edges)** | **corr(M)=−0.68** | **NO float** | **YES (med rank macro 7 / vintage 11 / diopter 31)** | **YES (ρ 0.99)** | **4/4** | **HARDENED WINNER — bridge robust** |
+| P1 SENSOR f_px=0.12 | 38/38 | −0.58 | NO | YES (8/11/30) | YES (0.98) | 4/4 | HARDENED (window centre) |
+| P1 SENSOR f_px=0.15 | 35/38 (M≈2 drop) | −0.37 | NO | YES (7.5/13/30) | YES (1.00) | 4/4 | viable; window edge |
+| P1 SENSOR f_px≥0.18 | ≤32/38 | flips **+** | float appears | degrades | — | <4/4 | **WINDOW BREAKS** (coverage loss + noise) |
+| P1 SUBJECT-freq (control) | 38/38 | +0.17 | YES (diopters) | partial | — | 1/4 | M-confound RETURNS (confirms sensor-freq does the work) |
+| **P2 through-focus Gaussian sub-frame FWHM** | 38/38 | **−0.22 (corr N_eff −0.10)** | ~NO (1 borderline) | **YES (8/23/31)** | finer (sub-frame; **ties BROKEN**) | 3.5/4 | **REFINED A4 — agrees P1 (ρ 0.40–0.58)** |
+| P2 log-parabola curvature | 38/38 | +0.13…+0.40 | YES | NO | noisy | 1/4 | FAIL — 2nd-deriv noise-dominated |
+| **P3.1 pad-edge averaged-ESF MTF @ f_px=0.10** | **38/38 (vs 4/16 for SE-edge!)** | **corr(M)=+0.01** | NO float | **YES (8/26)** | 100k+ edges/config | 4/4 (relative) | **COVERAGE SOLVED; agrees P1 (ρ 0.52–0.79). CAVEAT: absolute MTF over-reads (>1) → relative read only** |
+| P3.1 pad-edge ERF sigma | 38/38 | −0.18 | NO | YES (8.5/24) | floors at sharp end | 3/4 | discriminates the soft tail; saturates (0.2 px floor) at the sharp end |
+| P3.2 relative deconvolution (whole-spectrum kernel) | 27/38 (high-M thin) | +0.40 | 1 float (S105+5T) | YES direction | resid 0.21 px² | 2.5/4 | **independent (different math); agrees P1 (ρ 0.73–0.85)**; mild M-confound from the whole-spectrum fit |
+| P3.3 edge-mask × same-patch ratio | 38/38 | −0.61 | NO float | YES | resid 0.29 | 4/4 | **PASS — "reproducible-distortion" idea works; ≈P1 (ρ 0.96–0.97)** |
+| P3.4 matched-filter (synthetic lattice template) | 38/38 | +0.13 | NO float | partial (TC floats mid) | resid 1.60 (noisy) | 2/4 | WEAK — single-freq template partly credits M; noisy |
+| P3.5 full-amp ratio (P1 sibling) | 38/38 | −0.62 | NO float | YES | resid 0.26 | 4/4 | ≈P1 (ρ 0.97–0.98); sanity sibling |
+| P3.5 gradient-energy ratio | 38/38 | +0.08 | NO float | partial (tail OK, mid scrambled) | resid 0.43 | 2/4 | system-MTF (credits M like Approach 2); cross-check only |
+
+### P1 hardening details
+
+- **Transitive bridge** (the prior weak point — M≈2 rode on thin overlap). The wider set
+  pulls the M≈2 configs into a fully connected graph. Jackknife per-anchor (drop one
+  sharing config, re-solve, measure the M≈2 score shift): worst single-anchor shift is
+  **0.023** (AF200+5T+6T@2:1, 34 anchors), **0.035** (S150+TC-2001@2:1, 36 anchors), **0.074**
+  (S105+TC-2001@2:1, only 10 anchors) — all **ROBUST** (≪ the ±0.3 rank gaps). Bootstrap
+  (resample patches, 120×) gives per-config score σ of **0.01–0.03** for well-covered
+  configs, rising to 0.03–0.07 for the thinly-shared M≈2/+5T+6T stacks (`p1_ranking_fpx*.csv`).
+- **f_px window** (`p1_fpx_sweep.csv`): corr(M,score) = −0.76 / −0.68 / −0.58 / −0.37 at
+  f_px 0.08 / 0.10 / 0.12 / 0.15, with the chain staying ONE component (38→35 nodes). At
+  **f_px≥0.18 it breaks**: nodes drop to 32→30→26, corr flips POSITIVE (+0.23 at 0.18, a
+  +TC config floats), residual climbs (0.28→0.37). The break is exactly the M≈2 + diopter
+  configs falling out of frequency coverage (their lower px/grid-unit means a fixed sensor
+  cy/px maps past their common-grid Nyquist) plus rising HF noise — **trustworthy window =
+  f_px 0.08–0.15**, confirmed.
+- **Resampling discipline:** every config is independently `cv2.remap`-ed (INTER_CUBIC)
+  onto the SAME fixed common grid (700 px/grid-unit); neither config is resampled onto the
+  other's pixels, so interpolation cannot bias the same-patch ratio.
+- **§L reproduced, more strongly than the 16-config run:** median ranks modern-macro-bare
+  7–8 < vintage-55/60 11–13 < diopter/100-400 tail 30–31. Z105 leads, the bare Sigma/Nikon
+  macros cluster next, the vintage **55 f/3.5 Auto** primes sink to the tail (the gate the
+  16-config set could not test — vintage < modern, confirmed), TC/diopter degrade, +5T+6T
+  and MCON-35 are the softest. No accessory outranks the best bare lens.
+
+### P2 refinement (the de-confounded second axis)
+
+The A4 FWHM was de-confounded but quantised (modern macros tied at 8 frames). Fitting a
+**Gaussian-of-defocus to the lapvar(z) peak** yields a continuous sub-frame FWHM that
+**breaks the ties** (AF200 7.6 / Z105 9.2 / S150 9.3 / S105 11.6 frames) while keeping the
+de-confound property (corr(M)=−0.22, **corr(N_eff)=−0.10** — still not just DOF/aperture).
+§L order holds (modern 8 < vintage 23 < diopter 31; the vintage f/3.5 primes are dead last).
+It **agrees with the hardened P1** at Spearman **+0.40 (f_px=0.10) → +0.58 (f_px=0.15)**, and
+holds at low-M (M<1.2: +0.45–0.54) where P1 coverage is densest — corroboration from an
+estimator that uses *no spectrum at all*, only the focus-stack defocus response. (The
+curvature / band-pass variants FAILED — 2nd-derivative noise; the full-band Gaussian FWHM
+is the usable one. One config, S105+5T+6T, has a degenerate fit (FWHM≈200) and is excluded
+from the consensus.)
+
+### Variants (P3) — what the principles bought
+
+- **P3.1 pad-edge [most promising, delivered].** Massively-averaged slanted-edge ESF over
+  ALL tilted metal→substrate gradient edges in each sensor-space patch (100k+ edge samples
+  per config). This **fixes the coverage that killed Approach-5** (38/38 vs 4/16; every bare
+  macro now reads). The MTF@fixed-sensor-f and ERF-sigma rankings are **de-confounded
+  (corr(M)≈0.0 / −0.18)**, §L-correct, no empty-mag float at f_px=0.10, and **agree with P1
+  (ρ 0.52–0.79, rising with f_px)**. Honest caveat: the *absolute* MTF over-reads (>1; MTF50
+  quantised to two values) because co-binning many sub-pixel-jittered edges artificially
+  sharpens the mean edge — so it is a valid **relative/ranking** read, not an absolute MTF.
+- **P3.2 relative deconvolution.** Fit the relative blur kernel between two registered
+  same-patch images as a whole-spectrum log-amplitude-vs-f² slope → Δ(σ_a²−σ_b²), chained
+  additively. Genuinely **independent of P1's single-frequency read**, and it **agrees with
+  P1 (ρ 0.73–0.85)** with a physically sane direction (macros sharpest, vintage-f/3.5 +
+  diopter softest). Mild residual M-confound (corr +0.40) because the whole-spectrum fit
+  re-imports some subject-frequency dependence, and the high-M configs thin out (27/38) — so
+  it is a corroborating cross-check, not a replacement.
+- **P3.3 edge-region mask × same-patch ratio.** A lattice-locked reproducible mask (median
+  edge-density across the configs sharing a cell) keeps only the pad-boundary zones and
+  cancels in the same-patch ratio. **Passes 4/4** and is ≈P1 (ρ 0.96–0.97) — a clean
+  demonstration that the user's "distort toward a reproducible spectrum" idea is valid when
+  the distortion is identical across both configs of a pair.
+- **P3.4 matched-filter / lock-in.** Correlate each patch with a synthetic ideal-lattice
+  template at f₀ (correlation preserves blur, per the principle). WEAK: a single-frequency
+  template partly credits M (corr +0.13, TC configs float to mid-pack) and is noisy
+  (resid 1.60). Not a standalone axis.
+- **P3.5 cross-checks.** Full-amp ratio is the unmasked P1 sibling (≈P1, ρ 0.97); the
+  gradient-energy ratio is a system-MTF metric that credits M (like Approach 2) — tail
+  correct, mid-pack scrambled.
+
+### Cross-agreement matrix (Spearman; `p_crossagreement_matrix.csv`)
+
+The same-patch *spectral* family is internally near-identical (P1@0.10/0.12/0.15 ↔ P3.3
+↔ P3.5-fullamp: **0.95–0.99**). The decisive evidence is that the **independent** estimators
+agree with P1 and with each other:
+
+|  | P1@.10 | P1@.15 | P2 fwhm | P3.1 edge | P3.1 σ | P3.2 decon | P3.3 mask |
+|---|---|---|---|---|---|---|---|
+| P1@.10 | 1.00 | 0.95 | 0.40 | 0.52 | 0.71 | 0.73 | 0.97 |
+| P1@.15 | 0.95 | 1.00 | 0.54 | 0.79 | 0.83 | 0.85 | 0.97 |
+| P2 fwhm | 0.40 | 0.54 | 1.00 | 0.52 | 0.72 | 0.67 | 0.48 |
+| P3.1 edge | 0.52 | 0.79 | 0.52 | 1.00 | 0.77 | 0.82 | 0.60 |
+| P3.2 decon | 0.73 | 0.85 | 0.67 | 0.82 | 0.75 | 1.00 | 0.79 |
+
+Three different physical principles — spectral ratio (P1), spatial edge (P3.1), defocus
+response (P2) — mutually positive, and the whole-spectrum deconvolution (P3.2) ties them
+together. **Mutual agreement of independent estimators is the strongest evidence the
+cross-M relative signal is real**, not a measurement artifact of any one method.
+
+### Corroborated consensus cross-M relative ranking (`p_consensus_ranking.csv`)
+
+Rank-average over the seven gate-passing estimators (P1@0.10, P1@0.12, P2-FWHM, P3.1-edge,
+P3.2-decon, P3.3-mask, P3.5-fullamp). Top and tail (lower = sharper; `rank_std` = spread
+across estimators = the honest per-config uncertainty):
+
+```
+ 1  Z105   (F5.6/F8/F11 take 3 of the top 6)      — the sharpest modern macro
+ 4  AF200 F11 / 5 S150 F11 / 6 S105 F11           — bare modern macros, stopped down
+ 7  S150 F8 / 9 S105 F8 / 10 AF200 F8             — bare modern macros at F8
+ 8  S105+TC-1401 @1:1  (the most TC-tolerant body, as §L found)
+12  AF60 F8        — the 60mm AF-D sits with the modern macros
+14  V55 f/2.8 AIS  — vintage f/2.8 primes: respectable, mid-pack
+...
+32  V55 f/3.5 Auto primes        — vintage f/3.5: the bottom of the prime field
+35  Z100400+MCON-35 / 36 AF200+5T+6T / 37 S150+5T+6T / 38 AF200+6T  — diopter/extension tail
+```
+
+This reproduces the §L verdict end-to-end on a single cross-M axis: **bare modern macros
+(Z105 ≈ AF200 ≈ S105 ≈ S150) lead**, the **60mm joins them**, the **vintage 55 f/2.8 are
+mid-pack and the 55 f/3.5 are the prime-field tail**, **TC tolerance favours the 105 bodies**,
+and **diopter/extension stacks are the softest** — with no empty-magnification credit. Use
+this as a cross-M *relative* check; keep §L's within-M periodic-FFT + diffraction ceiling +
+tolerance-ratios as the absolute references.
+
+### New untracked files
+
+- `poc_altest2_make_subset.py` → `poc_altest2_subset.csv` (38-config widened set).
+- `poc_altest2_smoke.py` — per-config registration / FOV / in-FOV-cell probe.
+- `poc_altest2_patch_driver.py` + `poc_altest2_patch_analyse.py` — P1 hardening: widened
+  same-patch PSD-ratio chain, f_px sweep, M≈2 jackknife, bootstrap σ, split-half Spearman,
+  subject-freq control. Writes `p1_fpx_sweep.csv`, `p1_ranking_fpx{0.1,0.12,0.15}.csv`.
+- `poc_altest2_psf_focus.py` + `poc_altest2_psf_focus_analyse.py` — P2 refined through-focus
+  (Gaussian sub-frame FWHM, log-parabola curvature, peak/area, fixed-band variants) + the
+  P1↔P2 cross-agreement. Writes `p2_psffoc2_summary.csv`.
+- `poc_altest2_padedge_driver.py` + `poc_altest2_padedge_analyse.py` — P3.1 massively-
+  averaged pad-edge ESF→MTF at fixed sensor f. Writes `p31_padedge_summary.csv`.
+- `poc_altest2_decon.py` — P3.2 relative deconvolution. Writes `p32_decon_scores.csv`.
+- `poc_altest2_variants.py` — P3.3 edge-mask, P3.4 matched-filter, P3.5 cross-checks.
+  Writes `p33_edgemask_scores.csv`, `p34_matchfilter_scores.csv`, `p35_fullamp_scores.csv`,
+  `p35_gradenergy_scores.csv`.
+- `poc_altest2_consolidate.py` → `p_crossagreement_matrix.csv`, `p_consensus_ranking.csv`.
+- `poc_altest2_gate_summary.py` → `altest2_gate_summary.csv` (the table above).
+- `poc_altest2_run.sh` — sharded nufan runner (patch | psffoc | decon | edge).
+- `poc_comb_chain_out/altest2/{patches/,*_shard_*.csv,*.log}` — GITIGNORED: the 1.2 GB
+  resampled-patch `.npy` cache, per-shard bulk CSVs and logs (regenerable from the drivers;
+  mirrors the `altest/` patterns). The small `p*_*.csv` result files are committed.
+
+**Do NOT commit** (exploratory POC, per the plan).

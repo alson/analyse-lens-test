@@ -1,0 +1,162 @@
+"""Stage AltEst-2 driver — widened same-physical-patch resampling (P1 hardening +
+substrate for the variants P3.2/P3.3/P3.4).
+
+Mirrors poc_altest_patch_driver.py but (a) reads the WIDENED subset (38 configs incl.
+vintage 55/60mm + extra apertures), (b) sid disambiguates aperture, (c) writes to a
+SEPARATE altest2/ output tree, (d) saves, per config-per-patch, the common-grid patch
+.npy (for the deconvolution / edge-mask / matched-filter variants) PLUS the radial PSD
+and detail metrics. Resampling: BOTH configs are independently remapped onto the SAME
+fixed common grid (SAMPLES_PER_UNIT px/grid-unit, INTER_CUBIC) — neither is resampled
+onto the other's pixels, so interpolation does not bias the same-patch ratio (P1 caveat).
+
+Sharded by SHARD="i/N". Read-only on production + committed libs (imports poc_altest_lib).
+"""
+from __future__ import annotations
+
+import csv
+import os
+import sys
+from pathlib import Path
+
+import numpy as np
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import poc_altest_lib as L
+
+SUBSET = HERE / "poc_altest2_subset.csv"
+OUT = HERE / "poc_comb_chain_out" / "altest2"
+PATCH_DIR = OUT / "patches"
+
+PATCH_UNITS = 0.5
+SAMPLES_PER_UNIT = 700
+GLOBAL_CL = (1.5, 11.0)
+GLOBAL_RL = (0.5, 6.0)
+
+
+def short_id(c):
+    lens = c["lens"]
+    base = (lens.split(" + ")[0]
+            .replace("NIKKOR Z MC 105mm f_2.8 VR S", "Z105")
+            .replace("Nikon AF Micro-Nikkor 200mm f_4D IF-ED", "AF200")
+            .replace("Sigma Macro 105mm F2.8 EX DG OS HSM", "S105")
+            .replace("Sigma APO Macro 150mm F2.8 EX DG OS HSM", "S150")
+            .replace("NIKKOR Z 100-400mm f_4.5-5.6 VR S", "Z100400")
+            .replace("Nikon AF Micro-Nikkor 60mm f_2.8D", "AF60")
+            .replace("Nikon AF Zoom-Micro Nikkor 70-180mm f_4.5-5.6D ED", "Z70180")
+            .replace("Nikon Micro-Nikkor 55mm f_2.8 AIS", "V55f28")
+            .replace("Nikon Micro-Nikkor Auto 55mm f_3.5", "V55f35"))
+    acc = ""
+    if " + " in lens:
+        acc = "+" + lens.split(" + ", 1)[1].replace(" ", "").replace("Olympus", "") \
+            .replace("Canon", "C").replace("Nikon", "").replace("KenkoPro300DG1.4x", "Kenko14")
+    return f"{base}{acc}_{c['mag_label']}_{c['aperture']}".replace(" ", "").replace("/", "")
+
+
+def config_id(c):
+    return f"{c['lens']} | {c['mag_label']} | {c['aperture']}"
+
+
+def ap_to_n(a): return float(a.replace("F", "").replace("f_", "").replace("f", ""))
+
+
+def patch_layout():
+    out = []
+    cl = GLOBAL_CL[0]; i = 0
+    while cl + PATCH_UNITS <= GLOBAL_CL[1]:
+        rl = GLOBAL_RL[0]; j = 0
+        while rl + PATCH_UNITS <= GLOBAL_RL[1]:
+            out.append((cl, rl, cl + PATCH_UNITS, rl + PATCH_UNITS, f"A{i:02d}{j:02d}"))
+            rl += PATCH_UNITS; j += 1
+        cl += PATCH_UNITS; i += 1
+    return out
+
+
+def main():
+    with SUBSET.open() as fh:
+        configs = list(csv.DictReader(fh))
+    shard = os.environ.get("SHARD")
+    if shard:
+        i, n = (int(x) for x in shard.split("/"))
+        configs = [c for k, c in enumerate(configs) if k % n == i]
+    PATCH_DIR.mkdir(parents=True, exist_ok=True)
+    patches = patch_layout()
+
+    psd_rows, det_rows, meta_rows = [], [], []
+    for c in configs:
+        cid = config_id(c); sid = short_id(c)
+        sd = Path(c["sample"]).parent
+        p, M, jpgs = L.register_config(sd)
+        if p is None:
+            print(f"DROP {cid}: reg fail", flush=True); continue
+        n_marked = ap_to_n(c["aperture"])
+        ccl = 0.5 * (GLOBAL_CL[0] + GLOBAL_CL[1]); crl = 0.5 * (GLOBAL_RL[0] + GLOBAL_RL[1])
+        x00, y00 = L.reg_auto.grid_xy_distorted(ccl, crl, p)
+        xu, yu = L.reg_auto.grid_xy_distorted(ccl + 1.0, crl, p)
+        xv, yv = L.reg_auto.grid_xy_distorted(ccl, crl + 1.0, p)
+        px_per_unit = 0.5 * (np.hypot(xu - x00, yu - y00) + np.hypot(xv - x00, yv - y00))
+        n_eff = L.optics.effective_fnumber(n_marked, M)
+        print(f"=== {sid} M={M:.3f} rmse={p['reg_fit_rmse_px']:.1f} px/unit={px_per_unit:.0f} ===", flush=True)
+        meta_rows.append(dict(config=cid, sid=sid, M=M, rmse=p["reg_fit_rmse_px"],
+                              n_marked=n_marked, n_eff=n_eff, px_per_unit=px_per_unit,
+                              lens=c["lens"], mag_label=c["mag_label"], aperture=c["aperture"]))
+        active = []
+        for (a, b, a1, b1, plab) in patches:
+            corners = [L.reg_auto.grid_xy_distorted(cc, rr, p)
+                       for (cc, rr) in [(a, b), (a, b1), (a1, b), (a1, b1)]]
+            xs = [pt[0] for pt in corners]; ys = [pt[1] for pt in corners]
+            if (min(xs) < 60 or max(xs) > L.IMAGE_W - 60 or
+                    min(ys) < 60 or max(ys) > L.IMAGE_H - 60):
+                continue
+            active.append((plab, a, b, a1, b1, (min(xs), min(ys), max(xs), max(ys))))
+        if not active:
+            print("  no in-FOV patches", flush=True); continue
+        curves = L.scan_all_boxes(jpgs, [x[5] for x in active])
+        by_frame = {}
+        for bi, (plab, a, b, a1, b1, box) in enumerate(active):
+            seqs, lvs = curves[bi]
+            if len(seqs) == 0:
+                continue
+            seq = int(seqs[int(np.argmax(lvs))])
+            by_frame.setdefault(seq, []).append((plab, a, b, a1, b1))
+        for seq, group in by_frame.items():
+            chan = L.decode_channel(jpgs[seq], "sat")
+            if chan is None:
+                continue
+            for (plab, a, b, a1, b1) in group:
+                patch = L.atlas_rect_to_common_grid(chan, p, a, b, a1, b1,
+                                                    samples_per_unit=SAMPLES_PER_UNIT)
+                if patch is None:
+                    continue
+                np.save(PATCH_DIR / f"{sid}__{plab}.npy", patch.astype(np.float32))
+                f_grid, psd = L.radial_psd(patch)
+                for fg, ps in zip(f_grid, psd):
+                    if np.isfinite(ps):
+                        psd_rows.append(dict(config=cid, sid=sid, patch=plab, M=M,
+                                             n_marked=n_marked, f_grid=fg, psd=ps))
+                det = L.detail_metrics(patch)
+                det_rows.append(dict(config=cid, sid=sid, patch=plab, M=M,
+                                     n_marked=n_marked, focus_seq=seq,
+                                     mean=float(patch.mean()), std=float(patch.std()), **det))
+        print(f"  {len(active)} in-FOV patches, {len(by_frame)} focus frames", flush=True)
+
+    tag = (shard or "0_1").replace("/", "_")
+    with (OUT / f"psd_shard_{tag}.csv").open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=["config", "sid", "patch", "M", "n_marked",
+                                           "f_grid", "psd"])
+        w.writeheader(); w.writerows(psd_rows)
+    with (OUT / f"det_shard_{tag}.csv").open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=["config", "sid", "patch", "M", "n_marked",
+                                           "focus_seq", "mean", "std", "tenengrad",
+                                           "lap_energy", "variance", "hf_energy"])
+        w.writeheader(); w.writerows(det_rows)
+    with (OUT / f"meta_shard_{tag}.csv").open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=["config", "sid", "M", "rmse", "n_marked",
+                                           "n_eff", "px_per_unit", "lens", "mag_label",
+                                           "aperture"])
+        w.writeheader(); w.writerows(meta_rows)
+    print(f"WROTE shard {tag}: {len(psd_rows)} psd, {len(det_rows)} det", flush=True)
+
+
+if __name__ == "__main__":
+    main()

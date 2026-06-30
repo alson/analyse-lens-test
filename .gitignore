@@ -57,3 +57,10 @@ tile-sharpness/scripts/poc_comb_chain_out/altest/*_shard_*.csv
 tile-sharpness/scripts/poc_comb_chain_out/altest/*_shard_*.log
 tile-sharpness/scripts/poc_comb_chain_out/altest/*.log
 tile-sharpness/scripts/poc_comb_chain_out/altest/smoke_*.png
+
+# Stage AltEst-2 (hardening + variants): same policy — commit small result CSVs + the
+# REPORT; ignore the resampled patch arrays, per-shard bulk CSVs, and logs.
+tile-sharpness/scripts/poc_comb_chain_out/altest2/patches/
+tile-sharpness/scripts/poc_comb_chain_out/altest2/*_shard_*.csv
+tile-sharpness/scripts/poc_comb_chain_out/altest2/*_shard_*.log
+tile-sharpness/scripts/poc_comb_chain_out/altest2/*.log
