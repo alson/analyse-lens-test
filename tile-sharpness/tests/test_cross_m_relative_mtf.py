@@ -239,6 +239,119 @@ def test_cross_estimator_agreement_and_consensus():
     assert list(cons.consensus_rank) == list(range(1, len(cons) + 1))
 
 
+# --------------------------------------------------------------------------- #
+# P2 — through-focus defocus-response estimator (the 4th corroborator)
+# --------------------------------------------------------------------------- #
+
+def _synthetic_focus_curve(sigma_z, n_frames=41, peak_frame=20.0, amp=100.0,
+                           base=5.0):
+    """A synthetic through-focus sharpness response: a Gaussian of defocus (in frames)
+    of width ``sigma_z`` on a flat baseline. A SHARPER optic has a NARROWER curve
+    (smaller sigma_z), so its fitted FWHM is smaller."""
+    z = np.arange(n_frames, dtype=float)
+    vals = base + amp * np.exp(-((z - peak_frame) ** 2) / (2 * sigma_z ** 2))
+    return z, vals
+
+
+def test_gaussian_defocus_fwhm_recovers_known_width():
+    # FWHM of a Gaussian of width sigma_z is 2.3548*sigma_z; the sub-frame fit must
+    # recover it from the (baseline-offset) focus curve.
+    sigma_z = 4.0
+    seqs, vals = _synthetic_focus_curve(sigma_z)
+    _, fwhm, mu = X.gaussian_defocus_fwhm(seqs, vals)
+    assert fwhm == pytest.approx(2.3548 * sigma_z, rel=0.05)
+    assert mu == pytest.approx(20.0, abs=0.5)
+
+
+def test_gaussian_defocus_fwhm_is_subframe_continuous():
+    # two stacks whose widths differ by less than a frame must yield DISTINCT FWHMs
+    # (the sub-frame property that breaks the coarse-integer-FWHM macro ties).
+    _, va = _synthetic_focus_curve(3.0)
+    _, vb = _synthetic_focus_curve(3.3)
+    sa = X.gaussian_defocus_fwhm(np.arange(41.0), va)[1]
+    sb = X.gaussian_defocus_fwhm(np.arange(41.0), vb)[1]
+    assert sa < sb
+    assert abs(sa - sb) < 1.5  # genuinely sub-frame resolution, not quantised
+
+
+def test_gaussian_defocus_fwhm_rejects_no_peak():
+    # a flat response (no peak above baseline) has no Gaussian fit -> NaN FWHM.
+    seqs = np.arange(20.0)
+    flat = np.full(20, 5.0)
+    _, fwhm, _ = X.gaussian_defocus_fwhm(seqs, flat)
+    assert not np.isfinite(fwhm)
+    # a cupped (U-shaped, upward-parabola) response has no focus peak -> NaN FWHM.
+    cup = 50.0 - 40.0 * np.exp(-((seqs - 10.0) ** 2) / (2 * 4.0 ** 2))
+    _, fwhm_cup, _ = X.gaussian_defocus_fwhm(seqs, cup)
+    assert not np.isfinite(fwhm_cup)
+    # too few frames -> NaN as well
+    _, fwhm2, _ = X.gaussian_defocus_fwhm(np.arange(3.0), np.array([1.0, 9.0, 1.0]))
+    assert not np.isfinite(fwhm2)
+
+
+def test_through_focus_scores_recover_sharpness_order():
+    # build per-(config, patch) FWHM rows for three configs of known width; the
+    # per-config score (= -median FWHM) must order sharp (narrow) first.
+    rows = []
+    for sid, sigma_z in (("sharp", 2.5), ("mid", 4.0), ("soft", 6.0)):
+        for patch in range(6):
+            seqs, vals = _synthetic_focus_curve(sigma_z, peak_frame=18.0 + patch)
+            _, fwhm, _ = X.gaussian_defocus_fwhm(seqs, vals)
+            rows.append(dict(sid=sid, patch=f"P{patch}", fwhm=fwhm))
+    scores = X.through_focus_scores(pd.DataFrame(rows))
+    assert scores["sharp"] > scores["mid"] > scores["soft"]
+
+
+def test_through_focus_scores_drop_degenerate_fits():
+    # a config whose patches all produced degenerate (huge) FWHMs is excluded;
+    # within a config, a single huge FWHM is dropped before the median.
+    rows = [
+        dict(sid="ok", patch="P0", fwhm=8.0),
+        dict(sid="ok", patch="P1", fwhm=10.0),
+        dict(sid="ok", patch="P2", fwhm=200.0),   # degenerate -> dropped
+        dict(sid="bad", patch="P0", fwhm=200.0),  # only degenerate -> config omitted
+        dict(sid="bad", patch="P1", fwhm=float("nan")),
+    ]
+    scores = X.through_focus_scores(pd.DataFrame(rows))
+    assert "bad" not in scores
+    assert scores["ok"] == pytest.approx(-9.0)  # median of {8, 10}, 200 dropped
+
+
+def test_p2_deconfound_corr_against_n_eff():
+    # P2's de-confounding axis is N_eff (DOF), not M. A clean P2 score is ~uncorrelated
+    # with N_eff; the helper computes corr(N_eff, score) and the OK gate is |corr|<=thr.
+    scores = {"a": -8.0, "b": -9.0, "c": -10.0, "d": -11.0}
+    # N_eff deliberately UNcorrelated with the score order (de-confounded):
+    n_eff = {"a": 16.0, "b": 22.0, "c": 11.0, "d": 18.0}
+    corr = X.p2_deconfound_corr(scores, n_eff)
+    assert np.isfinite(corr)
+    assert X.p2_deconfound_ok(corr) == (abs(corr) <= X.P2_DECONFOUND_MAX_ABS_CORR)
+    # a score that simply tracks N_eff fails the self-check
+    tracking = {s: -n for s, n in n_eff.items()}
+    assert abs(X.p2_deconfound_corr(tracking, n_eff)) == pytest.approx(1.0, abs=1e-9)
+    assert not X.p2_deconfound_ok(X.p2_deconfound_corr(tracking, n_eff))
+
+
+def test_consensus_folds_in_p2_as_fourth_estimator():
+    # P1-like, two cross-checks, and P2 all roughly agree -> consensus is a 4-input
+    # rank-average; n_estimators reports 4 and the agreed-sharpest config leads.
+    base = {"x": 3.0, "y": 2.0, "z": 1.0, "w": 0.0, "v": -1.0, "u": -2.0}
+    jitter = lambda d, e: {k: v + e for k, v in d.items()}
+    series = {
+        "P1_fpx0.1": base,
+        "P31_padedge": jitter(base, 0.1),
+        "P32_decon": jitter(base, -0.1),
+        "P2_psffoc": {k: v + 0.05 for k, v in base.items()},
+    }
+    members = ["P1_fpx0.1", "P31_padedge", "P32_decon", "P2_psffoc"]
+    cons = X.consensus_ranking(series, members)
+    assert set(cons.n_estimators) == {4}
+    assert cons.iloc[0].sid == "x"
+    assert "P2_psffoc" in cons.columns
+    # adding P2 keeps the order monotone with the agreed series
+    assert list(cons.sid) == ["x", "y", "z", "w", "v", "u"]
+
+
 def test_caveats_header_states_the_fence():
     h = X.caveats_header(0.10)
     assert "RELATIVE" in h

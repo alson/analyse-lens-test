@@ -45,9 +45,13 @@ Three estimators on different physical principles agree (same-patch spectral rat
 P1, pad-edge averaged-ESF P3.1, through-focus defocus response P2) — that mutual
 agreement is the evidence the signal is real, not a single-method artifact.
 
-The PSD-ratio chain (P1) is the PRIMARY estimator. The pad-edge ESF and relative
-deconvolution are built-in CROSS-CHECKS reported as a cross-estimator Spearman
-agreement + a consensus rank-average; they raise confidence, they are not the axis.
+The PSD-ratio chain (P1) is the PRIMARY estimator. The pad-edge ESF, relative
+deconvolution, and the through-focus defocus response (P2) are built-in CROSS-CHECKS
+reported as a cross-estimator Spearman agreement + a consensus rank-average; they
+raise confidence, they are not the axis. P2 is a PER-CONFIG score on a different
+physical principle (the width of the focus-stack sharpness response, no spectrum at
+all): its self-check is corr(N_eff) ~ 0 rather than the f_px window the spectral
+estimators fence, and it folds into the consensus as a fourth rank input.
 
 Module layout
 -------------
@@ -94,6 +98,18 @@ DECONFOUND_MAX_CORR = 0.10
 #: A config flagged isolated/under-bridged if it shares fewer than this many
 #: cells with the rest of the graph.
 MIN_ANCHOR_CELLS = 3
+
+#: P2 (through-focus) de-confound self-check: |corr(N_eff, P2-score)| must be <=
+#: this. P2 is a defocus-based corroborator on a DIFFERENT physical principle (the
+#: width of the focus-stack sharpness response), so its de-confounding axis is the
+#: aperture / depth-of-field one (N_eff), not the spectral M axis the f_px estimators
+#: fence. The validated AltEst-2 value is corr(N_eff)=-0.10 (corr(M)=-0.22).
+P2_DECONFOUND_MAX_ABS_CORR = 0.30
+
+#: P2 degenerate-fit guard: a Gaussian-of-defocus FWHM (in frames) above this is a
+#: failed fit (no clean focus peak in the stack) and is dropped before aggregation.
+#: One AltEst-2 config (S105+5T+6T) produced FWHM~200 and was excluded this way.
+P2_MAX_VALID_FWHM = 60.0
 
 
 # --------------------------------------------------------------------------- #
@@ -444,6 +460,110 @@ def rank_configs(psd, meta, f_px=FPX_DEFAULT, *, n_boot=120, strict=False):
     table = (pd.DataFrame(rows).sort_values("score", ascending=False)
              .reset_index(drop=True))
     return Ranking(f_px=f_px, table=table, gate=gate)
+
+
+# --------------------------------------------------------------------------- #
+# P2 — through-focus defocus-response estimator (the 4th corroborator)
+# --------------------------------------------------------------------------- #
+#
+# A PER-CONFIG (not pairwise) score on a DIFFERENT physical principle from the
+# spectral f_px estimators: it uses no spectrum at all, only the SHAPE of the
+# focus-stack sharpness response. As the focus rail steps through best focus, a
+# patch's Laplacian-variance (lapvar) traces a peak vs frame; a SHARPER optic
+# produces a NARROWER, more sharply-peaked response. Fitting a Gaussian-of-defocus
+# to the lapvar(z) peak yields a continuous, sub-frame FWHM (in frames) per patch;
+# the per-config score is -median(FWHM) so HIGHER == sharper, aligned with P1.
+#
+# Validated in AltEst-2 (poc_comb_chain_REPORT.md §"Stage AltEst-2"): genuinely
+# de-confounded (corr with N_eff -0.10, corr with M -0.22), the coarse-FWHM macro
+# ties are BROKEN by the sub-frame fit, §L order holds (modern < vintage < diopter),
+# and it AGREES with P1 at Spearman +0.40 (f_px=0.10) -> +0.58 (f_px=0.15). It is a
+# corroborator folded into the consensus; it is NOT a fixed-sensor-frequency axis and
+# does not share P1's f_px window — its self-check is corr(N_eff) instead.
+
+
+def gaussian_defocus_fwhm(seqs, vals):
+    """Fit a Gaussian-of-defocus to the lapvar(z) peak; return sub-frame FWHM (frames).
+
+    ``seqs`` = frame indices, ``vals`` = the through-focus sharpness response (e.g.
+    Laplacian variance) at those frames. A baseline (10th percentile) is subtracted,
+    the peak region (>= 25% of peak height) is selected, and ``log(y)`` is fit to a
+    weighted quadratic in ``z`` — i.e. a Gaussian ``exp(-(z-mu)^2 / 2 sigma^2)``. The
+    FWHM is ``2.3548 * sigma`` and is continuous (NOT quantised to integer frames),
+    which is what breaks the coarse-FWHM macro ties. Returns ``(sigma_z, fwhm, mu)``
+    in frames, or ``(nan, nan, peak_frame_or_nan)`` if there is no clean peak.
+    """
+    seqs = np.asarray(seqs, float)
+    vals = np.asarray(vals, float)
+    if len(vals) < 7:
+        return float("nan"), float("nan"), float("nan")
+    base = np.percentile(vals, 10)
+    v0 = np.clip(vals - base, 0, None)
+    pk = int(np.argmax(v0))
+    peak = v0[pk]
+    if peak <= 0:
+        return float("nan"), float("nan"), float("nan")
+    sel = v0 >= 0.25 * peak
+    z = seqs[sel]
+    y = v0[sel]
+    if len(z) < 5 or np.ptp(z) < 2:
+        return float("nan"), float("nan"), float(seqs[pk])
+    w = y / y.max()
+    A = np.column_stack([np.ones_like(z), z, z * z])
+    coef, *_ = np.linalg.lstsq(A * w[:, None], np.log(np.clip(y, 1e-9, None)) * w,
+                               rcond=None)
+    _, c1, c2 = coef  # log(y) ~ c0 + c1 z + c2 z^2; c0 (peak height) unused
+    if c2 >= 0:  # upward parabola -> no peak
+        return float("nan"), float("nan"), float(seqs[pk])
+    sigma_z = float(np.sqrt(-1.0 / (2 * c2)))
+    mu = float(-c1 / (2 * c2))
+    fwhm = 2.3548 * sigma_z
+    return sigma_z, fwhm, mu
+
+
+def through_focus_scores(tf, *, max_valid_fwhm=P2_MAX_VALID_FWHM):
+    """Per-config P2 score from per-(config, patch) through-focus FWHMs.
+
+    ``tf`` = DataFrame with columns ``{sid, fwhm}`` (one row per (config, patch);
+    ``fwhm`` from :func:`gaussian_defocus_fwhm`). Per config the median FWHM across
+    its patches is the focus-response width; the score is its negation so HIGHER ==
+    sharper (aligned with P1). FWHMs above ``max_valid_fwhm`` frames are degenerate
+    fits and dropped before the median; a config with no valid FWHM is omitted.
+    Returns ``{sid: score}``.
+    """
+    out = {}
+    good = tf[np.isfinite(tf["fwhm"]) & (tf["fwhm"] <= max_valid_fwhm)]
+    for sid, g in good.groupby("sid"):
+        vals = g["fwhm"].to_numpy(float)
+        if len(vals) == 0:
+            continue
+        out[str(sid)] = -float(np.median(vals))
+    return out
+
+
+def p2_deconfound_corr(scores, n_eff_by_sid):
+    """corr(N_eff, P2-score) — the P2 de-confounding self-check statistic.
+
+    P2 is a defocus-based corroborator, so its confound axis is the depth-of-field /
+    aperture one (effective f-number), not the spectral M axis. A valid P2 score is
+    de-confounded from N_eff, so this should be near zero (AltEst-2: -0.10); a clearly
+    positive or large value means the focus-width score is just tracking DOF.
+    """
+    sids = [s for s in scores if s in n_eff_by_sid
+            and np.isfinite(n_eff_by_sid[s])]
+    if len(sids) < 3:
+        return float("nan")
+    N = np.array([n_eff_by_sid[s] for s in sids])
+    S = np.array([scores[s] for s in sids])
+    if np.std(N) == 0 or np.std(S) == 0:
+        return float("nan")
+    return float(np.corrcoef(N, S)[0, 1])
+
+
+def p2_deconfound_ok(corr_n_eff):
+    """True if the P2 N_eff de-confound self-check passes (|corr| <= threshold)."""
+    return bool(np.isfinite(corr_n_eff)
+                and abs(corr_n_eff) <= P2_DECONFOUND_MAX_ABS_CORR)
 
 
 # --------------------------------------------------------------------------- #

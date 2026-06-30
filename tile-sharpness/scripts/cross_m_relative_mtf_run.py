@@ -18,11 +18,13 @@ Stages (sharded on nufan; each writes per-shard CSVs that the analyse stage pool
 
     extract   register each config; resample the SAME physical atlas patch onto a
               common subject-space grid; radial PSD per patch (PRIMARY estimator
-              substrate). Also the pad-edge averaged-ESF MTF and the focus-stack
-              defocus response (cross-checks). Sharded by --shard i/N.
+              substrate). Also the pad-edge averaged-ESF MTF (P3.1) and the focus-stack
+              through-focus defocus response — per-patch Gaussian-of-defocus FWHM (P2),
+              both cross-checks. Sharded by --shard i/N.
     analyse   pool the shards, run the estimator core (chain + gates + bootstrap +
-              jackknife + split-half), compute the cross-estimator consensus, and
-              write the ranking CSV + markdown report.
+              jackknife + split-half), compute the cross-estimator consensus over the
+              four corroborators (P1 spectral, P3.1 pad-edge, P3.2 deconvolution, P2
+              through-focus), and write the ranking CSV + markdown report.
 
 Usage (on nufan via the per-host venv):
 
@@ -371,7 +373,7 @@ def cmd_extract(args):
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "patches").mkdir(exist_ok=True)
     patches = patch_layout()
-    psd_rows, meta_rows, padedge_rows = [], [], []
+    psd_rows, meta_rows, padedge_rows, psffoc_rows = [], [], [], []
     for c in configs:
         cid = config_id(c); sid = short_id(c)
         sd = Path(c["sample"]).parent
@@ -407,6 +409,18 @@ def cmd_extract(args):
             print("  no in-FOV patches", flush=True)
             continue
         curves = scan_all_boxes(jpgs, [x[5] for x in active])
+        # P2 through-focus defocus response: the SAME per-frame lapvar curves the
+        # PSD/pad-edge stage scans for best focus also carry the focus-response SHAPE.
+        # Per patch fit a Gaussian-of-defocus to the lapvar(z) peak -> sub-frame FWHM.
+        n_psffoc = 0
+        for bi, (plab, a, b, a1, b1, box) in enumerate(active):
+            seqs, lvs = curves[bi]
+            _, fwhm, _ = X.gaussian_defocus_fwhm(seqs, lvs)
+            if np.isfinite(fwhm):
+                psffoc_rows.append(dict(config=cid, sid=sid, patch=plab, M=M,
+                                        n_marked=n_marked, n_eff=n_eff,
+                                        nstack=len(jpgs), fwhm=fwhm))
+                n_psffoc += 1
         by_frame = {}
         for bi, (plab, a, b, a1, b1, box) in enumerate(active):
             seqs, lvs = curves[bi]
@@ -454,14 +468,15 @@ def cmd_extract(args):
                 rec[f"mtf_fpx{fpx}"] = float(np.interp(fpx, common_f, mtf_agg))
             padedge_rows.append(rec)
         print(f"  {len(active)} in-FOV patches, {len(by_frame)} focus frames, "
-              f"{ncfg_edges} pad edges", flush=True)
+              f"{ncfg_edges} pad edges, {n_psffoc} through-focus fits", flush=True)
 
     tag = (args.shard or "0_1").replace("/", "_")
     pd.DataFrame(psd_rows).to_csv(OUT / f"psd_shard_{tag}.csv", index=False)
     pd.DataFrame(meta_rows).to_csv(OUT / f"meta_shard_{tag}.csv", index=False)
     pd.DataFrame(padedge_rows).to_csv(OUT / f"padedge_shard_{tag}.csv", index=False)
+    pd.DataFrame(psffoc_rows).to_csv(OUT / f"psffoc_shard_{tag}.csv", index=False)
     print(f"WROTE shard {tag}: {len(psd_rows)} psd, {len(meta_rows)} meta, "
-          f"{len(padedge_rows)} padedge", flush=True)
+          f"{len(padedge_rows)} padedge, {len(psffoc_rows)} psffoc", flush=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -510,6 +525,25 @@ def decon_scores(meta):
     scores = X.chain_solve(edges, sorted({e[0] for e in edges} | {e[1] for e in edges}))
     # blur-variance: smaller = sharper -> negate so higher == sharper.
     return {s: -v for s, v in scores.items()}
+
+
+# --------------------------------------------------------------------------- #
+# cross-check estimator: P2 through-focus defocus response (from the shards)
+# --------------------------------------------------------------------------- #
+
+def p2_scores(meta):
+    """Pool the psffoc shards and compute per-config P2 scores (higher == sharper).
+
+    Returns ``{sid: score}`` (empty if no through-focus shards were written, e.g. an
+    extract run from before P2 was added — keeps analyse backward-compatible).
+    """
+    files = list(OUT.glob("psffoc_shard_*.csv"))
+    frames = [pd.read_csv(f) for f in files]
+    frames = [d for d in frames if not d.empty and "fwhm" in d.columns]
+    if not frames:
+        return {}
+    tf = pd.concat(frames, ignore_index=True)
+    return X.through_focus_scores(tf)
 
 
 # --------------------------------------------------------------------------- #
@@ -596,12 +630,37 @@ def cmd_analyse(args):
     if dec:
         series["P32_decon"] = dec
 
+    # ---- P2 through-focus defocus-response corroborator (4th estimator) ------ #
+    p2 = p2_scores(meta)
+    if p2:
+        series["P2_psffoc"] = p2
+        n_eff_by_sid = dict(zip(meta.sid, meta.n_eff))
+        corr_neff = X.p2_deconfound_corr(p2, n_eff_by_sid)
+        corr_m = X.deconfound_corr(p2, m_by_sid)  # reuse: corr(M, score)
+        from scipy.stats import spearmanr as _spearman
+        print("\n" + "=" * 72 + "\nP2 through-focus corroborator (defocus response)\n"
+              + "=" * 72)
+        print(f"de-confound self-check: corr(N_eff, P2)={corr_neff:+.3f} "
+              f"(want |.| <= {X.P2_DECONFOUND_MAX_ABS_CORR}; "
+              f"{'OK' if X.p2_deconfound_ok(corr_neff) else 'FAIL'}); "
+              f"corr(M, P2)={corr_m:+.3f}")
+        for fp in (0.10, 0.12, 0.15):
+            key = f"P1_fpx{fp}"
+            if key not in series:
+                continue
+            common = sorted(set(series[key]) & set(p2))
+            if len(common) >= 6:
+                rho, _ = _spearman([series[key][k] for k in common],
+                                   [p2[k] for k in common])
+                print(f"  P2 vs {key}: Spearman={rho:+.3f} (n={len(common)})")
+
     print("\n" + "=" * 72 + "\nCross-estimator agreement (Spearman)\n" + "=" * 72)
     mat = X.cross_estimator_agreement(series)
     print(mat.to_string())
     mat.to_csv(OUT / "cross_estimator_agreement.csv")
 
-    members = [k for k in ("P1_fpx0.1", "P1_fpx0.12", "P31_padedge", "P32_decon")
+    members = [k for k in ("P1_fpx0.1", "P1_fpx0.12", "P31_padedge", "P32_decon",
+                           "P2_psffoc")
                if k in series]
     cons = X.consensus_ranking(series, members)
     print("\n" + "=" * 72 + "\nConsensus cross-M relative ranking\n" + "=" * 72)
@@ -609,9 +668,13 @@ def cmd_analyse(args):
                 "n_estimators"]].to_string(index=False))
 
     # ---- write the committed ranking CSV + markdown report ------------------ #
+    p2_selfcheck = None
+    if p2:
+        p2_selfcheck = dict(corr_neff=X.p2_deconfound_corr(p2, dict(zip(meta.sid, meta.n_eff))),
+                            corr_m=X.deconfound_corr(p2, m_by_sid), n=len(p2))
     write_ranking_csv(OUT / "cross_m_relative_mtf_ranking.csv", ranking)
     write_report(OUT / "cross_m_relative_mtf_REPORT.md", ranking, mat, cons,
-                 rho, ncommon, jk, sweep_rows, med_rank)
+                 rho, ncommon, jk, sweep_rows, med_rank, p2_selfcheck)
     print(f"\nWROTE {OUT / 'cross_m_relative_mtf_ranking.csv'} and the markdown report")
 
 
@@ -632,7 +695,8 @@ def write_ranking_csv(path, ranking):
         ranking.table.round(4).to_csv(fh, index=False)
 
 
-def write_report(path, ranking, mat, cons, rho, ncommon, jk, sweep_rows, med_rank):
+def write_report(path, ranking, mat, cons, rho, ncommon, jk, sweep_rows, med_rank,
+                 p2_selfcheck=None):
     g = ranking.gate
     lines = []
     lines.append("# Cross-magnification RELATIVE glass-MTF ranking\n")
@@ -673,12 +737,24 @@ def write_report(path, ranking, mat, cons, rho, ncommon, jk, sweep_rows, med_ran
         lines.append(f"| {i + 1} | {row.sid} | {row.score:+.3f} | {row.M:.2f} | "
                      f"{row.sigma:.3f} | {int(row.n_cells)} |")
     lines.append("")
+    if p2_selfcheck is not None:
+        ok = X.p2_deconfound_ok(p2_selfcheck["corr_neff"])
+        lines.append("## P2 through-focus corroborator (defocus response)\n")
+        lines.append(
+            f"- de-confound self-check: corr(N_eff, P2) = **{p2_selfcheck['corr_neff']:+.3f}** "
+            f"(want |.| <= {X.P2_DECONFOUND_MAX_ABS_CORR}; {'OK' if ok else 'FAIL'}); "
+            f"corr(M, P2) = {p2_selfcheck['corr_m']:+.3f} "
+            f"(n={p2_selfcheck['n']} configs)")
+        lines.append(
+            "- P2 is a PER-CONFIG defocus-based corroborator on a different physical "
+            "principle (focus-stack response width, no spectrum): its self-check is "
+            "corr(N_eff)~0, not the f_px window the spectral estimators fence.\n")
     lines.append("## Cross-estimator agreement (Spearman; higher-aligned = sharper)\n")
     lines.append(_df_to_markdown(mat, index_name="estimator"))
     lines.append("\n*Independent physical principles (same-patch spectral ratio P1, "
-                 "pad-edge averaged-ESF P3.1, relative deconvolution P3.2) mutually "
-                 "positive = the cross-M relative signal is real, not a single-method "
-                 "artifact.*\n")
+                 "pad-edge averaged-ESF P3.1, relative deconvolution P3.2, through-focus "
+                 "defocus response P2) mutually positive = the cross-M relative signal "
+                 "is real, not a single-method artifact.*\n")
     lines.append("## Consensus cross-M relative ranking "
                  "(rank-average; rank_std = disagreement = uncertainty)\n")
     lines.append("| consensus_rank | config | mean_rank | rank_std | n_estimators |")
