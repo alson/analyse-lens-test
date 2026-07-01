@@ -236,6 +236,42 @@ below half the predicted scribe FWHM at the sweep's M
   ~33; well within the f/11 diffraction-limit envelope of ~67 lp/mm).
   AIS 287318 centre: 45.1 lp/mm.
 
+## Cross-M relative-MTF pipeline (production, multi-session)
+
+The `relmtf-extract` / `relmtf-analyse` subcommands run the productionised
+cross-magnification relative glass-MTF pipeline over a **frozen multi-session
+subset** (`data/cross_m_relative_mtf_subset_multisession.csv`, 316 config-nodes
+across 2025-10-17 / 2026-01-29 / 2026-02-18 / 2026-05-12 / 2026-05-13; Z7 macro
+only). This is the production entry point; the `scripts/poc_*.py` drivers are the
+original single-cohort (2026-01-29) validations behind `scripts/poc_*_REPORT.md`.
+
+```sh
+# Extract (sharded, CPU-bound — run on nufan; see ../COMPUTE.md):
+tile-sharpness relmtf-extract --subset data/cross_m_relative_mtf_subset_multisession.csv \
+    --out out_relmtf_multisession --shard i/N
+
+# Analyse (pools shards → ranking + physical + field geometry):
+tile-sharpness relmtf-analyse --subset data/cross_m_relative_mtf_subset_multisession.csv \
+    --out out_relmtf_multisession --tier rail-coverage
+```
+
+Stage chain: `multi_session.discover_config_nodes` → `reg_auto` register (with a
+guard that drops M≤0.20 scale-collapse / M∉[0.20,3.50] / rmse>6px, logged to
+`dropped_configs*.csv`) → per-patch P1 spectral/pad-edge/decon (all tiers) + P2
+through-focus FWHM + `coverage_flag`, the P2 part **tier-gated** by
+`p2_rail_available` (registered constant-step rail axis vs manual) → step
+resolution (**documented** `rail_position_mm` from `shots.csv` for 2026-05+,
+**DoF-estimated** only for pre-2026-05 — never DoF when documented) + effective
+aperture via `EffectiveApertureLookup` else the directory-name aperture (never the
+analytical `(1+M/p)`) → per-patch physical mm (`physical_per_patch.csv`) → field
+geometry (`field_geometry_per_config.csv`, tilt-removed).
+
+Reporting rules: the **headline ranking is rail-coverage-tier-only** (`--tier
+rail-coverage`); the manual tier is a secondary/degraded view (`--tier all`;
+`session_summary.csv`). Configs with atlas-measured **M>1.10** are flagged
+`step_low_confidence` and excluded from the headline (DoF M-form is calibrated only
+over M≤1). Configs with `<3` ok-coverage patches are dropped from ranking.
+
 ## Empirical findings (POC 2026-05-15) *— partially superseded; see 2026-05-16 update below*
 
 Validated on four cohorts: a within-sweep manual review (24-120 +

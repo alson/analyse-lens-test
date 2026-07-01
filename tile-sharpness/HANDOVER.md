@@ -2,6 +2,31 @@
 
 State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01).
 
+> **2026-07-01 (later) — PRODUCTIONISED the 4 POCs + the recovered multi-session
+> extension into a single CLI pipeline, and reprocessed all Z7 macro data.** New
+> production entry point: `tile-sharpness relmtf-extract` / `relmtf-analyse`
+> (driver `scripts/relmtf_run.py`), run over the FROZEN 316-config-node multi-session
+> subset `data/cross_m_relative_mtf_subset_multisession.csv` (regenerator
+> `scripts/build_relmtf_subset.py`; 151 rail-coverage / 165 manual tier across
+> 2025-10-17 / 2026-01-29 / 2026-02-18 / 2026-05-12 / 2026-05-13; Z7 only, D7200
+> excluded). Pipeline: `multi_session.discover_config_nodes` → `reg_auto` (guard:
+> drop M≤0.20 scale-collapse / M∉[0.20,3.50] / rmse>6px → `dropped_configs*.csv`)
+> → P1 (all tiers) + P2 through-focus+coverage tier-gated by `p2_rail_available`
+> → step resolution (documented `rail_position_mm` for 2026-05+, DoF-estimated only
+> pre-2026-05, never DoF when documented) + effective aperture (`effective_f_exact`
+> CSV else directory aperture, never analytical) → physical mm (POC 3) → field
+> geometry (POC 4, tilt-removed). **Headline ranking = rail-coverage-tier-only**;
+> manual tier secondary; **M>1.10 flagged `step_low_confidence` + excluded from
+> headline** (DoF M-form calibrated only over M≤1); `<3` ok patches → dropped.
+> Overlap reconciliation: POC 1 `coverage_flag` supersedes the recovered
+> `focus_peak_at_edge`/`coverage_ok` (dropped); the recovered `p2_rail_available`
+> tier gate + multi-session/supersession logic were grafted into `multi_session.py`
+> + `cross_m_relative_mtf.py`. The parked `scripts/_recovered_extension_2026-06-30/`
+> was DELETED once integrated (provenance in git commit 4085c9c). The four
+> `scripts/poc_*.py` remain as the original single-cohort (2026-01-29) validations
+> behind their `_REPORT.md`s; `relmtf-*` is the production path. See README
+> "Cross-M relative-MTF pipeline (production, multi-session)".
+
 > **2026-07-01 — follow-up #7 delivered as four chained POCs: focus-coverage
 > flagging → DoF step-size → physical-mm FWHM → field geometry.** All verified;
 > per-POC reports in `scripts/poc_*_REPORT.md`. Bare `pytest` is now green (277) via

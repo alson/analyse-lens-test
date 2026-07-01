@@ -4,10 +4,11 @@
 This is the PRODUCTIONISED driver (Phase P2) that runs the whole cross-M
 relative-MTF pipeline over the FROZEN multi-session subset
 (``data/cross_m_relative_mtf_subset_multisession.csv``, 316 config-nodes;
-151 rail-coverage-tier / 165 manual-tier). It ports the extract/analyse
-stages of the parked recovered driver
-(``scripts/_recovered_extension_2026-06-30/cross_m_relative_mtf_run.py``)
-and ADAPTS them to the CURRENT production modules:
+151 rail-coverage-tier / 165 manual-tier). Its extract/analyse stages were
+ported from the (now-removed) parked recovered driver and ADAPTED to the
+CURRENT production modules (the recovered dir was deleted once its
+multi-session/supersession/tier logic landed in ``multi_session`` +
+``cross_m_relative_mtf``; git commit 4085c9c holds the provenance):
 
 * ``tile_sharpness.multi_session`` — :func:`discover_config_nodes` / :func:`sid`
   / :func:`human` (frozen-subset iteration, @YYMMDD-tagged collision-free ids).
