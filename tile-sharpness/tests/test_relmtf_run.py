@@ -63,7 +63,25 @@ def test_reg_guard_drops_M_above_max():
 
 
 def test_reg_guard_drops_residual_above_ceiling():
+    # 9.9px @ M=1.0 -> 9.9*4.35/1.0 = 43um object, over the 25um ceiling.
     ok, reason = rr.reg_guard(1.0, 9.9)
+    assert not ok
+    assert "rmse" in reason
+
+
+def test_reg_guard_admits_high_M_borderline_under_object_ceiling():
+    # The near-ceiling high-M group: 6.6px @ M=2.25 = 12.8um object, WELL within the
+    # ~9um-median / p99~20um envelope. A flat 6px ceiling wrongly dropped these; the
+    # object-space ceiling admits them.
+    ok, reason = rr.reg_guard(2.25, 6.6)
+    assert ok and reason == ""
+
+
+def test_reg_guard_tightens_at_low_M():
+    # Object-space is STRICTER at low M than a flat 6px: 5px @ M=0.4 = 54um object,
+    # over the 25um ceiling (a flat 6px would have wrongly ADMITTED it). This is what
+    # rejects the bare 24-120 F5.6/F8 wrong-locks (255-293um).
+    ok, reason = rr.reg_guard(0.4, 5.0)
     assert not ok
     assert "rmse" in reason
 

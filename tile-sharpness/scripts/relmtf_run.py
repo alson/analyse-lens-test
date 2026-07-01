@@ -134,7 +134,13 @@ DIOPTER_TAIL = ["Z100400+MCON-35_1_1.16_F8", "AF200+5T+6T_2_1_F8",
 # documented failure modes get a config DROPPED (never silently skipped — every drop is
 # logged to dropped_configs.csv with a reason):
 #   1. absolute-M out of a sane bound (M < REG_M_MIN or M > REG_M_MAX).
-#   2. registration residual above a ceiling (reg_fit_rmse_px > REG_RMSE_MAX).
+#   2. registration residual above an OBJECT-SPACE ceiling (rmse_px * pitch / M >
+#      REG_RMSE_MAX_OBJECT_UM). Registration accuracy is a physical constant in object
+#      space (~9um median, p99~20um, M-INDEPENDENT: corr(M, rmse_um)=-0.06 over 300 fits);
+#      the per-pixel rmse rises with M (corr +0.66) ONLY because a pixel subtends pitch/M
+#      in object space. A flat px ceiling is therefore too strict at high M (clips good
+#      high-M fits at 12-18um) and too lenient at low M (would pass a 50um-off low-M lock);
+#      the object-space ceiling fixes both.
 #   3. the M~0 scale-COLLAPSE failure mode (HANDOVER 2026-06-28): a near-zero measured M
 #      returned at a deceptively LOW residual. apf.register already fences scale/anchor
 #      to (0.15, 3.5), but a collapse can still land just inside at an anomalously good
@@ -144,7 +150,11 @@ DIOPTER_TAIL = ["Z100400+MCON-35_1_1.16_F8", "AF200+5T+6T_2_1_F8",
 REG_M_MIN = 0.20          # sane lower magnification bound for this wafer rig
 REG_M_MAX = 3.50          # sane upper bound (matches apf scale-collapse fence)
 REG_M_COLLAPSE = 0.20     # M at/below this is the scale-collapse mode -> drop
-REG_RMSE_MAX = 6.0        # px; residuals above this are an unreliable fit
+SENSOR_PITCH_UM = 4.35            # Z7 pixel pitch, for object-space rmse conversion
+REG_RMSE_MAX_OBJECT_UM = 25.0     # object-space residual ceiling. p99 of kept fits ~20um,
+                                  # so 25um keeps every prior-good fit, ADMITS the high-M
+                                  # near-ceiling group (12.6-17.6um; flat 6px clipped them),
+                                  # and REJECTS wrong-locks (bare 24-120 F5.6/F8 at 255-293um).
 
 # --------------------------------------------------------------------------- #
 # min-residual-over-frames registration frame-selection (recovery fix, 2026-06-30)
@@ -164,9 +174,10 @@ REG_SELECT_NOMINAL_HI = 1.90   # measured <= 1.90 * nominal (above => wrong-lock
 # how many candidate frames to attempt registration on, per config. Registration is the
 # expensive step, so we cap it: the sharpest N_TOPK central-lapvar frames plus a handful
 # spread across the stack. The honest lock for the wrong-lock zooms sits ~20-30th by
-# lapvar (the sharpest bracket registers WORST), so a top-3 window misses it; ~16 covers
-# the observed honest-lock ranks while staying ~3x cheaper than all-frames.
-REG_SELECT_TOPK = 16
+# lapvar (the sharpest bracket registers WORST), so a top-3 window misses it. Per-config
+# diagnostics put the deepest honest lock at rank ~16 (Z100400 F8), so 20 covers the
+# observed ranks while staying much cheaper than all-frames.
+REG_SELECT_TOPK = 20
 REG_SELECT_SPREAD = (0.3, 0.5, 0.7)
 
 
@@ -253,8 +264,10 @@ def reg_guard(M, rmse):
         return False, f"reg_M_out_of_bounds(M={M:.3f})"
     if not (rmse is not None and np.isfinite(rmse)):
         return False, "reg_rmse_nonfinite"
-    if rmse > REG_RMSE_MAX:
-        return False, f"reg_rmse_too_high(rmse={rmse:.2f}> {REG_RMSE_MAX})"
+    rmse_um = rmse * SENSOR_PITCH_UM / M
+    if rmse_um > REG_RMSE_MAX_OBJECT_UM:
+        return False, (f"reg_rmse_too_high(rmse={rmse:.2f}px={rmse_um:.1f}um"
+                       f"> {REG_RMSE_MAX_OBJECT_UM}um)")
     return True, ""
 
 
