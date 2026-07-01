@@ -26,6 +26,22 @@ State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01)
 > `scripts/poc_*.py` remain as the original single-cohort (2026-01-29) validations
 > behind their `_REPORT.md`s; `relmtf-*` is the production path. See README
 > "Cross-M relative-MTF pipeline (production, multi-session)".
+>
+> **Re-run outcome (all Z7 macro, `out_relmtf_multisession/`, gitignored/regenerable):**
+> 16 shards thread-pinned on nufan, clean (no errors). **282/316 configs registered;
+> 34 dropped by `reg_guard`** (concentrated in the high-M extension/diopter families —
+> 2026-02-18 −15, 2026-05-13 −19 — where `reg_auto` collapses, a known limit). ~10.6k
+> through-focus fits, ~29k field-tagged patches. **Headline rail-coverage-tier ranking =
+> 63 configs (M 0.38–1.08; M>1.10 correctly excluded → 0 low-conf in headline)**; manual
+> tiers = 0 in headline (secondary `--tier all` view). Relative fixed-f_px (0.1 cy/px)
+> sharpest = bare Z 100-400 F11/F16, Z 24-120 F16, Viltrox 85+26mm-ext (low-M tops it —
+> the estimator deliberately doesn't credit empty magnification); softest = Viltrox
+> 85+61mm-ext wide-open. Physical: documented step used for ALL 2026-05 (never-DoF-when-
+> known held). Field geometry (65 configs, tilt-removed) — READ WITH `rms_residual_um` as
+> the quality gate: clean strong curvature e.g. V55-287318 F8 (−1.27 DoF sag, −1429 µm,
+> RMS 51 µm, corners-nearer) and 100-400+C500D F11 (−1.03 DoF, RMS 47 µm); flattest ~S150
+> F16 / Viltrox+45mm-ext (≈0.04 DoF). The huge-sag 24-120+ext wide-open configs have RMS
+> >300–1000 µm → NOT clean bowls (tilt/noise-dominated); don't trust their sag.
 
 > **2026-07-01 — follow-up #7 delivered as four chained POCs: focus-coverage
 > flagging → DoF step-size → physical-mm FWHM → field geometry.** All verified;
