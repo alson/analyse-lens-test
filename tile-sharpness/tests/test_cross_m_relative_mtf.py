@@ -317,6 +317,122 @@ def test_through_focus_scores_drop_degenerate_fits():
     assert scores["ok"] == pytest.approx(-9.0)  # median of {8, 10}, 200 dropped
 
 
+# --------------------------------------------------------------------------- #
+# POC-1 — focus-coverage classifier
+# --------------------------------------------------------------------------- #
+
+def test_coverage_flag_peak_well_inside_is_ok():
+    # peak fitted at frame 20 of a 41-frame stack, narrow FWHM that fits with margin
+    # to spare on both sides -> ok.
+    seqs, vals = _synthetic_focus_curve(3.0, n_frames=41, peak_frame=20.0)
+    _, fwhm, mu = X.gaussian_defocus_fwhm(seqs, vals)
+    assert X.coverage_flag(mu, fwhm, nstack=41) == "ok"
+    # geometry helpers on this ok case
+    assert X.peak_pos_frac(mu, 41) == pytest.approx(20.0 / 40.0, abs=0.02)
+    assert X.edge_dist_frames(mu, 41) == pytest.approx(20.0, abs=0.5)
+
+
+def test_coverage_flag_peak_at_first_frame_is_truncated_low():
+    # the captured stack starts AT the peak: best focus is at/before frame 0.
+    seqs, vals = _synthetic_focus_curve(3.0, n_frames=41, peak_frame=0.0)
+    _, fwhm, mu = X.gaussian_defocus_fwhm(seqs, vals)
+    assert mu <= X.COVERAGE_EDGE_MARGIN_FRAMES
+    assert X.coverage_flag(mu, fwhm, nstack=41) == "truncated_low"
+    # pure-classifier check independent of the fit
+    assert X.coverage_flag(0.0, 6.0, 41) == "truncated_low"
+
+
+def test_coverage_flag_peak_at_last_frame_is_truncated_high():
+    # the captured stack ends AT the peak: best focus is at/past the last frame.
+    seqs, vals = _synthetic_focus_curve(3.0, n_frames=41, peak_frame=40.0)
+    _, fwhm, mu = X.gaussian_defocus_fwhm(seqs, vals)
+    assert mu >= 40.0 - X.COVERAGE_EDGE_MARGIN_FRAMES
+    assert X.coverage_flag(mu, fwhm, nstack=41) == "truncated_high"
+    assert X.coverage_flag(40.0, 6.0, 41) == "truncated_high"
+
+
+def test_coverage_flag_peak_inside_but_fwhm_clipped():
+    # peak CENTRE comfortably inside (frame 5 of 41, > margin from edge) but the
+    # half-max width (HWHM = fwhm/2) runs off the low edge -> fwhm_truncated.
+    # Pure classifier: mu=5, fwhm=20 -> HWHM=10 -> mu-HWHM=-5 < 0.
+    assert X.coverage_flag(5.0, 20.0, nstack=41) == "fwhm_truncated"
+    # and a synthetic wide curve whose peak is near (but not at) the start:
+    seqs, vals = _synthetic_focus_curve(8.0, n_frames=41, peak_frame=6.0)
+    _, fwhm, mu = X.gaussian_defocus_fwhm(seqs, vals)
+    assert mu > X.COVERAGE_EDGE_MARGIN_FRAMES          # centre is inside
+    assert (mu - fwhm / 2.0) < 0.0                      # but half-max clips the edge
+    assert X.coverage_flag(mu, fwhm, nstack=41) == "fwhm_truncated"
+
+
+def test_coverage_flag_edge_takes_priority_over_fwhm_clip():
+    # a centre AT frame 0 with a clipped HWHM is reported truncated_low, not
+    # fwhm_truncated (centre-edge truncation has priority).
+    assert X.coverage_flag(0.0, 20.0, nstack=41) == "truncated_low"
+
+
+def test_coverage_flag_unknown_inputs_default_ok():
+    # non-finite mu or a too-short stack -> treated as unknown (ok); callers also
+    # require a finite fwhm before trusting the patch.
+    assert X.coverage_flag(float("nan"), 5.0, 41) == "ok"
+    assert X.coverage_flag(10.0, 5.0, nstack=1) == "ok"
+    assert np.isnan(X.peak_pos_frac(float("nan"), 41))
+    assert np.isnan(X.edge_dist_frames(20.0, 1))
+
+
+def test_through_focus_scores_excludes_truncated_patches():
+    # a config whose narrow (sharp) patches are all truncated and whose only ok
+    # patches are wide must score on the ok patches, not the truncated ones.
+    rows = [
+        # ok patches: moderate width
+        dict(sid="cfg", patch="P0", fwhm=10.0, coverage_flag="ok"),
+        dict(sid="cfg", patch="P1", fwhm=12.0, coverage_flag="ok"),
+        # truncated patches with artificially small FWHM (clipped curve) -> excluded
+        dict(sid="cfg", patch="P2", fwhm=2.0, coverage_flag="truncated_low"),
+        dict(sid="cfg", patch="P3", fwhm=2.0, coverage_flag="fwhm_truncated"),
+    ]
+    scores = X.through_focus_scores(pd.DataFrame(rows))
+    # median over the two ok patches {10, 12} = 11, score = -11
+    assert scores["cfg"] == pytest.approx(-11.0)
+    # opting out of the coverage filter -> median over all four {2,2,10,12}=6
+    s_nocov = X.through_focus_scores(pd.DataFrame(rows), require_coverage_ok=False)
+    assert s_nocov["cfg"] == pytest.approx(-6.0)
+
+
+def test_through_focus_scores_fallback_when_no_ok_patch():
+    # if a config has NO ok patch, it falls back to its valid FWHMs (not dropped).
+    rows = [
+        dict(sid="alltrunc", patch="P0", fwhm=4.0, coverage_flag="truncated_high"),
+        dict(sid="alltrunc", patch="P1", fwhm=6.0, coverage_flag="truncated_high"),
+    ]
+    scores = X.through_focus_scores(pd.DataFrame(rows))
+    assert scores["alltrunc"] == pytest.approx(-5.0)
+
+
+def test_through_focus_coverage_summary_counts_and_fraction():
+    rows = [
+        dict(sid="A", patch="P0", fwhm=5.0, coverage_flag="ok"),
+        dict(sid="A", patch="P1", fwhm=5.0, coverage_flag="ok"),
+        dict(sid="A", patch="P2", fwhm=5.0, coverage_flag="truncated_low"),
+        dict(sid="A", patch="P3", fwhm=5.0, coverage_flag="fwhm_truncated"),
+        dict(sid="B", patch="P0", fwhm=5.0, coverage_flag="ok"),
+    ]
+    cov = X.through_focus_coverage_summary(pd.DataFrame(rows))
+    a = cov[cov.sid == "A"].iloc[0]
+    assert a.n_total == 4 and a.ok == 2 and a.truncated_low == 1
+    assert a.fwhm_truncated == 1
+    assert a.frac_truncated == pytest.approx(0.5)
+    b = cov[cov.sid == "B"].iloc[0]
+    assert b.frac_truncated == pytest.approx(0.0)
+
+
+def test_through_focus_scores_backward_compatible_without_coverage_column():
+    # a psffoc frame from before POC-1 (no coverage_flag column) behaves as before.
+    rows = [dict(sid="x", patch="P0", fwhm=8.0),
+            dict(sid="x", patch="P1", fwhm=10.0)]
+    scores = X.through_focus_scores(pd.DataFrame(rows))
+    assert scores["x"] == pytest.approx(-9.0)
+
+
 def test_p2_deconfound_corr_against_n_eff():
     # P2's de-confounding axis is N_eff (DOF), not M. A clean P2 score is ~uncorrelated
     # with N_eff; the helper computes corr(N_eff, score) and the OK gate is |corr|<=thr.

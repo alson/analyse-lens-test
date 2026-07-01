@@ -476,13 +476,20 @@ def cmd_extract(args):
         # PSD/pad-edge stage scans for best focus also carry the focus-response SHAPE.
         # Per patch fit a Gaussian-of-defocus to the lapvar(z) peak -> sub-frame FWHM.
         n_psffoc = 0
+        nstack = len(jpgs)
         for bi, (plab, a, b, a1, b1, box) in enumerate(active):
             seqs, lvs = curves[bi]
-            _, fwhm, _ = X.gaussian_defocus_fwhm(seqs, lvs)
+            _, fwhm, mu = X.gaussian_defocus_fwhm(seqs, lvs)
             if np.isfinite(fwhm):
+                # POC-1 focus-coverage: emit the fitted peak centre + a coverage
+                # classification so truncated peaks (true best focus outside the
+                # captured rail range) can be excluded / quantified downstream.
                 psffoc_rows.append(dict(config=cid, sid=sid, patch=plab, M=M,
                                         n_marked=n_marked, n_eff=n_eff,
-                                        nstack=len(jpgs), fwhm=fwhm))
+                                        nstack=nstack, fwhm=fwhm, mu=mu,
+                                        peak_pos_frac=X.peak_pos_frac(mu, nstack),
+                                        edge_dist_frames=X.edge_dist_frames(mu, nstack),
+                                        coverage_flag=X.coverage_flag(mu, fwhm, nstack)))
                 n_psffoc += 1
         by_frame = {}
         for bi, (plab, a, b, a1, b1, box) in enumerate(active):

@@ -112,6 +112,92 @@ P2_DECONFOUND_MAX_ABS_CORR = 0.30
 P2_MAX_VALID_FWHM = 60.0
 
 # --------------------------------------------------------------------------- #
+# focus-COVERAGE awareness (POC 1)
+# --------------------------------------------------------------------------- #
+#
+# A focus stack is a sequence of shots at increasing rail positions; the per-patch
+# Laplacian-variance vs frame index traces a defocus peak. If the FITTED peak
+# centre (``mu``, from :func:`gaussian_defocus_fwhm`) sits at or beyond the FIRST
+# or LAST captured frame, the true best-focus position is OUTSIDE the captured
+# range — both the "best focus" position AND the FWHM are unreliable (the curve is
+# truncated). This bites the MANUAL-tier sweeps (start/stop set by hand) and, for a
+# given config, the OFF-AXIS / corner patches first: field curvature shifts their
+# best focus along the rail, so a sweep that brackets the centre can clip the
+# corners. The 2026-01-29 handover specifically warns that an apparent top-vs-bottom
+# "decentering" in that cohort is LIKELY this under-coverage artifact (corner
+# patches truncated at the stack edge), not real decentering — these helpers let us
+# quantify it.
+
+#: Minimum frames a peak (and at least its HWHM) must sit inside a stack edge before
+#: we call coverage ``ok``. A 1-frame floor: a peak landing exactly on frame 0 or the
+#: last frame is unambiguously truncated, but we also require the half-max width to
+#: fit (see :func:`coverage_flag`), which is the binding constraint in practice.
+COVERAGE_EDGE_MARGIN_FRAMES = 1.0
+
+#: coverage_flag values, in priority order (a peak truncated at an edge is reported
+#: as that, not as fwhm_truncated, even if its HWHM is also clipped).
+COVERAGE_FLAGS = ("ok", "truncated_low", "truncated_high", "fwhm_truncated")
+
+
+def coverage_flag(mu, fwhm, nstack, *, margin=COVERAGE_EDGE_MARGIN_FRAMES):
+    """Classify focus-coverage of a single fitted through-focus peak.
+
+    Given the FITTED peak centre ``mu`` (frames, from :func:`gaussian_defocus_fwhm`),
+    the fitted ``fwhm`` (frames), and ``nstack`` = number of frames in the stack
+    (valid frame indices span ``[0, nstack-1]``), return one of
+    :data:`COVERAGE_FLAGS`:
+
+    * ``truncated_low``  — ``mu <= margin``: the peak is at/below the first frames,
+      so the true best focus is at or before the start of the captured range.
+    * ``truncated_high`` — ``mu >= (nstack-1) - margin``: peak at/beyond the last
+      frames; true best focus is at or past the end of the range.
+    * ``fwhm_truncated`` — the peak CENTRE is inside, but ``mu +/- HWHM`` (HWHM =
+      ``fwhm/2``) extends outside ``[0, nstack-1]``: the curve's half-max width is
+      clipped by the stack edge, so the measured FWHM is under-estimated.
+    * ``ok``             — peak centre comfortably inside (> ``margin`` from each
+      edge) AND the full half-max width fits inside ``[0, nstack-1]``.
+
+    DESIGN RULE (stated explicitly): a patch is ``ok`` only if the peak plus at
+    least its HWHM is inside the stack, with a small ``margin``-frame floor on the
+    centre. The HWHM-inside requirement is what makes a fit's FWHM trustworthy:
+    if the half-max points fall off the captured range the Gaussian width was
+    measured on a clipped curve. Edge truncation of the CENTRE takes priority over
+    HWHM clipping (a centre at frame 0 is reported ``truncated_low``, not
+    ``fwhm_truncated``). A non-finite ``mu`` or ``nstack < 2`` yields ``"ok"``
+    treated as unknown — callers should additionally require a finite ``fwhm``
+    before trusting the patch.
+
+    Pure / unit-tested.
+    """
+    if not np.isfinite(mu) or nstack is None or nstack < 2:
+        return "ok"
+    last = float(nstack) - 1.0
+    if mu <= margin:
+        return "truncated_low"
+    if mu >= last - margin:
+        return "truncated_high"
+    if np.isfinite(fwhm):
+        hwhm = 0.5 * float(fwhm)
+        if (mu - hwhm) < 0.0 or (mu + hwhm) > last:
+            return "fwhm_truncated"
+    return "ok"
+
+
+def peak_pos_frac(mu, nstack):
+    """Fractional peak position: ``mu / (nstack - 1)`` (0 = first frame, 1 = last)."""
+    if not np.isfinite(mu) or nstack is None or nstack < 2:
+        return float("nan")
+    return float(mu) / (float(nstack) - 1.0)
+
+
+def edge_dist_frames(mu, nstack):
+    """Distance (frames) from ``mu`` to the nearest stack edge: ``min(mu, last-mu)``."""
+    if not np.isfinite(mu) or nstack is None or nstack < 2:
+        return float("nan")
+    last = float(nstack) - 1.0
+    return float(min(mu, last - mu))
+
+# --------------------------------------------------------------------------- #
 # LOCATION-AWARE (field-position) constants
 # --------------------------------------------------------------------------- #
 #
@@ -556,7 +642,8 @@ def gaussian_defocus_fwhm(seqs, vals):
     return sigma_z, fwhm, mu
 
 
-def through_focus_scores(tf, *, max_valid_fwhm=P2_MAX_VALID_FWHM):
+def through_focus_scores(tf, *, max_valid_fwhm=P2_MAX_VALID_FWHM,
+                          require_coverage_ok=True):
     """Per-config P2 score from per-(config, patch) through-focus FWHMs.
 
     ``tf`` = DataFrame with columns ``{sid, fwhm}`` (one row per (config, patch);
@@ -565,15 +652,54 @@ def through_focus_scores(tf, *, max_valid_fwhm=P2_MAX_VALID_FWHM):
     sharper (aligned with P1). FWHMs above ``max_valid_fwhm`` frames are degenerate
     fits and dropped before the median; a config with no valid FWHM is omitted.
     Returns ``{sid: score}``.
+
+    POC-1 focus-coverage: when ``require_coverage_ok`` is True AND ``tf`` carries a
+    ``coverage_flag`` column, patches whose flag != ``"ok"`` are EXCLUDED from the
+    per-config median (their FWHM was measured on a stack-clipped curve and is
+    under-measured). If, after the coverage filter, a config has no ``ok`` patch
+    left, it falls back to its valid (finite, <= max_valid_fwhm) FWHMs so the config
+    is not silently dropped — but see :func:`through_focus_coverage_summary` for the
+    per-config truncated fraction that flags such configs. DataFrames lacking a
+    ``coverage_flag`` column behave exactly as before (backward compatible).
     """
     out = {}
-    good = tf[np.isfinite(tf["fwhm"]) & (tf["fwhm"] <= max_valid_fwhm)]
+    valid = np.isfinite(tf["fwhm"]) & (tf["fwhm"] <= max_valid_fwhm)
+    good = tf[valid]
+    use_cov = require_coverage_ok and ("coverage_flag" in tf.columns)
     for sid, g in good.groupby("sid"):
+        if use_cov:
+            g_ok = g[g["coverage_flag"] == "ok"]
+            if len(g_ok) > 0:
+                g = g_ok
         vals = g["fwhm"].to_numpy(float)
         if len(vals) == 0:
             continue
         out[str(sid)] = -float(np.median(vals))
     return out
+
+
+def through_focus_coverage_summary(tf):
+    """Per-config focus-coverage summary from a per-patch ``coverage_flag`` column.
+
+    ``tf`` = DataFrame with at least ``{sid, coverage_flag}`` (one row per patch).
+    Returns a DataFrame, one row per config, with the patch count per
+    :data:`COVERAGE_FLAGS` class, ``n_total``, and ``frac_truncated`` (fraction of
+    patches whose flag != ``"ok"``). Empty / no-column input returns an empty frame.
+    """
+    if "coverage_flag" not in tf.columns or len(tf) == 0:
+        return pd.DataFrame(
+            columns=["sid", "n_total", *COVERAGE_FLAGS, "frac_truncated"])
+    rows = []
+    for sid, g in tf.groupby("sid"):
+        counts = {f: int((g["coverage_flag"] == f).sum()) for f in COVERAGE_FLAGS}
+        n_total = int(len(g))
+        n_ok = counts["ok"]
+        rows.append(dict(sid=str(sid), n_total=n_total, **counts,
+                         frac_truncated=(n_total - n_ok) / n_total
+                         if n_total else float("nan")))
+    return (pd.DataFrame(rows)
+            .sort_values("frac_truncated", ascending=False)
+            .reset_index(drop=True))
 
 
 def p2_deconfound_corr(scores, n_eff_by_sid):
