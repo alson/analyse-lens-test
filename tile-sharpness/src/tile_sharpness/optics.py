@@ -103,6 +103,67 @@ def diffraction_mtf50_sensor_lpmm(n_eff: float, wavelength_um: float = GREEN_WAV
     return MTF50_CUTOFF_FRACTION * cutoff_lpmm
 
 
+def object_dof_predictor(n_marked: float, magnification: float,
+                         pupil_mag: float = 1.0, *, form: str = "neff_over_m",
+                         n_working: float | None = None) -> float:
+    """Object-space depth-of-field *shape* predictor (arbitrary units).
+
+    The geometric defocus model: an object displaced axially by ``δz`` from best
+    focus produces a blur disc of object-space diameter ``b ≈ δz · M / N_eff``
+    (thin-lens, ``N_eff`` the effective/working f-number). A through-focus
+    sharpness response (Laplacian variance vs frame) therefore has a
+    characteristic object-space width set by an acceptable-blur tolerance ``c``:
+    its half-width is ``δz_half ≈ c · N_eff / M`` — i.e. object-space DoF scales
+    as ``N_eff / M`` (times a constant ``c`` absorbing the blur tolerance and the
+    Gaussian-vs-geometric shape factor). This function returns the *unit-free
+    shape* of several candidate scalings so a calibration can pick which one best
+    linearly explains measured object-space FWHM; the multiplicative constant
+    ``k`` (≈ ``2c``) is fit empirically, not baked in here.
+
+    The effective/working f-number is ``effective_fnumber(n_marked, M, p)`` by
+    default. When the working f-number is already known empirically (e.g. an
+    extension-tube config whose bellows-corrected aperture comes from a
+    calibration table), pass it as ``n_working`` and it is used DIRECTLY — this
+    avoids double-counting the bellows factor by re-applying ``(1+M/p)`` on top of
+    an already-corrected value. In that case ``n_marked`` is still used only by
+    the ``n_over_m`` control form (the genuine marked f-number).
+
+    ``form`` selects the candidate predictor (``N = n_marked``,
+    ``N_eff`` = working f-number as above):
+
+    * ``"neff_over_m"``   → ``N_eff / M``          (object-space geometric DoF; default)
+    * ``"n_over_m"``      → ``N / M``              (ignores the bellows factor)
+    * ``"neff_1pm_over_m2"`` → ``N_eff·(1+M) / M²`` (image-space focus depth ``N_eff(1+M)``
+                              mapped to object space by dividing by the axial
+                              magnification ``M²``)
+    * ``"neff"``          → ``N_eff``              (no magnification term — control)
+
+    All forms are strictly positive for valid inputs and the three M-dependent
+    forms are strictly decreasing in ``M`` at fixed ``N`` (more magnification →
+    shallower object-space DoF).
+    """
+    if n_marked <= 0 or magnification <= 0 or pupil_mag <= 0:
+        raise ValueError("n_marked>0, magnification>0, pupil_mag>0 required")
+    if n_working is not None:
+        if n_working <= 0:
+            raise ValueError("n_working>0 required")
+        n_eff = n_working
+    else:
+        n_eff = effective_fnumber(n_marked, magnification, pupil_mag)
+    if form == "neff_over_m":
+        return n_eff / magnification
+    if form == "n_over_m":
+        return n_marked / magnification
+    if form == "neff_1pm_over_m2":
+        return n_eff * (1.0 + magnification) / (magnification * magnification)
+    if form == "neff":
+        return n_eff
+    raise ValueError(f"unknown DoF predictor form {form!r}")
+
+
+DOF_PREDICTOR_FORMS = ("neff_over_m", "n_over_m", "neff_1pm_over_m2", "neff")
+
+
 def diffraction_mtf50_subject_lpmm(n_marked: float, magnification: float,
                                    pupil_mag: float = 1.0,
                                    wavelength_um: float = GREEN_WAVELENGTH_UM) -> float:

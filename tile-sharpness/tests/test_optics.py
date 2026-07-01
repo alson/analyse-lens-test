@@ -4,9 +4,11 @@ import math
 import pytest
 
 from tile_sharpness.optics import (
+    DOF_PREDICTOR_FORMS,
     diffraction_mtf50_sensor_lpmm,
     diffraction_mtf50_subject_lpmm,
     effective_fnumber,
+    object_dof_predictor,
 )
 
 
@@ -46,6 +48,38 @@ def test_subject_ceiling_saturates_with_magnification():
     c10 = diffraction_mtf50_subject_lpmm(n, 10.0)
     assert c1 < c2 < c10 < asymptote          # monotone up, bounded by the asymptote
     assert c10 == pytest.approx(asymptote * (10.0 / 11.0), rel=1e-9)
+
+
+def test_object_dof_predictor_known_value():
+    # neff_over_m at N=11, M=1, p=1: N_eff = 22, predictor = 22/1 = 22
+    assert object_dof_predictor(11, 1.0, form="neff_over_m") == pytest.approx(22.0)
+    # n_over_m strips the bellows factor: 11/1 = 11
+    assert object_dof_predictor(11, 1.0, form="n_over_m") == pytest.approx(11.0)
+    # neff control: just N_eff
+    assert object_dof_predictor(11, 1.0, form="neff") == pytest.approx(22.0)
+    # neff_1pm_over_m2: 22*(1+1)/1 = 44
+    assert object_dof_predictor(11, 1.0, form="neff_1pm_over_m2") == pytest.approx(44.0)
+
+
+def test_object_dof_predictor_decreasing_in_m():
+    # All magnification-dependent forms shrink object-space DoF as M grows.
+    for form in ("neff_over_m", "n_over_m", "neff_1pm_over_m2"):
+        vals = [object_dof_predictor(8, m, form=form) for m in (0.5, 1.0, 1.5, 2.0)]
+        assert all(a > b for a, b in zip(vals, vals[1:])), form
+
+
+def test_object_dof_predictor_increasing_in_aperture():
+    # Stopping down (larger N) deepens DoF for every form.
+    for form in DOF_PREDICTOR_FORMS:
+        assert object_dof_predictor(16, 1.0, form=form) > object_dof_predictor(4, 1.0, form=form)
+
+
+def test_object_dof_predictor_validation():
+    for bad in (lambda: object_dof_predictor(0, 1.0),
+                lambda: object_dof_predictor(8, 0.0),
+                lambda: object_dof_predictor(8, 1.0, form="bogus")):
+        with pytest.raises(ValueError):
+            bad()
 
 
 def test_real_lens_cannot_beat_ceiling_is_the_point():
