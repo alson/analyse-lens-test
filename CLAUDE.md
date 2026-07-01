@@ -78,6 +78,23 @@ docs and are linked from here.
   pipeline is no longer just folder-labelling; sharpness can't run
   without it.
 
+- **Aperture folder names are EFFECTIVE (bellows-corrected) — never
+  re-apply the bellows factor.** For any working-f computation (DoF,
+  diffraction, defocus, step-size), resolve N_working by priority:
+  (1) ``effective_f_exact`` from the in-tree ``effective_apertures.csv``
+  (roots ``test-raw-data/2026-{01-29,02-18,05-13}/``; load via
+  ``rail_calibration.EffectiveApertureLookup.from_csvs``) — it's
+  *photometric* (``sqrt`` of the brightness ratio), so it's independent
+  of DoF and safe as a DoF-model input; (2) else the directory-name
+  aperture **used directly** (it is already effective — AF/IF macros
+  report effective aperture in EXIF; manual extension-only lenses like
+  the 55mm carry published/analytical f_eff baked into the folder name;
+  sanity-check widest-native-folder ≈ spec-max·(1+M)); (3) never the
+  analytical ``N·(1+M/p)`` formula (needs the unpublished focal length
+  at MFD + pupil magnification, unreliable for IF lenses) — drop the
+  config instead. Details in ``bellows-calibration/`` (README + FINDINGS)
+  and ``tile-sharpness/HANDOVER.md`` (2026-07-01).
+
 - **Filesize is a degenerate fallback only, not a primary sharpness
   proxy.** ``filesize`` argmax saturates at sharp configs (visually
   confirmed: at AIS 55mm 1:1 F8 it under-reports the centre-tile

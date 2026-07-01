@@ -1,6 +1,67 @@
 # Sharpness assessment POC — session handover
 
-State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30).
+State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01).
+
+> **2026-07-01 — follow-up #7 delivered as four chained POCs: focus-coverage
+> flagging → DoF step-size → physical-mm FWHM → field geometry.** All verified;
+> per-POC reports in `scripts/poc_*_REPORT.md`. Bare `pytest` is now green (277) via
+> `testpaths=["tests"]` in pyproject.toml (was a collection clash with the parked
+> `scripts/_recovered_extension_2026-06-30/` test + `.venv` globbing).
+>
+> 1. **POC 1 — focus-coverage flagging** (`cross_m_relative_mtf.py`): the P2
+>    through-focus estimator now emits per-patch `mu` (best-focus centre, frames),
+>    `peak_pos_frac`, `edge_dist_frames`, and `coverage_flag` ∈
+>    {ok, truncated_low, truncated_high, fwhm_truncated} (priority: edge-of-stack
+>    first, then HWHM-clipped). `through_focus_scores` excludes non-`ok` patches.
+>    2026-01-29 cohort: 677 ok / 45 fwhm_truncated / 2 truncated_low / 0
+>    truncated_high; corners NOT disproportionately truncated (corner 8.6 % vs
+>    centre 7.1 %).
+> 2. **POC 2 — DoF-based rail step-size** (`optics.object_dof_predictor` +
+>    `scripts/poc_dof_step_size.py`): estimates mm/frame from a depth-of-focus model
+>    × measured through-focus FWHM, validated on the 2026-05 documented
+>    `rail_position_mm`. Best predictor **`N_working·(1+M)/M²`, R²=0.871, k=0.04255**;
+>    LOO accuracy median 1.05 (IQR [0.91, 1.30]); **beats the scribe-blur calibrator**
+>    (scribe under-reads, ratio ~0.67). ⚠ **M-form is weakly identified** — only 3
+>    distinct M values (0.385/0.752/1.0, each a lens group, all ≤1.0); the aperture
+>    (N_working) dependence is solid but the M-exponent rests on 3 clusters, so
+>    absolute mm at M>1 is EXTRAPOLATION (tilt/curvature scale linearly with the
+>    unknown M-exponent → ~2× uncertainty at 2:1).
+> 3. **POC 3 — physical-mm FWHM** (`focus_physical.py` +
+>    `scripts/poc_refine_fwhm.py`): emits per-patch `mu_mm`, `fwhm_mm`, per-sweep
+>    `step_mm`+`step_source` (documented where available, DoF-estimated otherwise),
+>    coverage-carried + DoF-prior imputation for truncated patches. Non-circular
+>    validation vs documented step: mu_mm/fwhm_mm estimated-vs-documented median
+>    ~1.05 (just inherits POC 2's step error). `mu` fit stderr ~0.045 frames.
+> 4. **POC 4 — field geometry** (`field_geometry_focus.py` +
+>    `scripts/poc_field_geometry.py`): plane-fit of `mu_mm` over (x,y) → tilt +
+>    field-curvature (radial residual) + decentering, run ALL vs coverage-CLEAN.
+>    **The 2026-01-29 top-vs-bottom "decentering" is an UNDER-COVERAGE ARTIFACT** —
+>    AF 200 IF-ED 1:1 all-patches sag 8508 µm / T-B +1.99 mm → clean sag 108 µm (78×
+>    collapse) / T-B −1.14 mm (sign flip) from 3 truncated patches. Robust residual
+>    is L-R/general plane tilt; only Sigma 150 & MC 105 (zero truncated patches) show
+>    genuine T-B. Tilt magnitudes agree with `characterise.py` to ~0.5°. (This
+>    supersedes the "re-examine the apparent T–B decentering" caveat in the
+>    2026-06-30 follow-up #7 below — resolved: artifact.)
+>
+> **Effective-aperture correctness (load-bearing; bit POC 2 first).** For ANY working
+> f-number (DoF, diffraction, defocus, step-size), the aperture is ALREADY effective
+> (bellows-corrected) — never re-apply `N·(1+M/p)`. Resolution priority: (1)
+> `effective_f_exact` from the in-tree `effective_apertures.csv`
+> (`test-raw-data/2026-{01-29,02-18,05-13}/`, load via
+> `rail_calibration.EffectiveApertureLookup.from_csvs`; photometric = `sqrt`(brightness
+> ratio), so independent of DoF → no circularity); else (2) the **directory-name
+> aperture used directly** (it is already effective — AF/IF macros report effective
+> EXIF; manual extension-only lenses like the 55mm have f_eff from the published
+> manual/analytical extension baked into the folder name; verify via widest-native-folder
+> ≈ spec-max·(1+M)); (3) never the analytical formula (needs unpublished focal-at-MFD +
+> pupil mag) — drop the config instead. See `../bellows-calibration/` and the
+> project `CLAUDE.md` "Effective aperture" note.
+>
+> **Status of the parked `scripts/_recovered_extension_2026-06-30/`:** its coverage
+> helpers are superseded by POC 1, BUT its multi-session/20-aperture extension
+> (`--subset`, `@YYMMDD` sid tags + supersession dedup, tier-aware P2 degradation)
+> and the 316-config multisession subset CSV are NOT integrated — still the input for
+> follow-up #5 (extend the estimator beyond 2026-01-29). Keep until that reprocess lands.
 
 > **2026-06-30 — cross-M relative-MTF estimator (new) + follow-ups.** A long POC arc
 > (full record: `scripts/poc_comb_chain_REPORT.md`) established that an ABSOLUTE /
