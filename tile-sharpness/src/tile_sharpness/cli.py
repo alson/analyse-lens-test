@@ -259,7 +259,62 @@ def build_parser() -> argparse.ArgumentParser:
         help="output CSV (default: lens_characteristics.csv alongside peaks_v2.csv)",
     )
     p_char.set_defaults(func=_cmd_characterise)
+
+    # ---- cross-M relative-MTF pipeline (P2 driver) ------------------------------- #
+    # These delegate to scripts/relmtf_run.py (the heavy extract/analyse driver, which
+    # loads reg_auto + the image stack via importlib). Kept as thin wrappers so the
+    # existing subcommands and their light imports are untouched.
+    p_rmx = sub.add_parser(
+        "relmtf-extract",
+        help="cross-M relative-MTF EXTRACT stage (register + PSD/pad-edge/psffoc/fieldtag; sharded)",
+    )
+    p_rmx.add_argument("--subset", required=True, help="frozen multi-session subset CSV")
+    p_rmx.add_argument("--out", required=True, help="output dir for shards")
+    p_rmx.add_argument("--shard", help="i/N shard selector")
+    p_rmx.set_defaults(func=_cmd_relmtf_extract)
+
+    p_rma = sub.add_parser(
+        "relmtf-analyse",
+        help="cross-M relative-MTF ANALYSE stage (pool shards; rank + POC 2/3/4)",
+    )
+    p_rma.add_argument("--subset", required=True, help="frozen multi-session subset CSV")
+    p_rma.add_argument("--out", required=True, help="output dir (shards in, analysis out)")
+    p_rma.add_argument("--fpx", type=float, default=None,
+                       help="sensor frequency cy/px (default: driver default)")
+    p_rma.add_argument("--n-boot", dest="n_boot", type=int, default=120)
+    p_rma.add_argument("--tier", choices=("rail-coverage", "all"), default="rail-coverage",
+                       help="which pool is the PRIMARY ranking (default: rail-coverage)")
+    p_rma.set_defaults(func=_cmd_relmtf_analyse)
     return parser
+
+
+def _load_relmtf_run():
+    """Import the scripts/relmtf_run.py driver module (not a package module)."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "relmtf_run.py"
+    spec = importlib.util.spec_from_file_location("relmtf_run", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _cmd_relmtf_extract(args: argparse.Namespace) -> int:
+    rr = _load_relmtf_run()
+    ns = argparse.Namespace(subset=args.subset, out=args.out,
+                            shard=getattr(args, "shard", None))
+    rr.cmd_extract(ns)
+    return 0
+
+
+def _cmd_relmtf_analyse(args: argparse.Namespace) -> int:
+    rr = _load_relmtf_run()
+    ns = argparse.Namespace(
+        subset=args.subset, out=args.out,
+        fpx=(args.fpx if args.fpx is not None else rr.X.FPX_DEFAULT),
+        n_boot=args.n_boot, tier=args.tier)
+    rr.cmd_analyse(ns)
+    return 0
 
 
 def _cmd_characterise(args: argparse.Namespace) -> int:
