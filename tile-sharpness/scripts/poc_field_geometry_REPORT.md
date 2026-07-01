@@ -1,146 +1,133 @@
-# POC 4 — Decentering & field curvature from the best-focus surface
+# POC 4 — FIELD CURVATURE from the best-focus surface (tilt removed)
 
 **Date:** 2026-07-01 · **Cohort:** older-rig 2026-01-29, 10 configs, 724 patches
 **Driver:** `scripts/poc_field_geometry.py` · **Helpers:** `src/tile_sharpness/field_geometry_focus.py`
-**Outputs:** `out_poc_field_geometry/{per_config_field_geometry.csv, joined_per_patch.csv, crosscheck_characterise.csv}`
+**Outputs:** `out_poc_field_geometry/{per_config_field_geometry.csv, joined_per_patch.csv, map_*.png}`
 
-## Idea & method
+## Idea & method (tilt is corrected, never reported)
 
-For each lens config, every wafer patch has a best-focus axial position `mu_mm`
-(POC 3 Gaussian peak-centre through the focus stack). Mapping `mu_mm` over the
-patch field position `(px, py)` (POC 1 `field_geometry`) gives a SURFACE:
+Each wafer patch has a best-focus axial position `mu_mm` (POC 3 Gaussian
+peak-centre through the focus stack) at a field position `(px, py)` in sensor
+pixels (POC 1 `field_geometry`, frame centre `(4128, 2752)`, half-diagonal
+4962 px). Mapping `mu_mm` over `(px, py)` gives a SURFACE.
 
-1. **Plane fit** `mu_mm ≈ a·px + b·py + c` → subject-space tilt (deg) via
-   `characterise._slope_to_tilt_deg` (M-scaled, Z7 pitch 4.35 µm), plus the
-   azimuth of steepest best-focus ascent (`field_geometry` convention: +x=0°,
-   up=+90°, down=−90°). This is the decentering / plane-tilt signature.
-2. **Field curvature** — fit the plane-removed residual vs `field_height²`;
-   report sag µm (peak-to-edge, +ve = corners focus farther than centre) and
-   RMS µm.
-3. **Decentering direction** — mean `mu_mm` left vs right and top (image-up) vs
-   bottom about the patch centroid; positive T-B = top focuses farther.
-4. **Astigmatism** — sagittal vs tangential best-focus split.
+The **plane TILT** of that surface is rig / sensor-vs-subject-plane alignment
+and — from a single config — is degenerate with any lens-induced tilt, so it is
+**NOT a lens property**. It is regressed out and never reported. The surface is
+fit JOINTLY:
 
-POC 1/2/3 files (`cross_m_relative_mtf.py`, `optics.py`, `focus_physical.py`)
-were NOT edited; `_plane_fit` / `_slope_to_tilt_deg` are imported from
-`characterise.py`.
+    mu_mm ≈ c + a·x + b·y + k·(x² + y²)
 
-`mu_mm` (and hence absolute tilt-deg / curvature-µm) carries an uncertain
-ABSOLUTE scale on `step_low_confidence` (M>1.10) sweeps because the rail step is
-DoF-estimated, not documented — there is no documented rail step for any
-2026-01-29 sweep, so EVERY config here uses a DoF-estimated `step_mm`. Tilt
-DIRECTION/azimuth and decentering SIGN are unaffected (step is a global scale);
-the absolute µm/deg are step-proportional.
+The linear plane `(a, b, c)` (the tilt) is fit SIMULTANEOUSLY with the quadratic
+`k`, so `k` is orthogonalised against the tilt. **Every downstream number comes
+from `k` or from the residual of this full fit — never from a raw
+corner-minus-centre of the un-detrended surface** (which would carry the tilt).
+The sag is `k · px_corner²`, derived from the fitted quadratic coefficient.
 
-## Per-config results — ALL patches vs COVERAGE-CLEAN
+All results are on the **coverage-CLEAN** subset (`coverage_flag == ok` AND not
+`fwhm_imputed`); N_used / N_excluded reported. `step_low_confidence` (DoF step at
+M>1.10) makes the ABSOLUTE µm / radius uncertain (step is a global scale) — the
+DoF-normalised sag is the step-free primary metric.
 
-"clean" = `coverage_flag == ok` AND not `fwhm_imputed`.
+## Per-config field curvature (tilt removed, coverage-clean)
 
-| config | M | step_lowconf | n all→clean | tilt mag° all→clean | sag µm all→clean | T-B mm all→clean | L-R mm all→clean |
-|---|---|---|---|---|---|---|---|
-| 100-400 + MCON-35 1:1.16 | 1.12 | yes | 69→47 | 1.83→1.88 | −492→−410 | +0.06→**−0.02** | −0.38→−0.46 |
-| NIKKOR Z MC 105 | 1.00 | yes | 92→92 | 2.53 | −325 | +0.26 | +0.53 |
-| 200 +5T+6T 2:1 | 2.06 | yes | 16→15 | 3.05→3.86 | +38→−17 | −0.04 | +0.28→+0.34 |
-| 200 +6T 1.7:1 | 1.72 | yes | 28→27 | 2.44→2.29 | −159→−164 | −0.12→−0.09 | +0.38→+0.34 |
-| **200 IF-ED 1:1** | 1.00 | no | 88→85 | 4.43→6.78 | **8508→108** | **+1.99→−1.14** | +2.36→+1.15 |
-| 60 f/2.8D | 1.00 | yes | 85→85 | 4.30 | +279 | +0.10 | −1.12 |
-| 55 AIS 287318 | 1.00 | no | 85→84 | 4.29→4.17 | −1206→−1072 | +0.04→**−0.02** | −1.18→−1.15 |
-| Auto 55 f/3.5 209088 | 0.99 | no | 93→74 | 2.17→1.74 | −554→−425 | +0.12→+0.11 | −0.57→−0.35 |
-| Sigma APO 150 | 1.03 | yes | 83→83 | 5.87 | +264 | +0.96 | −0.42 |
-| Sigma 105 | 1.05 | yes | 85→85 | 2.16 | −79 | +0.07 | −0.53 |
+Primary = **`sag_dof`** = (tilt-removed centre→corner focus shift) / median
+through-focus FWHM (dimensionless, step-calibration-free, M-robust — "the corner
+sits N depths-of-field from the centre"). Sign: −ve = corners focus NEARER the
+camera (bowl toward camera), +ve = corners farther.
 
-(Configs with no exclusions are unchanged by construction.)
+| config | M | step_lowconf | N used/excl | **sag_dof** | sag µm | sign | radius mm | RMS resid µm | vertex est.? | vtx offset (×½-diag) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 100-400 + MCON-35 1:1.16 | 1.12 | yes | 47/22 | **−0.34** | −417 | corners nearer | −396 | 91 | yes | 0.56 |
+| NIKKOR Z MC 105 | 1.00 | yes | 92/0 | **−0.24** | −332 | corners nearer | −546 | 52 | no | 1.10 |
+| 200 +5T+6T 2:1 | 2.06 | yes | 15/1 | **−0.03** | −20 | corners nearer | −5722 | 55 | no | — |
+| 200 +6T 1.7:1 | 1.72 | yes | 27/1 | **−0.20** | −173 | corners nearer | −749 | 88 | no | 0.75 |
+| 200 IF-ED 1:1 | 1.00 | no | 85/3 | **+0.08** | +110 | corners farther | +1429 | 387 | no | 7.90 |
+| 60 f/2.8D | 1.00 | yes | 85/0 | **+0.21** | +285 | corners farther | +592 | 124 | no | 2.06 |
+| 55 AIS 287318 | 1.00 | no | 84/1 | **−0.80** | −1086 | corners nearer | −137 | 55 | yes | 0.47 |
+| Auto 55 f/3.5 209088 | 0.99 | no | 74/19 | **−0.43** | −588 | corners nearer | −246 | 98 | yes | 0.45 |
+| Sigma APO 150 | 1.03 | yes | 83/0 | **+0.20** | +270 | corners farther | +595 | 49 | no | 2.77 |
+| Sigma 105 | 1.05 | yes | 85/0 | **−0.06** | −80 | corners nearer | −1920 | 84 | no | 3.18 |
 
-## The load-bearing question (HANDOVER follow-up #7): is the T-B "decentering" real?
+**Readings.** The 55 AIS 287318 has the strongest field curvature (−0.80 DoF; the
+corner best-focus sits 0.8 depths-of-field nearer the camera than the centre) —
+a clean, tight bowl (RMS 55 µm, radial profile hugs the fitted quadratic). The
+native macros (Sigma 150 +0.20, 60mm +0.21, MC 105 −0.24) show mild curvature.
+The 200 IF-ED clean sag is now a sane +0.08 DoF (was contaminated 8500 µm before
+detrend+coverage — see below); its RMS 387 µm is the largest, i.e. the least
+regular field even after cleaning. The 200+5T+6T at 2:1 is essentially flat
+(−0.03 DoF) but on only 15 patches.
 
-**Verdict: the 2026-01-29 top-vs-bottom "decentering" is an UNDER-COVERAGE
-ARTIFACT, not real decentering.** Every config whose T-B value is non-trivial in
-the ALL set collapses to ≈0 (and flips sign) once under-covered patches are
-removed:
+## Detrend validation — pure tilt yields ~zero curvature
 
-- **200 IF-ED**: the smoking gun. Three truncated patches carry a garbage
-  extrapolated `mu_mm` down to **−93 mm** (vs a clean 3.25–7.42 mm span). They
-  inflate T-B to +1.99 mm and curvature sag to **8508 µm (RMS 11033 µm)**.
-  Excluding them: T-B → **−1.14 mm with the sign flipped** and sag → **108 µm**
-  (RMS 387) — a 78× collapse. The apparent T-B asymmetry lived entirely in the
-  truncated patches.
-- **55 AIS 287318** and **100-400 + MCON-35**: clean T-B is **±0.02 mm**
-  (negligible) and changes sign on exclusion — again artifact-driven.
-- Where T-B IS non-zero after cleaning, it is NOT top/bottom: **L-R survives**
-  exclusion robustly (e.g. 60mm −1.12, AIS 287318 −1.15, MCON −0.46 mm). The
-  real residual is a left-right / general plane tilt, not a T-B decentering.
-- The two genuine after-clean T-B signals are **Sigma 150 (+0.96 mm)** and
-  **NIKKOR Z MC 105 (+0.26 mm)** — both have NO truncated patches, so these are
-  real lens/mount field-tilt, not coverage artifacts (Sigma 150 also has the
-  largest plane tilt, 5.9°).
+Unit test `test_pure_tilt_yields_zero_curvature_and_residual`: a synthetic PURE
+plane (`mu = 3 + 2e-4·x − 1.3e-4·y`, no curvature) fed to
+`fit_curvature_detrended` returns `k ≈ 0` (|k| < 1e-12), `sag ≈ 0` (< 1e-4 µm),
+`sag_dof ≈ 0`, and RMS residual < 1e-6 µm — the plane is fully absorbed, nothing
+leaks into curvature. `test_bowl_plus_tilt_recovers_sag_independent_of_tilt`:
+the same known bowl `k_true` is recovered to 1e-6 relative for tilts of
+`0, +2e-4, −3.5e-4` — the sag is invariant to the superposed tilt. So tilt
+cannot contaminate the curvature.
 
-This independently reproduces POC 1's conclusion: the apparent T-B asymmetry was
-in TRUNCATED patches; the corners were symmetric in T-B.
+## Why detrend + coverage exclusion both matter (200 IF-ED)
 
-## Cross-check vs `characterise.py` (same sweeps, same DoF step)
+Before this revision, the 200 IF-ED "all patches" surface reported a nonsense
++8508 µm sag — 3 truncated patches carried an extrapolated `mu_mm` down to
+−93 mm. Both fixes now apply: coverage-clean drops those 3 patches, and the sag
+comes from the fitted quadratic `k` (tilt removed) rather than corner-minus-
+centre. Clean sag is +110 µm (+0.08 DoF). This is the same under-coverage
+artifact POC 1 flagged; it is fully contained.
 
-`characterise_sweep` uses a DIFFERENT focus metric (`argmax_shot_idx`, 1 of ≤77
-discrete shots) and a DIFFERENT patch set (≤9 ring tiles from peaks_v2) than
-POC 4 (continuous Gaussian `mu_mm` over ~85 dense patches). Fed the SAME
-DoF-estimated `step_mm`, tilt MAGNITUDES agree to ~0.5° — strong method
-validation:
+## Decentering — tilt-independent, only where estimable
 
-| config | POC4 clean tilt° | characterise tilt° |
-|---|---|---|
-| NIKKOR Z MC 105 | 2.53 | 2.31 |
-| 200 IF-ED 1:1 | 6.78 | 6.56 |
-| 55 AIS 287318 | 4.17 | 4.59 |
-| Auto 55 209088 | 1.74 | 1.78 |
+A shifted paraboloid `c + k·((x−x0)²+(y−y0)²)` expands to linear terms
+`−2k·x0, −2k·y0` — **algebraically identical to a plane tilt**. So from ONE
+config a plane tilt is INDISTINGUISHABLE from a vertex-shifted bowl: the vertex
+`(x0,y0) = (−a/2k, −b/2k)` is a valid decentering indicator ONLY when it is
+geometrically sane (curvature strong enough AND the vertex lands inside/near the
+frame, offset ≤ 0.60 × half-diagonal). Otherwise the "vertex" is the rig tilt in
+disguise and is flagged `estimable=False`.
 
-(Sigma 150 / Sigma 105 peaks_v2 have only 1 tile → plane fit NaN, no
-cross-check.) characterise's `decentering_fx_tb` is likewise small (−0.16 to
-+0.02) — consistent with "no real T-B decentering". Note characterise's peak-
-VALUE L-R/T-B is an amplitude asymmetry, not a focus-position one, so only the
-SIGN/smallness is comparable, not the mm magnitude.
-
-## Tie-back to Task 7 ("older rig near-coplanar, <1°")
-
-POC 4 tilts (clean 1.7–6.8°) are LARGER than Task 7's median |tilt_x|=0.45°,
-|tilt_y|=0.12°, max 1.67°. The difference is **the rail-step calibration, not
-the geometry**: tilt is exactly LINEAR in `step_mm`, and Task 7 used the **v2
-pooled rail-step lookup**, whereas POC 4 (and this cross-check) use POC 2's
-**DoF-estimated** `step_mm`. The POC4-vs-characterise agreement at ~0.5° on the
-SAME step proves the two focus metrics measure the same surface; the absolute
-degree value is whatever the chosen step makes it. So:
-
-- The **method is validated** (two metrics agree on the same step).
-- The **absolute tilt magnitude is step-calibration-dependent** and should be
-  read as "a few degrees under the DoF step" — not contradicting Task 7, which
-  measured the same physical surface scaled by a different (larger) step.
-- The robust, scale-INVARIANT conclusions — T-B decentering is a coverage
-  artifact, L-R is the real residual, Sigma 150 has the largest genuine tilt —
-  hold regardless of step.
+Under that rule, **4 of 10 configs have an estimable vertex**: 55 AIS 287318
+(0.47), Auto 55 209088 (0.45), MCON-35 (0.56) — vertices inside the sane region;
+the rest have vertices flung 1.1–7.9 × half-diagonal outside the frame (tilt
+dominated). So a robust tilt-independent decentering vector is only readable for
+the configs with strong, well-centred curvature. For the others, **clean
+decentering (and astigmatism) needs the per-orientation sagittal/tangential
+best-focus extract or a cross-config solve, neither of which this dataset
+provides** — see below. First-moment L-R/T-B asymmetries were dropped entirely
+(they ARE the tilt being removed).
 
 ## Astigmatism — NOT available
 
 A focus-position sag-vs-tan split needs a best-focus `mu_mm` per edge
-ORIENTATION per patch. POC 3 collapsed the stack to ONE `mu_mm` per patch, and
-the fieldtag shards carry only sagittal/tangential AMPLITUDE
-(`amp_sag/tan_fpx*`), not per-orientation focus position, nor a per-patch
-dominant edge azimuth. So astigmatism is reported `available=False`. The helper
-`compute_astigmatism` is implemented and unit-tested (recovers a known 0.08 mm
-sag-vs-tan split on synthetic data) for when a per-orientation `mu_mm` extract
-becomes available.
+ORIENTATION per patch. POC 3 collapses the stack to ONE `mu_mm` per patch, and
+the fieldtag shards carry only sagittal/tangential AMPLITUDE. Reported
+`available=False`.
 
-## Validation on a documented-step 2026-05 sweep — limitation
+## Maps
 
-The 2026-05 sweeps have accurate (documented) `mu_mm`, which would pin the
-absolute scale. But POC 1 produced per-patch `(px, py)` field geometry only for
-the 2026-01-29 cohort (`fieldtag_shard_*`); the newer sweeps' per-patch geometry
-is not readily available in this tree. We therefore lean on the characterise
-cross-check (same cohort, independent metric) for method validation and flag the
-absolute-scale dependence explicitly. Producing 2026-05 fieldtags is the natural
-next step to lock the absolute degrees/µm.
+Per config, `out_poc_field_geometry/map_<slug>.png` — LEFT: the tilt-removed
+best-focus residual over the frame (RdBu about the median, frame centre `+`,
+curvature vertex `×` when estimable); RIGHT: the radial best-focus-vs-field-
+height profile with the fitted quadratic overlaid, so the curvature is visible
+without the plane dominating. Example (55 AIS 287318): the patches trace a clean
+bowl hugging the fitted −1086 µm quadratic.
+
+## Limitations
+
+`mu_mm`'s absolute mm scale is DoF-estimated (no documented rail step for any
+2026-01-29 sweep); `sag_dof` is chosen precisely because it is step-free. The
+2026-05 documented-step sweeps would pin the absolute µm/radius, but POC 1
+emitted per-patch `(px,py)` field geometry only for the 2026-01-29 cohort, so
+that validation isn't runnable here — producing 2026-05 fieldtags is the natural
+next step. Vertex-offset decentering and astigmatism both need inputs this
+dataset lacks (cross-config or per-orientation extract).
 
 ## Unit tests
 
-`tests/test_field_geometry_focus.py` — 11 tests, all passing: plane-slope
-recovery, M-scaled tilt-deg formula, tilt-magnitude combination, azimuth image
-convention (right=0°, up=+90°, down=−90°), known-bowl curvature + sign,
-plane+bowl separation, L-R and T-B decentering sign, astigmatism
-unavailable-without-orientation and recovered-with-orientation.
+`tests/test_field_geometry_focus.py` — 9 tests, all passing: pure-tilt → zero
+curvature + zero residual; pure-tilt → vertex not reported; bowl+tilt → sag
+recovered independent of tilt; sag sign (bowl/dome); DoF-normalised sag scaling;
+radius from k (sensor-mm frame); vertex offset recovered (no tilt); vertex
+flagged not-separable when tilt dominates; astigmatism unavailable.

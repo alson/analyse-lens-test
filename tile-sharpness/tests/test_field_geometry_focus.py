@@ -1,4 +1,12 @@
-"""POC 4 tests — plane/curvature/decentering recovery on synthetic fields."""
+"""POC 4 tests — tilt-removed field curvature + vertex-offset recovery.
+
+Key known-answer contracts:
+  * a PURE-TILT input yields ~zero curvature (k≈0, sag≈0) and ~zero residual
+    after the joint plane+quadratic detrend,
+  * a BOWL+TILT input recovers the bowl sag INDEPENDENT of the tilt,
+  * the DoF-normalised sag scales as sag_mm / median FWHM,
+  * a vertex-shifted paraboloid (no tilt) recovers the vertex offset.
+"""
 from __future__ import annotations
 
 import math
@@ -7,17 +15,19 @@ import numpy as np
 import pytest
 
 from tile_sharpness.field_geometry_focus import (
+    Z7_CENTRE,
+    Z7_HALF_DIAG_PX,
     analyse_field_geometry,
-    compute_decentering,
-    fit_field_curvature,
-    fit_plane_tilt,
+    fit_curvature_detrended,
+    fit_vertex_offset,
 )
-from tile_sharpness.methods.maze_fft import SENSOR_PITCH_UM_Z7
 
-# A Z7-ish 5x3 sensor-pixel grid centred on the frame.
-_PX = np.array([2080, 3104, 4128, 5152, 6176], float)
-_PY = np.array([1728, 2752, 3776], float)
-HALF_DIAG = 0.5 * math.hypot(8256, 5504)  # Z7 full frame
+CX, CY = Z7_CENTRE
+HD = Z7_HALF_DIAG_PX
+
+# A Z7-ish dense grid spanning most of the frame.
+_PX = np.linspace(900, 7350, 6)
+_PY = np.linspace(700, 4800, 5)
 
 
 def _grid():
@@ -25,153 +35,127 @@ def _grid():
     return xs.ravel(), ys.ravel()
 
 
-def _field_height(px, py, cx, cy):
-    return np.hypot(px - cx, py - cy) / HALF_DIAG
+# --------------------------------------------------------------------------- #
+# Pure tilt → zero curvature, zero residual after detrend
+# --------------------------------------------------------------------------- #
+def test_pure_tilt_yields_zero_curvature_and_residual():
+    px, py = _grid()
+    # a strong pure plane, NO curvature
+    mu = 3.0 + 2.0e-4 * (px - CX) - 1.3e-4 * (py - CY)
+    fit = fit_curvature_detrended(px, py, mu, fwhm_mm_median=1.3,
+                                  cx=CX, cy=CY, half_diag_px=HD)
+    assert abs(fit.k_mm_per_px2) < 1e-12
+    assert abs(fit.sag_um) < 1e-4
+    assert abs(fit.sag_dof) < 1e-4
+    assert fit.rms_residual_um < 1e-6   # plane fully absorbed → residual ~0
+
+
+def test_pure_tilt_vertex_not_reported():
+    px, py = _grid()
+    mu = 1.0 + 1.5e-4 * (px - CX)      # pure tilt, no curvature
+    res = analyse_field_geometry(px, py, mu, 1.3, cx=CX, cy=CY, half_diag_px=HD)
+    # no curvature ⇒ vertex offset not estimable (curvature too weak)
+    assert res.vertex.estimable is False
 
 
 # --------------------------------------------------------------------------- #
-# Plane tilt recovery
+# Bowl + tilt → recover bowl sag independent of the tilt
 # --------------------------------------------------------------------------- #
-def test_plane_fit_recovers_known_slope():
+def test_bowl_plus_tilt_recovers_sag_independent_of_tilt():
     px, py = _grid()
-    a_true, b_true, c_true = 1.3e-4, -7.0e-5, 3.2  # mm per px
-    mu = a_true * px + b_true * py + c_true
-    pt = fit_plane_tilt(px, py, mu, m=1.0)
-    assert pt.a_mm_per_px == pytest.approx(a_true, rel=1e-6)
-    assert pt.b_mm_per_px == pytest.approx(b_true, rel=1e-6)
-    assert pt.c_mm == pytest.approx(c_true, rel=1e-6)
-    assert pt.rms_residual_mm == pytest.approx(0.0, abs=1e-9)
+    xr, yr = px - CX, py - CY
+    k_true = 1.2e-8      # mm per px²
+    # bowl centred on the frame + a large tilt on top
+    bowl = k_true * (xr * xr + yr * yr)
+    for tilt in (0.0, 2.0e-4, -3.5e-4):
+        mu = 2.0 + bowl + tilt * xr + 0.7 * tilt * yr
+        fit = fit_curvature_detrended(px, py, mu, fwhm_mm_median=1.3,
+                                      cx=CX, cy=CY, half_diag_px=HD)
+        assert fit.k_mm_per_px2 == pytest.approx(k_true, rel=1e-6)
+        # sag = k * px_corner²  (independent of the tilt)
+        expected_sag_um = k_true * fit.px_corner ** 2 * 1000.0
+        assert fit.sag_um == pytest.approx(expected_sag_um, rel=1e-6)
+        assert fit.rms_residual_um < 1e-6
 
 
-def test_tilt_deg_matches_slope_to_tilt_formula():
-    # object_slope = slope * M * 1000 / pitch_um ; tilt = atan(object_slope)
+def test_sag_sign_bowl_vs_dome():
     px, py = _grid()
-    a_true = 2.0e-4
-    m = 1.0
-    mu = a_true * px + 0.0 * py + 1.0
-    pt = fit_plane_tilt(px, py, mu, m=m)
-    expected = math.degrees(math.atan(a_true * m * 1000.0 / SENSOR_PITCH_UM_Z7))
-    assert pt.tilt_x_deg == pytest.approx(expected, rel=1e-9)
-    assert pt.tilt_y_deg == pytest.approx(0.0, abs=1e-9)
+    xr, yr = px - CX, py - CY
+    r2 = xr * xr + yr * yr
+    up = fit_curvature_detrended(px, py, 2.0 + 1e-8 * r2, 1.3,
+                                 cx=CX, cy=CY, half_diag_px=HD)
+    dn = fit_curvature_detrended(px, py, 2.0 - 1e-8 * r2, 1.3,
+                                 cx=CX, cy=CY, half_diag_px=HD)
+    assert up.sag_um > 0      # corners focus farther
+    assert dn.sag_um < 0      # corners focus nearer
 
 
-def test_tilt_magnitude_combines_axes():
+def test_dof_normalised_sag_scales_with_fwhm():
     px, py = _grid()
-    a_true, b_true = 1.5e-4, 1.5e-4
-    mu = a_true * px + b_true * py
-    pt = fit_plane_tilt(px, py, mu, m=1.0)
-    tx = math.radians(pt.tilt_x_deg)
-    ty = math.radians(pt.tilt_y_deg)
-    mag = math.degrees(math.atan(math.hypot(math.tan(tx), math.tan(ty))))
-    assert pt.tilt_mag_deg == pytest.approx(mag, rel=1e-9)
-    assert pt.tilt_mag_deg > max(abs(pt.tilt_x_deg), abs(pt.tilt_y_deg))
+    xr, yr = px - CX, py - CY
+    r2 = xr * xr + yr * yr
+    mu = 2.0 + 1e-8 * r2
+    a = fit_curvature_detrended(px, py, mu, fwhm_mm_median=1.0,
+                                cx=CX, cy=CY, half_diag_px=HD)
+    b = fit_curvature_detrended(px, py, mu, fwhm_mm_median=2.0,
+                                cx=CX, cy=CY, half_diag_px=HD)
+    assert b.sag_dof == pytest.approx(a.sag_dof / 2.0, rel=1e-9)
+    # sag_dof = sag_mm / fwhm
+    assert a.sag_dof == pytest.approx(a.sag_um / 1000.0 / 1.0, rel=1e-9)
 
 
-def test_tilt_azimuth_points_uphill_image_convention():
-    # mu increases to the RIGHT only (a>0, b=0) → steepest ascent at +x = 0°.
+def test_radius_from_curvature_coefficient():
     px, py = _grid()
-    mu = 1e-4 * px
-    assert fit_plane_tilt(px, py, mu, 1.0).tilt_azimuth_deg == pytest.approx(0.0, abs=1e-6)
-    # mu increases DOWNWARD in the image (py grows down, b>0) → ascent is DOWN = -90°.
-    mu = 1e-4 * py
-    assert fit_plane_tilt(px, py, mu, 1.0).tilt_azimuth_deg == pytest.approx(-90.0, abs=1e-6)
-    # mu increases UPWARD in the image (b<0) → ascent is UP = +90°.
-    mu = -1e-4 * py
-    assert fit_plane_tilt(px, py, mu, 1.0).tilt_azimuth_deg == pytest.approx(90.0, abs=1e-6)
-
-
-# --------------------------------------------------------------------------- #
-# Field curvature recovery
-# --------------------------------------------------------------------------- #
-def test_curvature_recovers_known_bowl():
-    px, py = _grid()
-    cx, cy = px.mean(), py.mean()
-    fh = _field_height(px, py, cx, cy)
-    k_true, d_true = 0.40, 0.0   # mm per fh² ; sag scales with fh_max²
-    resid = k_true * fh * fh + d_true
-    fc = fit_field_curvature(fh, resid)
-    assert fc.curv_coef_mm_per_fh2 == pytest.approx(k_true, rel=1e-6)
-    fh_max = fh.max()
-    expected_sag_um = k_true * fh_max * fh_max * 1000.0
-    assert fc.sag_um == pytest.approx(expected_sag_um, rel=1e-6)
-    assert fc.rms_residual_um == pytest.approx(0.0, abs=1e-6)
-
-
-def test_curvature_sign_dome_vs_bowl():
-    px, py = _grid()
-    cx, cy = px.mean(), py.mean()
-    fh = _field_height(px, py, cx, cy)
-    # corners focus FARTHER (mu larger at edge) → +ve sag
-    assert fit_field_curvature(fh, 0.3 * fh * fh).sag_um > 0
-    # corners focus NEARER → -ve sag
-    assert fit_field_curvature(fh, -0.3 * fh * fh).sag_um < 0
-    # flat field → ~0 sag
-    assert abs(fit_field_curvature(fh, np.zeros_like(fh)).sag_um) < 1e-9
-
-
-def test_plane_plus_bowl_separates_cleanly():
-    # A tilted plane PLUS a bowl: plane fit removes the tilt, curvature catches the bowl.
-    px, py = _grid()
-    cx, cy = px.mean(), py.mean()
-    fh = _field_height(px, py, cx, cy)
-    a_true, b_true, c_true = 1.0e-4, -5e-5, 2.0
-    k_true = 0.25
-    mu = a_true * px + b_true * py + c_true + k_true * fh * fh
-    res = analyse_field_geometry(px, py, mu, fh, np.zeros_like(fh), m=1.0)
-    # tilt comes from the plane part
-    exp_tx = math.degrees(math.atan(a_true * 1000.0 / SENSOR_PITCH_UM_Z7))
-    assert res.plane.tilt_x_deg == pytest.approx(exp_tx, rel=1e-3)
-    # curvature coefficient ~ k_true (plane removal shifts it slightly but sign+scale hold)
-    assert res.curvature.curv_coef_mm_per_fh2 == pytest.approx(k_true, rel=0.15)
-    assert res.curvature.sag_um > 0
+    xr, yr = px - CX, py - CY
+    k = 2.5e-8                      # mm per px²
+    pitch_mm = 4.35e-3
+    fit = fit_curvature_detrended(px, py, 1.0 + k * (xr * xr + yr * yr), 1.3,
+                                  cx=CX, cy=CY, half_diag_px=HD,
+                                  sensor_pitch_um=4.35)
+    # radius in the sensor-mm frame: k' = k / pitch_mm²; R = 1/(2k')
+    k_per_mm2 = k / (pitch_mm * pitch_mm)
+    assert fit.radius_mm == pytest.approx(1.0 / (2.0 * k_per_mm2), rel=1e-6)
 
 
 # --------------------------------------------------------------------------- #
-# Decentering
+# Vertex offset (tilt-independent decentering)
 # --------------------------------------------------------------------------- #
-def test_decentering_left_right():
+def test_vertex_offset_recovered_no_tilt():
     px, py = _grid()
-    cx, cy = px.mean(), py.mean()
-    # left half focuses 0.10 mm farther than the right half
-    mu = np.where(px < cx, 0.10, 0.0) + np.where(px > cx, -0.10, 0.0)
-    dec = compute_decentering(px, py, mu, cx, cy)
-    assert dec.lr_mm == pytest.approx(0.20, rel=1e-6)
-    assert dec.tb_mm == pytest.approx(0.0, abs=1e-9)
-    assert dec.n_left == dec.n_right
+    k = 1.5e-8
+    x0, y0 = CX + 600.0, CY - 400.0     # shifted vertex
+    mu = 3.0 + k * ((px - x0) ** 2 + (py - y0) ** 2)
+    # a shifted paraboloid IS a plane+quad, so the free-tilt residual ~0; pass it
+    # as the reference → vertex estimable.
+    curv = fit_curvature_detrended(px, py, mu, 1.3, cx=CX, cy=CY, half_diag_px=HD)
+    v = fit_vertex_offset(px, py, mu, cx=CX, cy=CY, half_diag_px=HD,
+                          freetilt_rms_um=curv.rms_residual_um)
+    assert v.estimable
+    assert v.x0_px == pytest.approx(x0, abs=1.0)
+    assert v.y0_px == pytest.approx(y0, abs=1.0)
+    assert v.offset_px == pytest.approx(math.hypot(600.0, 400.0), rel=1e-3)
 
 
-def test_decentering_top_bottom_sign():
+def test_vertex_flagged_not_separable_when_true_tilt_present():
+    # a CENTRED bowl + a genuine plane tilt is ALGEBRAICALLY identical to a
+    # bowl whose vertex is shifted by -t/(2k). With weak curvature + strong tilt
+    # that apparent vertex flies far outside the frame → flagged non-estimable
+    # (the honest single-config degeneracy: tilt ≡ vertex shift).
     px, py = _grid()
-    cx, cy = px.mean(), py.mean()
-    # image-TOP (py<cy) focuses farther → +ve tb
-    mu = np.where(py < cy, 0.05, 0.0) + np.where(py > cy, -0.05, 0.0)
-    dec = compute_decentering(px, py, mu, cx, cy)
-    assert dec.tb_mm == pytest.approx(0.10, rel=1e-6)
-    assert dec.lr_mm == pytest.approx(0.0, abs=1e-9)
+    xr, yr = px - CX, py - CY
+    mu = 2.0 + 1.5e-8 * (xr * xr + yr * yr) + 3.0e-4 * xr   # bowl + strong tilt
+    curv = fit_curvature_detrended(px, py, mu, 1.3, cx=CX, cy=CY, half_diag_px=HD)
+    v = fit_vertex_offset(px, py, mu, cx=CX, cy=CY, half_diag_px=HD,
+                          freetilt_rms_um=curv.rms_residual_um)
+    assert v.estimable is False
+    assert "not separable" in v.note.lower()
+    # the apparent vertex is far outside the frame (tilt in disguise)
+    assert v.offset_field_frac > 1.0
 
 
-def test_astigmatism_unavailable_without_orientation():
+def test_astigmatism_unavailable():
     px, py = _grid()
-    cx, cy = px.mean(), py.mean()
-    fh = _field_height(px, py, cx, cy)
-    res = analyse_field_geometry(px, py, np.zeros_like(px), fh,
-                                 np.zeros_like(px), m=1.0, edge_orient_deg=None)
+    res = analyse_field_geometry(px, py, np.ones_like(px), 1.3,
+                                 cx=CX, cy=CY, half_diag_px=HD)
     assert res.astigmatism.available is False
-
-
-def test_astigmatism_recovered_when_orientation_given():
-    # synthetic: sagittal edges focus 0.08 mm farther than tangential ones.
-    rng = np.random.default_rng(0)
-    n = 60
-    ang = rng.uniform(-180, 180, n)
-    fh = rng.uniform(0.4, 0.9, n)
-    px = 4128 + fh * 1000 * np.cos(np.radians(ang))
-    py = 2752 - fh * 1000 * np.sin(np.radians(ang))
-    # half the patches sagittal (edge along radius), half tangential (perpendicular)
-    is_sag = rng.random(n) < 0.5
-    edge = np.where(is_sag, ang, ang + 90.0)
-    mu = np.where(is_sag, 0.08, 0.0)
-    from tile_sharpness.field_geometry_focus import compute_astigmatism
-    a = compute_astigmatism(ang, edge, mu, fh)
-    assert a.available
-    assert a.delta_mm == pytest.approx(0.08, abs=0.01)
+    assert "per-orientation" in res.astigmatism.note

@@ -1,34 +1,49 @@
-"""POC 4 — decentering + field curvature from the through-focus best-focus surface.
+"""POC 4 — FIELD CURVATURE from the through-focus best-focus surface (tilt removed).
 
 Each wafer patch has a best-focus axial position ``mu_mm`` (where it is sharpest
 through the focus stack, from POC 3) and a field position ``(px, py)`` in sensor
-pixels (from POC 1's ``field_geometry``). Mapping ``mu_mm`` over ``(px, py)`` gives
-a SURFACE whose shape is the lens/sensor geometry:
+pixels (from POC 1's ``field_geometry``). Mapping ``mu_mm`` over ``(px, py)``
+gives a SURFACE.
 
-* a TILTED best-focus plane ``mu_mm ≈ a·px + b·py + c`` ⇒ subject-plane tilt /
-  decentering (and its azimuth),
-* a curved (bowl/dome) residual after removing the plane ⇒ field curvature
-  (centre focuses at a different depth than the corners),
-* a sagittal-vs-tangential best-focus split ⇒ astigmatism.
+The PLANE TILT of that surface is rig / sensor-vs-subject-plane alignment (and
+from a SINGLE config is degenerate with any lens-induced tilt), so it is NOT a
+lens property — we REGRESS IT OUT and never report it. Everything downstream is
+computed on the tilt-REMOVED surface so the tilt cannot contaminate it:
 
-This is the FOCUS-POSITION approach, complementary to the amplitude-based field
-analysis in ``cross_m_relative_mtf`` (``azimuthal_asymmetry`` etc.).
+* **Field curvature** — a curved (bowl/dome) residual after removing the plane:
+  centre focuses at a different depth than the corners. Primary metric is the
+  DoF-normalised centre-to-corner sag (dimensionless, step-calibration-free).
+* **Decentering** — the curvature-vertex offset from frame centre (the ``(x0,y0)``
+  that minimises the residual of ``mu ≈ c + k·((x−x0)²+(y−y0)²)``), a
+  tilt-INDEPENDENT indicator, reported only when robustly estimable.
+
+Model (all fits are on the SAME surface, plane + curvature FIT JOINTLY):
+
+    mu_mm ≈ c + a·x + b·y + k·(x² + y²)
+
+The linear ``a·x + b·y`` (the plane tilt) and the intercept are fit SIMULTANEOUSLY
+with the quadratic ``k``; the curvature sag is derived from ``k``, never from a
+raw corner-minus-centre of the un-detrended surface (which would carry the tilt).
+Expanding a vertex-shifted paraboloid ``c' + k·((x−x0)²+(y−y0)²)`` shows the
+linear coefficients ARE ``−2k·x0, −2k·y0`` — algebraically identical to a plane
+tilt. So from a SINGLE config a plane tilt is INDISTINGUISHABLE from a
+vertex-shifted bowl: the vertex ``(x0,y0) = (−a/2k, −b/2k)`` read off the joint
+fit is only a meaningful decentering indicator when it is geometrically sane
+(strong enough curvature AND the vertex landing inside/near the frame). When the
+apparent vertex flies outside the frame it is really the rig tilt in disguise,
+and :func:`fit_vertex_offset` reports ``estimable=False``. Clean tilt-independent
+decentering needs cross-config or the per-orientation sag/tan extract.
 
 Pure helpers only — no I/O, no image work. The driver in
 ``scripts/poc_field_geometry.py`` joins the POC 3 physical table to the POC 1
-field-geometry shards and calls these. We reuse :func:`characterise._plane_fit`
-and :func:`characterise._slope_to_tilt_deg` so the tilt comes out in degrees in
-subject space, consistent with the existing pipeline.
+field-geometry shards and calls these.
 
 Coordinate convention (matches ``cross_m_relative_mtf.field_geometry``):
 
 * ``px``/``py`` are sensor pixels; image-y grows DOWNWARD.
-* The plane-fit slope ``a`` is mm of best-focus per pixel of ``px`` (rightward),
-  ``b`` is mm per pixel of ``py`` (downward). ``_slope_to_tilt_deg`` converts a
-  per-sensor-pixel mm slope to a subject-space tilt angle; ``px``/``py`` here are
-  sensor pixels (Z7 4.35 µm), so ``a``/``b`` feed it directly.
-* ``angle_deg`` (azimuth) is math convention with image-y FLIPPED: +x (right) =
-  0°, up = +90°, left = 180°, down = −90°.
+* ``field_height`` is ``dist_px`` / frame half-diagonal (0 = centre, 1 = corner).
+* Sign of the physical sag: +ve ⇒ corners focus FARTHER (larger ``mu_mm``) than
+  the centre.
 """
 
 from __future__ import annotations
@@ -38,244 +53,222 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .characterise import _plane_fit, _slope_to_tilt_deg
 from .methods.maze_fft import SENSOR_PITCH_UM_Z7
 
 
 @dataclass
-class PlaneTilt:
-    """Plane fit of ``mu_mm`` over ``(px, py)`` → subject-space tilt."""
+class CurvatureFit:
+    """Joint plane+quadratic fit of the best-focus surface, tilt removed."""
 
-    a_mm_per_px: float          # d(mu_mm)/d(px), px = rightward
-    b_mm_per_px: float          # d(mu_mm)/d(py), py = downward
-    c_mm: float                 # intercept (mu_mm at px=py=0)
-    rms_residual_mm: float      # RMS of mu_mm about the fitted plane
-    tilt_x_deg: float           # subject-space tilt about the px axis
-    tilt_y_deg: float           # subject-space tilt about the py axis
-    tilt_mag_deg: float         # total tilt magnitude
-    tilt_azimuth_deg: float     # azimuth of STEEPEST ASCENT of best-focus,
-    #                             field_geometry convention (+x=0, up=+90, down=-90)
+    # joint model: mu ≈ c + a·x + b·y + k·(x²+y²)
+    c_mm: float
+    a_mm_per_px: float          # linear tilt term (regressed out, NOT reported)
+    b_mm_per_px: float          # linear tilt term (regressed out, NOT reported)
+    k_mm_per_px2: float         # quadratic curvature coefficient
+    # curvature products (from k, on the tilt-removed surface)
+    sag_um: float               # signed centre→corner focus shift, µm (+ = corners farther)
+    sag_dof: float              # PRIMARY: sag / median through-focus FWHM (dimensionless)
+    radius_mm: float            # best-focus-surface radius of curvature, mm (signed);
+    #                             lateral axis in SENSOR mm (r_px·pitch), R=1/(2k')
+    rms_residual_um: float      # RMS about the FULL plane+quadratic fit, µm (field irregularity)
+    # geometry used
+    fh_max: float               # max field height in the patch set
+    px_corner: float            # pixel radius at fh_max (for the sag lever arm)
     n: int
 
 
 @dataclass
-class FieldCurvature:
-    """Radial fit of the plane-removed residual vs field height."""
+class VertexOffset:
+    """Tilt-independent decentering: the paraboloid-vertex offset from frame centre."""
 
-    curv_coef_mm_per_fh2: float   # k in residual ≈ k·field_height² + d
-    sag_um: float                 # peak-to-edge curvature sag (signed: +ve = corners
-    #                               focus FARTHER than centre), µm
-    rms_residual_um: float        # RMS about the radial fit, µm
-    centre_focus_mm: float        # fitted residual at field_height=0
-    edge_focus_mm: float          # fitted residual at max field_height
-    n: int
-
-
-@dataclass
-class Decentering:
-    """Left-right / top-bottom best-focus asymmetry of the field."""
-
-    lr_mm: float        # mean(mu_mm | left) - mean(mu_mm | right)
-    tb_mm: float        # mean(mu_mm | top)  - mean(mu_mm | bottom)
-    #                     "top" = image-up (angle_deg > 0), "bottom" = image-down
-    n_left: int
-    n_right: int
-    n_top: int
-    n_bottom: int
+    estimable: bool
+    x0_px: float                # vertex x in image px (frame centre = cx)
+    y0_px: float                # vertex y in image px
+    dx0_px: float               # x0 − cx  (offset from frame centre)
+    dy0_px: float               # y0 − cy
+    offset_px: float            # hypot(dx0, dy0)
+    offset_field_frac: float    # offset_px / frame half-diagonal
+    rms_vertex_um: float        # RMS of the vertex-only (no free tilt) fit, µm
+    rms_freetilt_um: float      # RMS of the free-tilt joint fit, µm (lower bound)
+    note: str = ""
 
 
 @dataclass
 class Astigmatism:
-    """Sagittal vs tangential best-focus split, if the edge orientations allow it."""
+    """Sagittal vs tangential best-focus split — needs a per-orientation extract."""
 
     available: bool
-    mean_sag_mm: float
-    mean_tan_mm: float
-    delta_mm: float          # sag - tan
-    n_sag: int
-    n_tan: int
+    delta_mm: float
     note: str = ""
 
 
 @dataclass
 class FieldGeometryResult:
-    """Full per-config focus-surface geometry."""
-
-    plane: PlaneTilt
-    curvature: FieldCurvature
-    decentering: Decentering
+    curvature: CurvatureFit
+    vertex: VertexOffset
     astigmatism: Astigmatism
     extra: dict = field(default_factory=dict)
 
 
-def fit_plane_tilt(
-    px: np.ndarray, py: np.ndarray, mu_mm: np.ndarray, m: float,
-    *, sensor_pitch_um: float = SENSOR_PITCH_UM_Z7,
-) -> PlaneTilt:
-    """Fit ``mu_mm ≈ a·px + b·py + c`` and convert slopes to subject-space tilt.
+# --------------------------------------------------------------------------- #
+# Joint plane + quadratic fit (tilt regressed out simultaneously with curvature)
+# --------------------------------------------------------------------------- #
+def fit_curvature_detrended(
+    px: np.ndarray, py: np.ndarray, mu_mm: np.ndarray,
+    fwhm_mm_median: float,
+    *, cx: float, cy: float,
+    half_diag_px: float,
+    sensor_pitch_um: float = SENSOR_PITCH_UM_Z7,
+) -> CurvatureFit:
+    """Fit ``mu ≈ c + a·x + b·y + k·(x²+y²)`` and derive curvature from ``k`` alone.
 
-    ``m`` is the sweep magnification (for the pixel→object scaling in
-    :func:`_slope_to_tilt_deg`).
+    The linear plane (a,b,c) is fit SIMULTANEOUSLY with the quadratic k, so the
+    curvature coefficient k is orthogonalised against the tilt. All downstream
+    numbers come from k / from the residual of this full fit — never from a raw
+    corner-minus-centre of the un-detrended surface.
+
+    x,y are taken RELATIVE to the frame centre (cx,cy) so k·(x²+y²) is a paraboloid
+    about the frame centre; a genuine vertex offset then shows up in a,b (handled
+    separately by :func:`fit_vertex_offset`). The sag is the change in the
+    quadratic part from centre (fh=0) to the corner (max field height):
+    ``sag = k · px_corner²`` where ``px_corner = fh_max · half_diag_px``.
     """
-    px = np.asarray(px, float)
-    py = np.asarray(py, float)
+    px = np.asarray(px, float) - float(cx)
+    py = np.asarray(py, float) - float(cy)
     mu = np.asarray(mu_mm, float)
     n = int(px.size)
-    a, b, c, rms = _plane_fit(px.tolist(), py.tolist(), mu.tolist())
-    tilt_x = _slope_to_tilt_deg(a, m, sensor_pitch_um=sensor_pitch_um)
-    tilt_y = _slope_to_tilt_deg(b, m, sensor_pitch_um=sensor_pitch_um)
-    if math.isfinite(tilt_x) and math.isfinite(tilt_y):
-        tilt_mag = math.degrees(
-            math.atan(math.hypot(math.tan(math.radians(tilt_x)),
-                                 math.tan(math.radians(tilt_y))))
-        )
-    else:
-        tilt_mag = float("nan")
-    # Azimuth of steepest ASCENT of mu_mm. The gradient in image px is (a, b)
-    # with py downward; flip py to the field_geometry math convention (up=+90).
-    if math.isfinite(a) and math.isfinite(b) and (a != 0.0 or b != 0.0):
-        azimuth = math.degrees(math.atan2(-b, a))
-    else:
-        azimuth = float("nan")
-    return PlaneTilt(
-        a_mm_per_px=a, b_mm_per_px=b, c_mm=c, rms_residual_mm=rms,
-        tilt_x_deg=tilt_x, tilt_y_deg=tilt_y, tilt_mag_deg=tilt_mag,
-        tilt_azimuth_deg=azimuth, n=n,
-    )
-
-
-def fit_field_curvature(
-    field_height: np.ndarray, residual_mm: np.ndarray,
-) -> FieldCurvature:
-    """Fit plane-removed ``residual_mm ≈ k·field_height² + d`` and report the sag.
-
-    ``residual_mm`` is ``mu_mm`` MINUS the fitted plane (so plane tilt is already
-    removed). A bowl/dome shows up as a non-zero ``k``: ``sag_um`` is the signed
-    peak-to-edge difference (+ve ⇒ corners focus FARTHER from the camera than the
-    centre, i.e. ``mu_mm`` larger at the edge).
-    """
-    fh = np.asarray(field_height, float)
-    res = np.asarray(residual_mm, float)
-    n = int(fh.size)
-    if n < 3 or not np.isfinite(fh).all() or not np.isfinite(res).all():
-        return FieldCurvature(float("nan"), float("nan"), float("nan"),
-                              float("nan"), float("nan"), n)
-    x = fh * fh
-    # res = k*x + d  (least squares)
-    A = np.column_stack([x, np.ones_like(x)])
-    coef, *_ = np.linalg.lstsq(A, res, rcond=None)
-    k, d = float(coef[0]), float(coef[1])
+    r2 = px * px + py * py
+    fh_max = float(np.sqrt(r2.max()) / half_diag_px) if half_diag_px > 0 else float("nan")
+    px_corner = float(np.sqrt(r2.max()))
+    bad = CurvatureFit(*( [float("nan")] * 4 ), float("nan"), float("nan"),
+                       float("nan"), float("nan"), fh_max, px_corner, n)
+    if n < 4 or not np.isfinite(mu).all():
+        return bad
+    # design: [1, x, y, x²+y²]
+    A = np.column_stack([np.ones_like(px), px, py, r2])
+    coef, *_ = np.linalg.lstsq(A, mu, rcond=None)
+    c, a, b, k = (float(coef[0]), float(coef[1]), float(coef[2]), float(coef[3]))
     fit = A @ coef
-    rms_um = float(np.sqrt(np.mean((res - fit) ** 2)) * 1000.0)
-    fh_max = float(fh.max())
-    centre = d                       # at fh=0
-    edge = k * fh_max * fh_max + d   # at fh_max
-    sag_um = (edge - centre) * 1000.0
-    return FieldCurvature(
-        curv_coef_mm_per_fh2=k, sag_um=sag_um, rms_residual_um=rms_um,
-        centre_focus_mm=centre, edge_focus_mm=edge, n=n,
+    rms_um = float(np.sqrt(np.mean((mu - fit) ** 2)) * 1000.0)
+    # sag from k on the tilt-removed surface: quadratic part centre→corner
+    sag_mm = k * px_corner * px_corner
+    sag_um = sag_mm * 1000.0
+    sag_dof = (sag_mm / fwhm_mm_median
+               if math.isfinite(fwhm_mm_median) and fwhm_mm_median > 0 else float("nan"))
+    # Radius of the best-focus surface in a consistent length frame: express the
+    # lateral coordinate in SENSOR mm (r_mm = r_px · pitch) so mu[mm] = k'·r_mm²
+    # with k' = k / pitch_mm²; paraboloid apex radius R = 1/(2k').
+    pitch_mm = sensor_pitch_um / 1000.0
+    k_per_mm2 = k / (pitch_mm * pitch_mm)
+    radius_mm = (1.0 / (2.0 * k_per_mm2)) if k_per_mm2 != 0.0 else float("inf")
+    return CurvatureFit(
+        c_mm=c, a_mm_per_px=a, b_mm_per_px=b, k_mm_per_px2=k,
+        sag_um=sag_um, sag_dof=sag_dof, radius_mm=radius_mm,
+        rms_residual_um=rms_um, fh_max=fh_max, px_corner=px_corner, n=n,
     )
 
 
-def compute_decentering(
+# --------------------------------------------------------------------------- #
+# Tilt-independent decentering: vertex offset of a NO-free-tilt paraboloid
+# --------------------------------------------------------------------------- #
+def fit_vertex_offset(
     px: np.ndarray, py: np.ndarray, mu_mm: np.ndarray,
-    cx: float, cy: float,
-) -> Decentering:
-    """Left-right / top-bottom mean best-focus asymmetry about ``(cx, cy)``.
+    *, cx: float, cy: float, half_diag_px: float,
+    freetilt_rms_um: float,
+    min_sag_um: float = 20.0,
+    max_offset_frac: float = 0.60,
+) -> VertexOffset:
+    """Vertex ``(x0,y0)`` of the best-focus paraboloid → decentering indicator.
 
-    ``lr_mm`` = mean(mu_mm | px<cx) − mean(mu_mm | px>cx); positive ⇒ the LEFT
-    half focuses farther. ``tb_mm`` = mean(mu_mm | image-up) − mean(mu_mm |
-    image-down); positive ⇒ the TOP half focuses farther. (Image-up is py<cy.)
+    A shifted paraboloid ``c + k·((x−x0)²+(y−y0)²)`` expands to
+    ``(c+k r0²) + (−2k x0)·x + (−2k y0)·y + k·(x²+y²)`` — the SAME
+    ``{1,x,y,x²+y²}`` basis as the joint plane+quadratic fit. So the vertex is
+    just ``x0 = −a/(2k), y0 = −b/(2k)`` read off the joint fit coefficients; the
+    vertex-only and free-tilt fits are ALGEBRAICALLY IDENTICAL (same design
+    matrix), hence ``rms_vertex == rms_freetilt``.
+
+    **This is the crux of the degeneracy the coordinator flagged: from ONE config
+    a plane tilt is INDISTINGUISHABLE from a vertex-shifted bowl.** A pure tilt
+    ``t·x`` reads as a vertex at ``x0 = −t/(2k)``, which flies far outside the
+    frame for realistic (small k, non-trivial t). We therefore treat the vertex
+    as a decentering indicator ONLY when it is geometrically sane:
+
+    * curvature strong enough to define a vertex (``|sag| ≥ min_sag_um``), and
+    * the vertex lands INSIDE / near the frame
+      (``offset / half_diagonal ≤ max_offset_frac``).
+
+    Otherwise the "vertex" is really the rig tilt in disguise and we report
+    ``estimable=False`` with an explanatory note — i.e. clean tilt-independent
+    decentering needs cross-config or the per-orientation sag/tan extract.
     """
-    px = np.asarray(px, float)
-    py = np.asarray(py, float)
+    pxr = np.asarray(px, float) - float(cx)
+    pyr = np.asarray(py, float) - float(cy)
     mu = np.asarray(mu_mm, float)
-    left = px < cx
-    right = px > cx
-    top = py < cy        # image-up
-    bottom = py > cy     # image-down
-
-    def _m(mask):
-        v = mu[mask]
-        return float(np.mean(v)) if v.size else float("nan")
-
-    lr = _m(left) - _m(right)
-    tb = _m(top) - _m(bottom)
-    return Decentering(
-        lr_mm=lr, tb_mm=tb,
-        n_left=int(left.sum()), n_right=int(right.sum()),
-        n_top=int(top.sum()), n_bottom=int(bottom.sum()),
+    n = int(pxr.size)
+    nan = float("nan")
+    if n < 6 or not np.isfinite(mu).all():
+        return VertexOffset(False, nan, nan, nan, nan, nan, nan, nan,
+                            freetilt_rms_um, note="too few patches for vertex fit")
+    A = np.column_stack([np.ones_like(pxr), pxr, pyr, pxr * pxr + pyr * pyr])
+    coef, *_ = np.linalg.lstsq(A, mu, rcond=None)
+    _c, a, b, k = (float(coef[0]), float(coef[1]), float(coef[2]), float(coef[3]))
+    fit = A @ coef
+    rms_vertex_um = float(np.sqrt(np.mean((mu - fit) ** 2)) * 1000.0)
+    px_corner2 = float((pxr * pxr + pyr * pyr).max())
+    sag_um = abs(k * px_corner2) * 1000.0
+    if k == 0.0 or sag_um < min_sag_um:
+        return VertexOffset(False, nan, nan, nan, nan, nan, nan,
+                            rms_vertex_um, freetilt_rms_um,
+                            note=f"curvature too weak (|sag| {sag_um:.0f}µm < "
+                                 f"{min_sag_um:.0f}µm) — vertex not estimable")
+    dx0 = -a / (2.0 * k)
+    dy0 = -b / (2.0 * k)
+    x0 = dx0 + float(cx)
+    y0 = dy0 + float(cy)
+    offset_px = math.hypot(dx0, dy0)
+    offset_frac = offset_px / half_diag_px if half_diag_px > 0 else float("nan")
+    estimable = True
+    note = ""
+    if not math.isfinite(offset_frac) or offset_frac > max_offset_frac:
+        estimable = False
+        note = (f"vertex offset {offset_frac:.2f}×half-diag lands outside the "
+                f"sane region (>{max_offset_frac:.2f}) → dominated by plane tilt; "
+                "decentering NOT separable from tilt with one config")
+    return VertexOffset(
+        estimable=estimable, x0_px=x0, y0_px=y0, dx0_px=dx0, dy0_px=dy0,
+        offset_px=offset_px, offset_field_frac=offset_frac,
+        rms_vertex_um=rms_vertex_um, rms_freetilt_um=freetilt_rms_um, note=note,
     )
-
-
-def compute_astigmatism(
-    angle_deg: np.ndarray, edge_orient_deg: np.ndarray | None,
-    mu_mm: np.ndarray, field_height: np.ndarray,
-    *, min_field_height: float = 0.25, tol_deg: float = 22.5,
-) -> Astigmatism:
-    """Best-focus split between sagittal- and tangential-oriented edges.
-
-    Astigmatism needs edges of KNOWN orientation relative to the radial vector.
-    ``edge_orient_deg`` (per patch) is the dominant edge azimuth; an edge is
-    SAGITTAL when it lies along the radial direction (orientation ≈ ``angle_deg``)
-    and TANGENTIAL when perpendicular. If ``edge_orient_deg`` is None (the wafer
-    pad/patch geometry doesn't carry a clean dominant edge orientation per patch),
-    the split is not available and we say so.
-    """
-    if edge_orient_deg is None:
-        return Astigmatism(False, float("nan"), float("nan"), float("nan"),
-                          0, 0, note="no per-patch edge orientation available")
-    ang = np.asarray(angle_deg, float)
-    eo = np.asarray(edge_orient_deg, float)
-    mu = np.asarray(mu_mm, float)
-    fh = np.asarray(field_height, float)
-    # only patches off-axis enough to define a radial direction
-    use = fh >= min_field_height
-    # angle between edge orientation and radial vector, folded into [0,90]
-    d = np.abs(((eo - ang + 90) % 180) - 90)
-    sag = use & (d <= tol_deg)              # edge aligned with radius
-    tan = use & (d >= 90 - tol_deg)          # edge perpendicular to radius
-    n_sag, n_tan = int(sag.sum()), int(tan.sum())
-    if n_sag < 3 or n_tan < 3:
-        return Astigmatism(False, float("nan"), float("nan"), float("nan"),
-                          n_sag, n_tan,
-                          note="too few sagittal/tangential patches to separate")
-    mean_sag = float(np.mean(mu[sag]))
-    mean_tan = float(np.mean(mu[tan]))
-    return Astigmatism(True, mean_sag, mean_tan, mean_sag - mean_tan,
-                      n_sag, n_tan)
 
 
 def analyse_field_geometry(
     px: np.ndarray, py: np.ndarray, mu_mm: np.ndarray,
-    field_height: np.ndarray, angle_deg: np.ndarray, m: float,
-    *, cx: float | None = None, cy: float | None = None,
-    edge_orient_deg: np.ndarray | None = None,
-    sensor_pitch_um: float = SENSOR_PITCH_UM_Z7,
+    fwhm_mm_median: float,
+    *, cx: float, cy: float, half_diag_px: float,
+    edge_orient_available: bool = False,
 ) -> FieldGeometryResult:
-    """Run the full focus-surface geometry on one config's patches.
-
-    ``cx``/``cy`` default to the mean of ``px``/``py`` (the patch centroid). The
-    field-height-based curvature does not depend on the centre; the L-R/T-B
-    decentering split does.
-    """
-    px = np.asarray(px, float)
-    py = np.asarray(py, float)
-    mu = np.asarray(mu_mm, float)
-    fh = np.asarray(field_height, float)
-    ang = np.asarray(angle_deg, float)
-    if cx is None:
-        cx = float(np.mean(px))
-    if cy is None:
-        cy = float(np.mean(py))
-
-    plane = fit_plane_tilt(px, py, mu, m, sensor_pitch_um=sensor_pitch_um)
-    # residual after removing the fitted plane
-    resid = mu - (plane.a_mm_per_px * px + plane.b_mm_per_px * py + plane.c_mm)
-    curv = fit_field_curvature(fh, resid)
-    dec = compute_decentering(px, py, mu, cx, cy)
-    ast = compute_astigmatism(ang, edge_orient_deg, mu, fh)
-    return FieldGeometryResult(
-        plane=plane, curvature=curv, decentering=dec, astigmatism=ast,
-        extra={"cx": cx, "cy": cy},
+    """Run the tilt-removed curvature + vertex-offset geometry on one config."""
+    curv = fit_curvature_detrended(
+        px, py, mu_mm, fwhm_mm_median,
+        cx=cx, cy=cy, half_diag_px=half_diag_px,
     )
+    vtx = fit_vertex_offset(
+        px, py, mu_mm, cx=cx, cy=cy, half_diag_px=half_diag_px,
+        freetilt_rms_um=curv.rms_residual_um,
+    )
+    ast = Astigmatism(
+        False, float("nan"),
+        note=("needs the per-orientation (sagittal/tangential) best-focus extract; "
+              "POC 3 collapses the stack to one mu_mm per patch"),
+    ) if not edge_orient_available else Astigmatism(True, float("nan"), note="")
+    return FieldGeometryResult(
+        curvature=curv, vertex=vtx, astigmatism=ast,
+        extra={"cx": cx, "cy": cy, "half_diag_px": half_diag_px},
+    )
+
+
+# frame half-diagonal for the Z7 full frame (px), matches field_geometry
+Z7_FRAME_W = 8256
+Z7_FRAME_H = 5504
+Z7_HALF_DIAG_PX = 0.5 * math.hypot(Z7_FRAME_W, Z7_FRAME_H)
+Z7_CENTRE = (Z7_FRAME_W / 2.0, Z7_FRAME_H / 2.0)
