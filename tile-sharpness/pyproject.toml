@@ -20,6 +20,13 @@ dependencies = [
 [dependency-groups]
 dev = ["pytest>=8"]
 
+[tool.pytest.ini_options]
+# Scope collection to tests/ so a bare `pytest` doesn't recurse into the .venv
+# or into scripts/_recovered_extension_*/ (whose test_cross_m_relative_mtf.py
+# basename collides with tests/test_cross_m_relative_mtf.py under the default
+# import mode). Run the parked recovered tests explicitly by path if needed.
+testpaths = ["tests"]
+
 [project.scripts]
 tile-sharpness = "tile_sharpness.cli:main"
 

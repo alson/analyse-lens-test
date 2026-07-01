@@ -76,3 +76,7 @@ tile-sharpness/scripts/cross_m_relative_mtf_out/log_shard_*.txt
 # scripts/cross_m_relative_mtf_out/loctest_field/ (CSVs + REPORT + field_map.png) and
 # the subset CSV; ignore the heavy regenerable extract scratch dir entirely.
 tile-sharpness/cross_m_relative_mtf_loctest_out/
+
+# POC 1 focus-coverage re-extract scratch (regenerable psffoc/fieldtag/meta shards + logs).
+tile-sharpness/cross_m_relative_mtf_poc_focus_out/
+tile-sharpness/cross_m_relative_mtf_poc_focus_out_log_*.txt
