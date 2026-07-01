@@ -679,3 +679,73 @@ def test_caveats_header_states_the_fence():
     assert "0.08-0.15" in h
     # every line is comment-prefixed for CSV embedding
     assert all(ln.startswith("# ") for ln in h.splitlines())
+
+
+# --------------------------------------------------------------------------- #
+# P2 rail-availability tier gate (multi-session: 2025-10-17 unregistered-rail)
+# --------------------------------------------------------------------------- #
+
+def test_p2_rail_available_defaults_true_when_absent():
+    # A subset without the column (the original 38-config set) -> P2 stays available.
+    assert X.p2_rail_available(None) is True
+    assert X.p2_rail_available("") is True
+    assert X.p2_rail_available("   ") is True
+
+
+def test_p2_rail_available_truthy_strings():
+    for v in ("true", "True", "1", "yes", "Y", "t"):
+        assert X.p2_rail_available(v) is True
+
+
+def test_p2_rail_available_falsey_strings():
+    # 2025-10-17 carries an unregistered / non-constant rail step -> P2 unavailable.
+    for v in ("false", "False", "0", "no", "n", "off"):
+        assert X.p2_rail_available(v) is False
+
+
+def test_p2_rail_available_bool_passthrough():
+    assert X.p2_rail_available(True) is True
+    assert X.p2_rail_available(False) is False
+
+
+def test_p2_rail_unavailable_configs_simply_absent_from_scores():
+    # A config flagged rail-unavailable emits NO psffoc rows, so it never reaches
+    # through_focus_scores -> it is omitted from P2 (degrades to spectral/edge only),
+    # while rail-ok configs still score. This is the graceful-degradation contract.
+    rows = [dict(sid="railok", patch=f"P{p}", fwhm=8.0 + 0.1 * p) for p in range(5)]
+    # the rail-unavailable config contributes no rows at all (driver skips emission)
+    scores = X.through_focus_scores(pd.DataFrame(rows))
+    assert "railok" in scores
+    assert "railoff" not in scores
+
+
+# --------------------------------------------------------------------------- #
+# POC-1-native config-level coverage verdict (coverage_config_ok)
+# --------------------------------------------------------------------------- #
+
+def test_coverage_config_ok_counts_ok_patches():
+    # >= min_ok "ok" patches -> keep; below -> drop.
+    assert X.coverage_config_ok(["ok", "ok", "ok"], min_ok=3) is True
+    assert X.coverage_config_ok(["ok", "ok"], min_ok=3) is False
+    assert X.coverage_config_ok(["ok", "ok", "ok", "ok"], min_ok=3) is True
+
+
+def test_coverage_config_ok_only_ok_flag_counts():
+    # truncated_* and fwhm_truncated are all not-ok; unknown flags too.
+    flags = ["ok", "truncated_low", "truncated_high", "fwhm_truncated", "ok"]
+    assert X.coverage_config_ok(flags, min_ok=2) is True   # 2 ok
+    assert X.coverage_config_ok(flags, min_ok=3) is False  # only 2 ok
+    # an unrecognised flag is conservatively not-ok
+    assert X.coverage_config_ok(["ok", "weird", "ok"], min_ok=3) is False
+
+
+def test_coverage_config_ok_empty_is_dropped():
+    # no patches -> nothing to trust -> drop.
+    assert X.coverage_config_ok([]) is False
+
+
+def test_coverage_config_ok_default_threshold():
+    # default COVERAGE_MIN_OK_PATCHES applies when min_ok is not given.
+    n = X.COVERAGE_MIN_OK_PATCHES
+    assert X.coverage_config_ok(["ok"] * n) is True
+    assert X.coverage_config_ok(["ok"] * (n - 1)) is False

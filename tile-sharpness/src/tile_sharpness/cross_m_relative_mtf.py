@@ -70,6 +70,7 @@ Physics constant: f_subj(lp/mm) = f_px(cy/px) * 229.9 * M (Z7 4.35um pitch).
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -700,6 +701,65 @@ def through_focus_coverage_summary(tf):
     return (pd.DataFrame(rows)
             .sort_values("frac_truncated", ascending=False)
             .reset_index(drop=True))
+
+
+#: Minimum number of ``ok`` (well-bracketed) patches a config must retain before it
+#: is trusted for ranking. Below this the config's focus coverage is too thin to
+#: aggregate — every remaining patch measured its FWHM on a stack-clipped curve.
+COVERAGE_MIN_OK_PATCHES = 3
+
+
+def p2_rail_available(rail_ok) -> bool:
+    """TIER GATE — whether the P2 through-focus corroborator is usable for a config.
+
+    P2 measures the WIDTH of the focus-stack sharpness response in FRAMES; it is only
+    comparable across configs when the focus-rail step is constant and REGISTERED, so
+    the frame index maps linearly to physical defocus. That holds only for the
+    rail-coverage tier (2026-05+, where the capture script drives a registered
+    constant-step rail). The MANUAL tier (<= 2026-02: hand-set start/stop, fixed frame
+    COUNT) carries a frame axis that is NOT a defocus axis, so its FWHM-in-frames is
+    not comparable — P2 must be marked UNAVAILABLE and those configs degrade to the
+    spectral / pad-edge / decon estimators only.
+
+    This gate is ORTHOGONAL to :func:`coverage_flag` / :func:`coverage_config_ok`:
+    coverage asks *was the focus peak bracketed*; the tier gate asks *is frame ->
+    defocus even linear (constant registered step)*. A config can be well-bracketed
+    (coverage ok) yet still fail the tier gate (unregistered manual rail).
+
+    ``rail_ok`` is the per-config ``p2_rail_ok`` flag (truthy strings
+    ``"1"/"true"/"yes"/"y"/"t"``, a bool, or ``None``/empty -> defaults True for
+    backward compatibility with subsets that omit the column). Returns a bool; the
+    driver skips emitting through-focus (psffoc) rows when False. Pure / unit-tested.
+    """
+    if rail_ok is None:
+        return True
+    if isinstance(rail_ok, str):
+        s = rail_ok.strip().lower()
+        if s == "":
+            return True
+        return s in ("1", "true", "yes", "y", "t")
+    return bool(rail_ok)
+
+
+def coverage_config_ok(flags: Sequence[str], min_ok: int = COVERAGE_MIN_OK_PATCHES) -> bool:
+    """POC-1-native config-level focus-coverage verdict over per-patch flags.
+
+    ``flags`` = iterable of per-patch :data:`COVERAGE_FLAGS` strings (one per patch,
+    each from :func:`coverage_flag`). Returns True (keep the config for ranking) when
+    the config retains at least ``min_ok`` ``"ok"`` (well-bracketed, full-HWHM-inside)
+    patches; otherwise False (drop it — its focus coverage is too thin, every
+    remaining patch measured its FWHM on a stack-clipped curve).
+
+    This is the POC-1 replacement for the old majority-vote coverage verdict. Rather
+    than a fraction of edge patches, it counts the ABSOLUTE number of trustworthy
+    ``"ok"`` patches, matching POC 1's richer per-patch flag classification
+    (``truncated_low`` / ``truncated_high`` / ``fwhm_truncated`` are all treated as
+    not-ok). An empty input yields False (no patches -> nothing to trust). Unknown
+    flags (anything not in :data:`COVERAGE_FLAGS`) are conservatively treated as
+    not-``ok``. Pure / unit-tested.
+    """
+    n_ok = sum(1 for f in flags if f == "ok")
+    return n_ok >= min_ok
 
 
 def p2_deconfound_corr(scores, n_eff_by_sid):
