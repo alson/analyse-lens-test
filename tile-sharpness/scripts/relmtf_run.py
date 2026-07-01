@@ -74,6 +74,7 @@ sys.path.insert(0, str(TS / "src"))
 
 from tile_sharpness import cross_m_relative_mtf as X  # noqa: E402
 from tile_sharpness import multi_session as MS  # noqa: E402
+from tile_sharpness import m_lookup as ML  # noqa: E402
 from tile_sharpness import optics  # noqa: E402
 from tile_sharpness import focus_physical as FP  # noqa: E402
 from tile_sharpness.field_geometry_focus import (  # noqa: E402
@@ -144,6 +145,97 @@ REG_M_MIN = 0.20          # sane lower magnification bound for this wafer rig
 REG_M_MAX = 3.50          # sane upper bound (matches apf scale-collapse fence)
 REG_M_COLLAPSE = 0.20     # M at/below this is the scale-collapse mode -> drop
 REG_RMSE_MAX = 6.0        # px; residuals above this are an unreliable fit
+
+# --------------------------------------------------------------------------- #
+# min-residual-over-frames registration frame-selection (recovery fix, 2026-06-30)
+# --------------------------------------------------------------------------- #
+# The scale-COLLAPSE floor used DURING frame selection (distinct from the outer
+# reg_guard REG_M_COLLAPSE=0.20, which is the final hard drop). The 316-config good run
+# never produced an honest lock below M~0.382; documented collapses land at M~0.15-0.27
+# at a deceptively LOW residual (24-120 F5.6 collapse M=0.193 rmse=10.3 beats the honest
+# M=0.410 rmse=0.63 lock on another frame). A 0.30 floor sits in the clean gap between
+# the two populations, so it rejects the collapse family without touching any honest fit.
+REG_SELECT_M_FLOOR = 0.30
+# when a nominal M is known (from mag_label), reject a lock whose measured M is below
+# this fraction of nominal (a collapse) or wildly above it. atlas-M is validated to
+# +-1.6% but nominal LABELS can be off by more, so the band is generous.
+REG_SELECT_NOMINAL_LO = 0.55   # measured >= 0.55 * nominal (below => collapse)
+REG_SELECT_NOMINAL_HI = 1.90   # measured <= 1.90 * nominal (above => wrong-lock)
+# how many candidate frames to attempt registration on, per config. Registration is the
+# expensive step, so we cap it: the sharpest N_TOPK central-lapvar frames plus a handful
+# spread across the stack. The honest lock for the wrong-lock zooms sits ~20-30th by
+# lapvar (the sharpest bracket registers WORST), so a top-3 window misses it; ~16 covers
+# the observed honest-lock ranks while staying ~3x cheaper than all-frames.
+REG_SELECT_TOPK = 16
+REG_SELECT_SPREAD = (0.3, 0.5, 0.7)
+
+
+def nominal_M_for(node) -> float:
+    """Best-effort nominal magnification for a config node, or NaN if unknown.
+
+    Prefers the explicit ``nominal_M`` CSV column; falls back to parsing the
+    ``mag_label`` dir name (``<a>_<b>`` -> a/b, e.g. ``1_2.00`` -> 0.5, ``1.53_1`` ->
+    1.53). Bare-zoom 2026-05 configs carry NEITHER (empty mag_label) -> NaN, and the
+    selector then falls back to the absolute REG_SELECT_M_FLOOR only.
+    """
+    raw = (getattr(node, "nominal_M", "") or "").strip()
+    if raw:
+        try:
+            v = float(raw)
+            if math.isfinite(v) and v > 0:
+                return v
+        except ValueError:
+            pass
+    lbl = (getattr(node, "mag_label", "") or "").strip()
+    if lbl:
+        v = ML.parse_mag_label(lbl)
+        if math.isfinite(v) and v > 0:
+            return v
+    return float("nan")
+
+
+def _lock_plausible(M, nominal_M):
+    """Is a candidate lock's measured ``M`` physically plausible for selection?
+
+    Two-stage: (1) an ABSOLUTE collapse floor that always applies; (2) when a finite
+    positive ``nominal_M`` is known, a generous band around it (rejects both a collapse
+    that landed just above the floor and a 2x mis-lock). Pure / unit-tested.
+    """
+    if not (M is not None and np.isfinite(M) and M > 0):
+        return False
+    if M < REG_SELECT_M_FLOOR:
+        return False
+    if nominal_M is not None and np.isfinite(nominal_M) and nominal_M > 0:
+        if M < REG_SELECT_NOMINAL_LO * nominal_M:
+            return False
+        if M > REG_SELECT_NOMINAL_HI * nominal_M:
+            return False
+    return True
+
+
+def select_registration(candidates, nominal_M=float("nan")):
+    """Pick the best registration among per-frame candidate locks (min-residual rule).
+
+    ``candidates`` is an iterable of dicts each carrying at least ``M`` and ``rmse``
+    (extra keys are preserved on the winner). Keep only PLAUSIBLE locks
+    (:func:`_lock_plausible` — absolute collapse floor + optional nominal-M band), then
+    return the one with the LOWEST finite ``rmse``. Returns ``None`` when no candidate is
+    plausible (the config is then dropped upstream). This is the whole recovery decision;
+    it is pure and unit-tested. Rejecting collapses HERE (not only via the outer
+    reg_guard) is what lets an honest higher-M lock on a lower-lapvar frame win over a
+    deceptively-low-residual collapse on the sharpest frame.
+    """
+    best = None
+    for c in candidates:
+        M = c.get("M")
+        rmse = c.get("rmse")
+        if rmse is None or not np.isfinite(rmse):
+            continue
+        if not _lock_plausible(M, nominal_M):
+            continue
+        if best is None or rmse < best["rmse"]:
+            best = c
+    return best
 
 
 def reg_guard(M, rmse):
@@ -260,16 +352,87 @@ def patch_layout():
 # extraction primitives (ported from the validated location-aware POC driver;
 # reg_auto is used read-only)
 # --------------------------------------------------------------------------- #
-def register_config(sweep_dir):
+def _central_lapvar(g):
+    """Central-ROI Laplacian variance (focus proxy). Mirrors apf.central_lapvar."""
+    c = g[IMAGE_H // 2 - 800:IMAGE_H // 2 + 800, IMAGE_W // 2 - 800:IMAGE_W // 2 + 800]
+    return float(cv2.Laplacian(c.astype(np.float32), cv2.CV_32F).var())
+
+
+def _register_candidate_frames(jpgs, topk=REG_SELECT_TOPK, spread=REG_SELECT_SPREAD):
+    """Choose the candidate frames to attempt registration on for a config.
+
+    The sharpest ``topk`` frames by central-ROI lapvar (ranked over a dense subsample —
+    the focus plateau is wide so we needn't score every frame) PLUS a few spread across
+    the stack as insurance. Returns a de-duplicated, order-preserving list of jpg paths.
+    Wider than the legacy apf.register top-3 window: the honest lock for the wrong-lock
+    bare zooms sits ~20-30th by lapvar (the SHARPEST exposure bracket registers worst),
+    so a narrow window structurally misses it.
+    """
+    step = max(1, len(jpgs) // 120)
+    sub = jpgs[::step]
+    lv = []
+    for jp in sub:
+        g = cv2.imread(str(jp), cv2.IMREAD_GRAYSCALE)
+        lv.append((_central_lapvar(g) if g is not None else -1.0, jp))
+    lv.sort(reverse=True, key=lambda t: t[0])
+    cand = [jp for _, jp in lv[:topk]]
+    cand += [jpgs[min(len(jpgs) - 1, int(len(jpgs) * f))] for f in spread]
+    return list(dict.fromkeys(cand))
+
+
+def _refine_distortion_if_helps(p):
+    """Optionally re-fit a per-config radial (k1[,k2]) term over a lock's own
+    correspondences, keeping it only when it meaningfully cuts the residual.
+
+    ``reg_auto.refine_full_res`` ALREADY conditionally adds a radial term (>=12 pairs and
+    >=20% RMSE drop), so a lock returned by ``register_and_refine`` may already carry
+    ``k1``/``k2``. This is a no-op wrapper kept as the documented hook for the mode-B
+    (distorting-glass) path: the empirical finding was that the honest per-frame affine
+    lock already sits well under the 6px ceiling for the recoverable distorting configs
+    (24-120+ext F11 affine rmse=1.71), so no ADDITIONAL distortion fit is applied here —
+    doing so risks the term absorbing peak-localization noise instead of real distortion.
+    Returns ``p`` unchanged; present so the distortion decision has a single named home.
+    """
+    return p
+
+
+def register_config(sweep_dir, node=None):
+    """Register a config via MIN-RESIDUAL-OVER-FRAMES selection.
+
+    Ranks several candidate frames (:func:`_register_candidate_frames`), registers each
+    with ``reg_auto.register_and_refine`` (unchanged estimator), and keeps the lock with
+    the LOWEST fit residual AMONG PLAUSIBLE-M locks (:func:`select_registration`, which
+    rejects scale-collapses via the absolute floor + optional nominal-M band). ``node``
+    (when given) supplies the nominal M so the collapse rejection is config-aware; when
+    absent the absolute floor alone applies. Returns ``(affine_p, M, jpgs)`` or
+    ``(None, None, jpgs)`` if no plausible lock is found.
+
+    Only the FRAME/LOCK SELECTION changes vs the legacy ``apf.register``; the detection,
+    fit, refinement, geometry and downstream all use the same reg_auto code.
+    """
     sweep_dir = Path(sweep_dir)
     jpgs = sorted(sweep_dir.glob("*.jpg")) + sorted(sweep_dir.glob("*.JPG"))
     if not jpgs:
         return None, None, []
-    p = apf.register(jpgs)
-    if p is None:
+    nominal_M = nominal_M_for(node) if node is not None else float("nan")
+    candidates = []
+    for jp in _register_candidate_frames(jpgs):
+        try:
+            p = reg_auto.register_and_refine("x", path=str(jp), anchors=None)
+        except Exception:
+            continue
+        if p is None or not p.get("n_refine_intersections"):
+            continue
+        rmse = p.get("reg_fit_rmse_px")
+        if rmse is None or not np.isfinite(rmse):
+            continue
+        M = p["scale"] / M_ANCHOR_SCALE
+        candidates.append(dict(M=M, rmse=float(rmse), p=p, frame=jp.name))
+    best = select_registration(candidates, nominal_M)
+    if best is None:
         return None, None, jpgs
-    M = p["scale"] / M_ANCHOR_SCALE
-    return p, M, jpgs
+    p = _refine_distortion_if_helps(best["p"])
+    return p, best["M"], jpgs
 
 
 def _lapvar(a):
@@ -534,7 +697,7 @@ def cmd_extract(args):
     for node in nodes:
         cid = MS.human(node); sid = MS.sid(node)
         sd = node.sweep_dir
-        p, M, jpgs = register_config(sd)
+        p, M, jpgs = register_config(sd, node)
         if p is None:
             dropped_rows.append(dict(sid=sid, config=cid, session=node.session,
                                      stage="extract", reason="reg_fail"))

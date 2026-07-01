@@ -81,6 +81,74 @@ def test_reg_guard_drops_nonfinite_rmse():
 
 
 # --------------------------------------------------------------------------- #
+# min-residual-over-frames selection (recovery fix)
+# --------------------------------------------------------------------------- #
+def test_select_registration_picks_min_rmse_among_plausible():
+    # honest lock (M=0.41, rmse=0.6) beats a lower-rmse-looking but higher-rmse alt;
+    # simple min-rmse over plausible locks.
+    cand = [dict(M=0.41, rmse=0.6, frame="a"),
+            dict(M=0.40, rmse=1.2, frame="b"),
+            dict(M=0.42, rmse=3.4, frame="c")]
+    best = rr.select_registration(cand)
+    assert best["frame"] == "a"
+
+
+def test_select_registration_rejects_collapse_even_at_lowest_rmse():
+    # THE recovery case: a scale-collapse (M=0.19) lands at a DECEPTIVELY LOW residual
+    # (10.3) that would win min-rmse outright; the honest M=0.41 lock has a slightly
+    # higher rmse. The collapse must be rejected so the honest lock wins.
+    cand = [dict(M=0.193, rmse=10.3, frame="collapse"),
+            dict(M=0.410, rmse=0.63, frame="honest")]
+    best = rr.select_registration(cand)
+    assert best["frame"] == "honest" and best["M"] == 0.410
+
+
+def test_select_registration_absolute_floor_rejects_sub_floor_M():
+    # every candidate below the absolute floor -> nothing plausible -> None (drop).
+    cand = [dict(M=0.16, rmse=0.4), dict(M=0.27, rmse=0.9)]
+    assert rr.select_registration(cand) is None
+
+
+def test_select_registration_nominal_band_rejects_collapse_above_floor():
+    # a collapse that clears the absolute floor (M=0.31) but is far below a KNOWN nominal
+    # (0.775 -> lo=0.55*0.775=0.43) is still rejected; the honest near-nominal lock wins.
+    cand = [dict(M=0.31, rmse=0.5, frame="collapse"),
+            dict(M=0.78, rmse=1.4, frame="honest")]
+    best = rr.select_registration(cand, nominal_M=0.775)
+    assert best["frame"] == "honest"
+
+
+def test_select_registration_nominal_band_rejects_double_lock():
+    # a 2x mis-lock (M=1.55, nominal 0.775 -> hi=1.9*0.775=1.47) is rejected.
+    cand = [dict(M=1.55, rmse=0.3, frame="double"),
+            dict(M=0.77, rmse=2.0, frame="honest")]
+    best = rr.select_registration(cand, nominal_M=0.775)
+    assert best["frame"] == "honest"
+
+
+def test_select_registration_ignores_nonfinite_rmse_and_returns_none_if_empty():
+    assert rr.select_registration([]) is None
+    assert rr.select_registration([dict(M=0.5, rmse=float("nan"))]) is None
+    assert rr.select_registration([dict(M=0.5, rmse=None)]) is None
+
+
+def test_select_registration_no_nominal_falls_back_to_absolute_floor_only():
+    # bare-zoom configs carry no nominal M; only the absolute floor gates. A plausible
+    # honest lock is kept; a collapse below the floor is dropped.
+    cand = [dict(M=0.19, rmse=0.5, frame="collapse"),
+            dict(M=0.40, rmse=1.0, frame="honest")]
+    best = rr.select_registration(cand, nominal_M=float("nan"))
+    assert best["frame"] == "honest"
+
+
+def test_lock_plausible_boundaries():
+    assert not rr._lock_plausible(0.29, float("nan"))   # just below floor
+    assert rr._lock_plausible(0.31, float("nan"))       # just above floor
+    assert not rr._lock_plausible(-0.5, float("nan"))
+    assert not rr._lock_plausible(float("nan"), float("nan"))
+
+
+# --------------------------------------------------------------------------- #
 # step-source selection (documented vs dof_estimated)
 # --------------------------------------------------------------------------- #
 def test_step_source_documented_for_2026_05_with_finite_step():
