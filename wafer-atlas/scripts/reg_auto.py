@@ -110,6 +110,22 @@ morphological path fail (anchor RMSE ~6000px):
   fallback ONLY if the super-cell PHASE itself were ambiguous (it is not here). See
   diag_highm_repro.py / diag_highm_fovmap.py / diag_sigma105_equiv.py.
 
+  DOWNSTREAM GUARD NOTES (how the cross-M relmtf pipeline consumes this residual).
+    - OBJECT-SPACE rmse. The registration residual is a physical constant in OBJECT
+      space (~9µm median, p99≈20µm) and is essentially M-INDEPENDENT; per-pixel rmse
+      only rises with M because one pixel subtends pitch/M. The consumer's reg_guard
+      therefore gates on rmse_px·pitch/M ≤ 25µm, NOT a flat px ceiling (flat px is too
+      strict at high M — it wrongly drops honest high-M locks near the ~9µm median — and
+      too lenient at low M, where it admits gross low-M wrong-locks).
+    - HONEST LOCK ≠ SHARPEST FRAME. Across an exposure sweep the sharpest bracket often
+      registers WORST; the honest low-rmse lock can sit ~rank 16–28 by Laplacian
+      variance. So the consumer registers over the top-REG_SELECT_TOPK (=20) sharpest
+      frames plus a spread, and keeps the MIN-rmse lock among the physically plausible
+      ones — never just the sharpest.
+    - INHERENT M≈2 LIMIT. The sub-pixel trough refiner locks 0 intersections once only
+      ~3×2–3×3 scribes remain in-FOV, so registration cannot be refined past M≈2 on this
+      target (see HIGH-M ROBUSTNESS / SAME-PHASE EQUIVALENCE above).
+
 Run:  reg_auto.py            # autonomous registration of all sweeps + validation
       reg_auto.py --validate # just the mapping/label sanity probe
 """

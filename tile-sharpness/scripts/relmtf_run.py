@@ -61,6 +61,7 @@ import argparse
 import csv as _csv
 import importlib.util
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -911,11 +912,34 @@ def decon_scores(meta, out):
 
 
 def _read_csv_safe(f):
-    """pd.read_csv that returns an empty frame for a header-less empty shard CSV."""
+    """pd.read_csv that returns an empty frame for a header-less / empty shard CSV.
+
+    A shard that registered 0 configs writes a size<=1 byte, column-less CSV; pd.read_csv
+    then raises EmptyDataError ("No columns to parse from file"). Skip such shards (and a
+    missing file) by returning an empty DataFrame instead of crashing the pool.
+    """
+    try:
+        if os.path.getsize(f) <= 1:
+            return pd.DataFrame()
+    except OSError:
+        return pd.DataFrame()
     try:
         return pd.read_csv(f)
     except pd.errors.EmptyDataError:
         return pd.DataFrame()
+
+
+def _pool_shards(files):
+    """Pool a list of ``*_shard_*.csv`` paths, skipping empty / header-less / missing ones.
+
+    Returns a single concatenated DataFrame (row order = sorted file order), or an empty
+    DataFrame when every shard is empty. Non-empty shards are concatenated unchanged, so
+    behaviour is identical to a plain ``pd.concat([pd.read_csv(f) ...])`` whenever no
+    shard is empty. This is the crash-safe replacement for pooling loops that fed
+    ``pd.read_csv`` a 0-config shard directly.
+    """
+    frames = [d for d in (_read_csv_safe(f) for f in sorted(files)) if not d.empty]
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
 def p2_scores(out):
@@ -1049,10 +1073,10 @@ def cmd_analyse(args):
     nodes_by_sid = {MS.sid(n): n for n in nodes}
     f_px = args.fpx
 
-    psd = pd.concat([pd.read_csv(f) for f in out.glob("psd_shard_*.csv")],
-                    ignore_index=True)
-    meta = pd.concat([pd.read_csv(f) for f in out.glob("meta_shard_*.csv")],
-                     ignore_index=True).drop_duplicates("config")
+    # Pool shards crash-safely: a shard that registered 0 configs writes a header-less
+    # 1-byte CSV that would make a bare pd.read_csv raise EmptyDataError.
+    psd = _pool_shards(out.glob("psd_shard_*.csv"))
+    meta = _pool_shards(out.glob("meta_shard_*.csv")).drop_duplicates("config")
 
     # dropped log (from extract) — pool + rewrite the canonical dropped_configs.csv.
     # Shards with zero drops write an empty (header-less) CSV, so read defensively.

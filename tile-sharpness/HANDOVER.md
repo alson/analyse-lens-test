@@ -63,11 +63,19 @@ State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01)
 > sub-pixel-refiner-starved M≈2 diopter/tube stacks (AF200+6T+5T ×2, S150 ×2, Z105+61ext
 > F4.5 — 0 full-res locks); 2 wide-open-soft (Viltrox85+26ext F2, Z100400 F5.6, 0 locks at
 > TOPK=60); 2 **capture-defect** sweeps (24-120+10ext F4.5/F6.3 @260218 — wafer centre never
-> focuses; lapvar flat ~6.7 across all 78 frames vs ~1700 sharp → bad data, re-shoot).
-> Also: all 16 investigated configs had EMPTY `nominal_M` (plausibility band never engaged
-> — populate it from metadata.json/mag_label for future robustness). Minor: a shard that
-> registers 0 configs writes 1-byte CSVs that crash pooling — harden the shard-read to skip
-> empties (only bit the tiny recovery run, not the 16-shard runs).
+> focuses; lapvar flat ~6.7 across all 78 frames vs ~1700 sharp).
+>
+> **2026-07-02 (cleanup, commit pending):** the 2 capture-defect sweeps were ALREADY reshot
+> — the 2026-05-13 24-120+10ext@120mm sweep covers the same regime (M≈0.56, registers at
+> 1.6px), so the whole 2026-02-18 120mm+10ext family (5 rows, incl. the 2 defects) is now
+> SUPERSEDED and dropped from the frozen subset (**316 → 311 rows**; the 50mm+10ext family,
+> not reshot, is kept). `nominal_M` is now populated at subset-build time (288/311; the 23
+> empties are genuinely `magnification: null` in metadata.json). Shard-pooling hardened to
+> skip empty/0-config shard CSVs (`_read_csv_safe`/`_pool_shards`). Registration lessons
+> written into README ("Registration notes") + reg_auto.py docstring. NOTE: the committed
+> `out_relmtf_multisession/` (305/316) reflects the prior 316-row run; a future re-run
+> reconciles to the 311-row subset (headline rail-coverage ranking is unaffected — the 5
+> dropped are 2026-02-18 manual-tier, secondary view only). 331 tests pass.
 
 > **2026-07-01 — follow-up #7 delivered as four chained POCs: focus-coverage
 > flagging → DoF step-size → physical-mm FWHM → field geometry.** All verified;

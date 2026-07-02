@@ -22,22 +22,34 @@ optics.effective_fnumber derives the working N_eff from the registered M; for th
 2026-05 rail sessions the aperture FOLDER is the effective f-number, so the marked N
 is recovered from effective_apertures.csv (reported_f).
 
-SUPERSESSION (the hard-coded ``SUPERSEDED`` set + ``SUPERSEDED_0218_LENSES`` below):
-where a 2026-05 rail-coverage reshoot exists for a config also shot in an older,
-under-covered MANUAL take, PREFER the 2026-05 rail take and drop the older one. The
-rationale is coverage quality — the 2026-05 rail sessions capture a registered,
-constant-step defocus axis that brackets the focus peak (rail-coverage tier), whereas
-the older manual F8 1:1-ish takes hand-set start/stop with a fixed frame COUNT and
-frequently clip the peak. Encoding the preference here keeps the subset from
-double-counting the same physical (lens, mag, aperture) across a manual and a rail
-take. The set is intentionally HARD-CODED (a small, curated, human-reviewed list)
+SUPERSESSION (the hard-coded ``SUPERSEDED`` set + ``SUPERSEDED_0218_LENSES`` +
+``SUPERSEDED_0218_LENS_FOCAL`` below): where a 2026-05 rail-coverage reshoot exists for
+a config also shot in an older, under-covered MANUAL take, PREFER the 2026-05 rail take
+and drop the older one. The rationale is coverage quality — the 2026-05 rail sessions
+capture a registered, constant-step defocus axis that brackets the focus peak
+(rail-coverage tier), whereas the older manual F8 1:1-ish takes hand-set start/stop with
+a fixed frame COUNT and frequently clip the peak. Encoding the preference here keeps the
+subset from double-counting the same physical (lens, mag, aperture) across a manual and a
+rail take. The sets are intentionally HARD-CODED (a small, curated, human-reviewed list)
 rather than auto-derived, because matching manual<->rail configs is fuzzy (marked vs
 effective aperture, mag-label vs registered M).
+
+Focal-scoped supersession (``SUPERSEDED_0218_LENS_FOCAL``): the 2026-02-18 "NIKKOR Z
+24-120mm f_4 S + 10mm extension" @ **focal 120mm** (mag_label ``1_1.84``, all apertures
+F4.5/F6.3/F9/F13/F18) is superseded by the 2026-05-13 rail reshoot of the same config
+(registers cleanly at M~=0.56, F4-F16). Two of those 2026-02-18 120mm sweeps (F4.5, F6.3)
+are the known capture-defect sweeps (the wafer centre never focuses). The 2026-02-18
+**50mm** + 10ext take (mag_label ``1_2.25``) is NOT reshot on 2026-05-13, so it is KEPT —
+hence this ruling is scoped to (lens, focal) rather than dropping the whole lens dir.
 """
 import csv
 import glob
+import json
+import math
 import os
 import re
+
+from tile_sharpness.m_lookup import parse_mag_label
 
 TS = "/home/alson/shared/projects/personal/fotografie/analyse-lens-test/tile-sharpness"
 ORIG = os.path.join(TS, "scripts", "cross_m_relative_mtf_subset.csv")
@@ -57,6 +69,60 @@ def one_jpg(d):
     js = sorted(glob.glob(os.path.join(glob.escape(d), "*.jpg"))
                 + glob.glob(os.path.join(glob.escape(d), "*.JPG")))
     return (js[0] if js else None), len(js)
+
+
+def _metadata_magnification(sample):
+    """Read ``lens_config.magnification`` from the session metadata.json for a rail row.
+
+    Rail-tier sample paths are ``.../<session>/<lens-config>/<aperture>/step_NNNN.jpg``;
+    the per-config metadata.json sits at the lens-config dir (``parent.parent`` of the
+    sample). Returns a finite positive float, or None (some rail configs record a null
+    magnification — those rows keep an empty nominal_M).
+    """
+    if not sample:
+        return None
+    md = os.path.join(os.path.dirname(os.path.dirname(sample)), "metadata.json")
+    if not os.path.exists(md):
+        return None
+    try:
+        with open(md) as fh:
+            m = (json.load(fh).get("lens_config") or {}).get("magnification")
+    except (OSError, ValueError):
+        return None
+    if m is None:
+        return None
+    try:
+        v = float(m)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) and v > 0 else None
+
+
+def resolve_nominal_M(row):
+    """Best-effort nominal magnification string for a subset row.
+
+    Precedence: (1) an already-populated finite ``nominal_M``; (2) manual-tier rows carry
+    a ``<a>_<b>`` ``mag_label`` -> parse_mag_label(a/b); (3) rail-tier rows (empty
+    mag_label) -> read ``lens_config.magnification`` from the session metadata.json.
+    Returns a formatted string (``f"{v:.4f}"``) or "" when none is derivable.
+    """
+    existing = (row.get("nominal_M") or "").strip()
+    if existing:
+        try:
+            v = float(existing)
+            if math.isfinite(v) and v > 0:
+                return f"{v:.4f}"
+        except ValueError:
+            pass
+    lbl = (row.get("mag_label") or "").strip()
+    if lbl:
+        v = parse_mag_label(lbl.removesuffix("-resized"))
+        if math.isfinite(v) and v > 0:
+            return f"{v:.4f}"
+    v = _metadata_magnification(row.get("sample"))
+    if v is not None:
+        return f"{v:.4f}"
+    return ""
 
 
 def ap_dir_to_marked(name):
@@ -136,6 +202,12 @@ print(f"2025-10-17 (manual, all apertures): {n1017} config-nodes")
 # live directly in the aperture dir. Bare 24-120 superseded by 2026-05-13 reshoot.
 S18 = os.path.join(ROOT, "2026-02-18")
 SUPERSEDED_0218_LENSES = {"NIKKOR Z 24-120mm f_4 S"}  # bare -> reshot in 05-13
+# focal-scoped: (lens, focal-mm-normalised) pairs to drop. The 24-120+10ext @120mm
+# manual take (incl. 2 capture-defect sweeps) is reshot on 05-13; the @50mm one is not.
+SUPERSEDED_0218_LENS_FOCAL = {
+    ("NIKKOR Z 24-120mm f_4 S + 10mm extension", "120"),
+}
+superseded_0218_focal_dropped = []
 n18 = 0
 for lensdir in sorted(glob.glob(os.path.join(S18, "*"))):
     if not os.path.isdir(lensdir):
@@ -153,11 +225,26 @@ for lensdir in sorted(glob.glob(os.path.join(S18, "*"))):
             if not os.path.isdir(focaldir):
                 continue
             focal = os.path.basename(focaldir).replace("mm", "").strip()
+            # normalise "120.0" -> "120" for the focal-scoped supersession match only
+            focal_key = focal[:-2] if focal.endswith(".0") else focal
+            if (lens, focal_key) in SUPERSEDED_0218_LENS_FOCAL:
+                for apdir in sorted(glob.glob(os.path.join(focaldir, "F*"))):
+                    if not os.path.isdir(apdir) or os.path.basename(apdir) == "cropped":
+                        continue
+                    samp, n = one_jpg(apdir)  # only report rows that WOULD have been added
+                    if samp and n >= MIN_SHOTS and ap_dir_to_marked(os.path.basename(apdir)):
+                        superseded_0218_focal_dropped.append(
+                            f"{lens} | {mag} | {focal} | {os.path.basename(apdir)}")
+                continue
             for apdir in sorted(glob.glob(os.path.join(focaldir, "F*"))):
                 if not os.path.isdir(apdir) or os.path.basename(apdir) == "cropped":
                     continue
                 n18 += add_rows("2026-02-18", lens, mag, focal, apdir, rail_ok=False)
 print(f"2026-02-18 (manual, all apertures): {n18} config-nodes")
+print(f"2026-02-18 focal-scoped superseded-dropped (reshot on 2026-05-13): "
+      f"{len(superseded_0218_focal_dropped)}")
+for s in superseded_0218_focal_dropped:
+    print(f"  SUPERSEDED by 2026-05-13 rail reshoot: {s}")
 
 
 # ---- 3) rail sessions 2026-05-12 / 2026-05-13 (rail tier, P2 on) -------------
@@ -232,6 +319,14 @@ for lens_raw in UNIQUE_0512:
         marked, focal = eff12.get((lens_raw, apname), (ap_dir_to_marked(apname), ""))
         n12 += add_rows("2026-05-12", lens, "", focal, apdir, rail_ok=True, marked=marked)
 print(f"2026-05-12 (rail, unique families, all apertures): {n12} config-nodes")
+
+# ---- populate nominal_M for ALL rows (metadata only; order unchanged) ---------
+# Manual tier -> parse_mag_label(mag_label); rail tier -> metadata.json magnification.
+for r in rows:
+    r["nominal_M"] = resolve_nominal_M(r)
+n_nominal = sum(1 for r in rows if r["nominal_M"])
+print(f"nominal_M populated: {n_nominal}/{len(rows)} rows "
+      f"({len(rows) - n_nominal} left empty — rail configs with null metadata mag)")
 
 # ---- write -------------------------------------------------------------------
 with open(OUT, "w", newline="") as fh:

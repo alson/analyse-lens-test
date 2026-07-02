@@ -230,3 +230,47 @@ def test_extract_requires_subset_and_out():
     p = rr.build_parser()
     with pytest.raises(SystemExit):
         p.parse_args(["extract"])  # missing required --subset/--out
+
+
+# --------------------------------------------------------------------------- #
+# shard pooling hardening (0-config shard writes a header-less / 1-byte CSV)
+# --------------------------------------------------------------------------- #
+def test_pool_shards_skips_empty_and_headerless(tmp_path):
+    # A mix of good shards + a 0-byte shard + a header-less 1-byte shard (what a shard
+    # that registered 0 configs writes). Pooling must return ONLY the good rows and never
+    # raise EmptyDataError ("No columns to parse from file").
+    good1 = tmp_path / "meta_shard_0_3.csv"
+    good1.write_text("sid,M\na,1.0\nb,2.0\n")
+    empty0 = tmp_path / "meta_shard_1_3.csv"
+    empty0.write_text("")                 # 0 configs -> 0 bytes
+    headerless = tmp_path / "meta_shard_2_3.csv"
+    headerless.write_text("\n")           # 1-byte header-less CSV
+    good2 = tmp_path / "meta_shard_3_3.csv"
+    good2.write_text("sid,M\nc,3.0\n")
+
+    df = rr._pool_shards(tmp_path.glob("meta_shard_*.csv"))
+    assert list(df.columns) == ["sid", "M"]
+    assert sorted(df["sid"]) == ["a", "b", "c"]
+    assert len(df) == 3
+
+
+def test_pool_shards_all_empty_returns_empty_frame(tmp_path):
+    (tmp_path / "psd_shard_0_1.csv").write_text("")
+    df = rr._pool_shards(tmp_path.glob("psd_shard_*.csv"))
+    assert df.empty
+
+
+def test_pool_shards_identical_to_naive_concat_when_all_nonempty(tmp_path):
+    # Non-empty shards must pool exactly as a plain pd.concat([pd.read_csv(f) ...]) would.
+    import pandas as pd
+    (tmp_path / "psd_shard_0_2.csv").write_text("sid,v\nx,1\n")
+    (tmp_path / "psd_shard_1_2.csv").write_text("sid,v\ny,2\n")
+    files = sorted(tmp_path.glob("psd_shard_*.csv"))
+    naive = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+    pooled = rr._pool_shards(tmp_path.glob("psd_shard_*.csv"))
+    assert pooled.equals(naive)
+
+
+def test_read_csv_safe_handles_missing_file(tmp_path):
+    df = rr._read_csv_safe(tmp_path / "does_not_exist.csv")
+    assert df.empty

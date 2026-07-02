@@ -1,8 +1,10 @@
 """Tests for tile_sharpness.multi_session — the frozen-subset config-node discovery.
 
-Round-trips the FROZEN 316-row subset artifact into ConfigNodes, checks sid
+Round-trips the FROZEN 311-row subset artifact into ConfigNodes, checks sid
 uniqueness (the @YYMMDD dedup contract), and checks per-session tier assignment
-(rail-coverage 2026-05+ vs manual <= 2026-02).
+(rail-coverage 2026-05+ vs manual <= 2026-02). The 2026-02-18 24-120+10ext@120mm family
+(5 rows) is superseded by the 2026-05-13 rail reshoot, so 2026-02-18 is now 90 (was 95)
+and the total is 311 (was 316).
 """
 from __future__ import annotations
 
@@ -17,11 +19,11 @@ from tile_sharpness.multi_session import ConfigNode
 EXPECTED_PER_SESSION = {
     "2025-10-17": 37,
     "2026-01-29": 33,
-    "2026-02-18": 95,
+    "2026-02-18": 90,   # was 95; 24-120+10ext@120mm (5 rows) superseded by 2026-05-13
     "2026-05-12": 12,
     "2026-05-13": 139,
 }
-EXPECTED_TOTAL = sum(EXPECTED_PER_SESSION.values())  # 316
+EXPECTED_TOTAL = sum(EXPECTED_PER_SESSION.values())  # 311
 
 # Sessions that are rail-coverage tier (p2_rail_ok True) vs manual (False).
 RAIL_SESSIONS = {"2026-05-12", "2026-05-13"}
@@ -36,7 +38,7 @@ def nodes():
     return MS.discover_config_nodes(csv)
 
 
-def test_frozen_csv_roundtrips_to_316_nodes(nodes):
+def test_frozen_csv_roundtrips_to_311_nodes(nodes):
     assert len(nodes) == EXPECTED_TOTAL
     assert all(isinstance(n, ConfigNode) for n in nodes)
 
@@ -61,11 +63,62 @@ def test_tier_assignment_per_session(nodes):
 
 
 def test_tier_tally_matches_recovery_notes(nodes):
-    # RECOVERY_NOTES: 165 manual (false) + 151 rail-coverage (true) = 316.
+    # 160 manual (false) + 151 rail-coverage (true) = 311. Manual dropped from 165 to 160
+    # after the 24-120+10ext@120mm supersession (5 manual 2026-02-18 rows removed).
     n_rail = sum(1 for n in nodes if n.p2_rail_ok)
     n_manual = sum(1 for n in nodes if not n.p2_rail_ok)
     assert n_rail == 151
-    assert n_manual == 165
+    assert n_manual == 160
+
+
+def test_nominal_M_populated_for_all_but_null_metadata_configs(nodes):
+    # nominal_M is now filled for every row EXCEPT the 23 rail configs whose session
+    # metadata.json records a null magnification. Everything else must parse to a finite
+    # positive float.
+    filled = [n for n in nodes if (n.nominal_M or "").strip()]
+    assert len(filled) >= 285, f"nominal_M coverage regressed: {len(filled)}/{len(nodes)}"
+    for n in filled:
+        v = float(n.nominal_M)
+        assert v > 0 and v == v  # finite positive
+
+
+def test_manual_tier_nominal_M_matches_mag_label(nodes):
+    # Manual-tier rows carry a <a>_<b> mag_label; nominal_M must equal a/b.
+    from tile_sharpness.m_lookup import parse_mag_label
+    checked = 0
+    for n in nodes:
+        lbl = (n.mag_label or "").strip()
+        if not lbl or not (n.nominal_M or "").strip():
+            continue
+        expected = parse_mag_label(lbl.removesuffix("-resized"))
+        assert abs(float(n.nominal_M) - expected) < 1e-3, f"{n.lens} {lbl}"
+        checked += 1
+    assert checked > 100
+
+
+def test_rail_nominal_M_matches_metadata_spotcheck(nodes):
+    # The formerly-empty rail configs now resolve a finite nominal_M from metadata.json.
+    def find(pred):
+        return next(n for n in nodes if pred(n))
+    z105 = find(lambda n: "MC 105" in n.lens and "61mm extension" in n.lens
+                and n.session == "2026-05-13")
+    assert abs(float(z105.nominal_M) - 2.25) < 0.05
+    s150 = find(lambda n: "APO Macro 150" in n.lens and n.lens.endswith("5T + 6T")
+                and n.session == "2026-05-13")
+    assert abs(float(s150.nominal_M) - 1.8) < 0.05
+
+
+def test_superseded_120mm_10ext_family_absent(nodes):
+    # The 2026-02-18 24-120+10ext @120mm family (mag_label 1_1.84) must be gone; the
+    # @50mm (1_2.25) family must survive.
+    at_120 = [n for n in nodes if n.session == "2026-02-18"
+              and "24-120" in n.lens and "10mm extension" in n.lens
+              and n.mag_label == "1_1.84"]
+    assert at_120 == [], "superseded 120mm+10ext@2026-02-18 rows still present"
+    at_50 = [n for n in nodes if n.session == "2026-02-18"
+             and "24-120" in n.lens and "10mm extension" in n.lens
+             and n.mag_label == "1_2.25"]
+    assert len(at_50) == 5, "the KEEP 50mm+10ext@2026-02-18 family was wrongly dropped"
 
 
 def test_baseline_session_sids_are_untagged(nodes):
