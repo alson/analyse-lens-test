@@ -259,7 +259,21 @@ tile-sharpness relmtf-extract --subset data/cross_m_relative_mtf_subset_multises
 # Analyse (pools shards → ranking + physical + field geometry):
 tile-sharpness relmtf-analyse --subset data/cross_m_relative_mtf_subset_multisession.csv \
     --out out_relmtf_multisession --tier rail-coverage
+
+# Recover (PASS 2): re-register configs the extract dropped, using a same-family
+# sharp-aperture prior (class A tilt/pitch prior + class B matched-filter localization),
+# plus a family-consistency audit. Reads pass-1 regs from --in, writes to --out.
+tile-sharpness relmtf-recover --subset data/cross_m_relative_mtf_subset_multisession.csv \
+    --in out_relmtf_multisession --out out_relmtf_recover
 ```
+
+`relmtf-recover` is a two-pass tail: it recovers wide-open-soft / texture-mislocked
+failures (8/9 of the known drops) and emits `recover_log.csv` + `reg_family_audit.csv`
+(flags any pass-1 reg whose θ/M is inconsistent with its family). NOTE: it currently emits
+**registrations only** (meta) — folding the recovered configs into the ranking/physical/
+geometry outputs needs a per-patch extract seeded with the recovered registration, then a
+re-analyse (deferred: the recoverable failures are all widest-aperture entries of families
+already ranked at F8–F16). See "Registration notes".
 
 Stage chain: `multi_session.discover_config_nodes` → `reg_auto` register (with a
 guard that drops M≤0.20 scale-collapse / M∉[0.20,3.50] / object-space residual

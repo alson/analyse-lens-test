@@ -285,6 +285,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_rma.add_argument("--tier", choices=("rail-coverage", "all"), default="rail-coverage",
                        help="which pool is the PRIMARY ranking (default: rail-coverage)")
     p_rma.set_defaults(func=_cmd_relmtf_analyse)
+
+    p_rmr = sub.add_parser(
+        "relmtf-recover",
+        help="cross-M relative-MTF PASS 2: sibling-prior recovery of registration "
+             "failures (class A tilt/pitch prior + class B matched-filter) + audit",
+    )
+    p_rmr.add_argument("--subset", required=True, help="frozen multi-session subset CSV")
+    p_rmr.add_argument("--out", required=True, help="output dir for recovered shards + audit")
+    p_rmr.add_argument("--in", dest="in_dir", default=None,
+                       help="pass-1 output dir to read clean regs / drops from (default: --out)")
+    p_rmr.set_defaults(func=_cmd_relmtf_recover)
     return parser
 
 
@@ -314,6 +325,14 @@ def _cmd_relmtf_analyse(args: argparse.Namespace) -> int:
         fpx=(args.fpx if args.fpx is not None else rr.X.FPX_DEFAULT),
         n_boot=args.n_boot, tier=args.tier)
     rr.cmd_analyse(ns)
+    return 0
+
+
+def _cmd_relmtf_recover(args: argparse.Namespace) -> int:
+    rr = _load_relmtf_run()
+    ns = argparse.Namespace(subset=args.subset, out=args.out,
+                            in_dir=getattr(args, "in_dir", None))
+    rr.cmd_relmtf_recover(ns)
     return 0
 
 
