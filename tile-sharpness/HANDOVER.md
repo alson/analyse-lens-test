@@ -58,12 +58,22 @@ State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01)
 >    strict at high M (clipped good 12–18 µm fits) and too lenient at low M. → +5
 >    (Z100400 F8 via TOPK, now the #1-ranked config; near-ceiling S105+5T+6T F16 +
 >    Z105+61ext F8/F11/F16 via the object ceiling). **Final: 305/316; headline 67 configs.**
-> **11 still unregisterable, all root-caused (inherent, not tooling):** 2 wrong-grid
-> mis-registrations (bare 24-120 F5.6/F8 — reg_auto labelling, needs real work); 5
-> sub-pixel-refiner-starved M≈2 diopter/tube stacks (AF200+6T+5T ×2, S150 ×2, Z105+61ext
-> F4.5 — 0 full-res locks); 2 wide-open-soft (Viltrox85+26ext F2, Z100400 F5.6, 0 locks at
-> TOPK=60); 2 **capture-defect** sweeps (24-120+10ext F4.5/F6.3 @260218 — wafer centre never
-> focuses; lapvar flat ~6.7 across all 78 frames vs ~1700 sharp).
+> **9 still unregisterable (after superseding the 2 capture-defects) — CORRECTED
+> classification (2026-07-02, re-verified by re-running the failed subset with latest code +
+> checking the full aperture ladder per family):** the earlier "M≈2 scribe-count limit" was
+> WRONG. **7 of the 9 are simply WIDE-OPEN-SOFT** — each is the single WIDEST aperture of its
+> family, and the SAME family registers fine stopped down: AF200+6T+5T fails F5.3/F5.6 but
+> registers F8/F11/F16; S150+5T+6T & S150+6T+5T fail F5.6, register F8/F11/F16; Z105+61ext
+> fails F4.5, registers F5.6/F8/F11/F16; Z100400 fails F5.6 (central lapvar 370 vs 745@F8),
+> registers F8/F11/F16; Viltrox85+26ext fails F2, registers stopped down. So **no config
+> FAMILY is lost** — only redundant widest-aperture entries; the sub-pixel refiner is starved
+> by wide-open LOW CONTRAST, not by M≈2 lacking scribes (the same M≈2 config at F8 has plenty).
+> The remaining **2 are genuinely wrong-grid** (bare 24-120 F5.6/F8, 255/293 µm object) — a
+> real reg_auto labelling mis-lock (bare 24-120 registers at F4/F11/F16), the only
+> tooling-fixable item left. Populated nominal_M recovered NONE of the 9 (confirms these
+> aren't plausibility-band-related — and that the nominal_M change is safe).
+> The 2 former capture-defect sweeps (24-120+10ext F4.5/F6.3 @260218 — wafer centre never
+> focuses; lapvar flat ~6.7 vs ~1700 sharp) are handled by supersession, below.
 >
 > **2026-07-02 (cleanup, commit pending):** the 2 capture-defect sweeps were ALREADY reshot
 > — the 2026-05-13 24-120+10ext@120mm sweep covers the same regime (M≈0.56, registers at
