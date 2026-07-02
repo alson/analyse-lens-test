@@ -43,6 +43,32 @@ State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01)
 > F16 / Viltrox+45mm-ext (≈0.04 DoF). The huge-sag 24-120+ext wide-open configs have RMS
 > >300–1000 µm → NOT clean bowls (tilt/noise-dominated); don't trust their sag.
 
+> **2026-07-02 — registration recovery: 282 → 305/316 registered.** The 34 drops were
+> investigated + attacked in two waves (commits `0d37e00`, `bdda766`):
+> 1. **min-residual-over-frames frame-selection** (`register_config`/`select_registration`):
+>    the honest lock is often NOT the sharpest frame (the sharpest exposure bracket
+>    registers WORST; the true lock can sit ~rank 16–28 by lapvar). Widened candidates to
+>    top-`REG_SELECT_TOPK` (16, later 20) sharpest + spread, keep min-rmse among PLAUSIBLE
+>    locks (`_lock_plausible`: reject M<0.30, and given nominal_M a 0.55–1.90×nom band).
+>    → 282→300; also caught wrong-locks the old loose M≥0.15 guard admitted.
+> 2. **OBJECT-SPACE `reg_guard` ceiling** (replaced flat 6px): gate on `rmse_px·pitch/M ≤
+>    25 µm`. Registration accuracy is a physical constant in object space (~9 µm median,
+>    p99≈20 µm, **M-INDEPENDENT**: corr(M,rmse_µm)=−0.06 over 300 fits); the per-px rmse
+>    rises with M (corr +0.66) ONLY because a pixel subtends pitch/M. Flat 6px was too
+>    strict at high M (clipped good 12–18 µm fits) and too lenient at low M. → +5
+>    (Z100400 F8 via TOPK, now the #1-ranked config; near-ceiling S105+5T+6T F16 +
+>    Z105+61ext F8/F11/F16 via the object ceiling). **Final: 305/316; headline 67 configs.**
+> **11 still unregisterable, all root-caused (inherent, not tooling):** 2 wrong-grid
+> mis-registrations (bare 24-120 F5.6/F8 — reg_auto labelling, needs real work); 5
+> sub-pixel-refiner-starved M≈2 diopter/tube stacks (AF200+6T+5T ×2, S150 ×2, Z105+61ext
+> F4.5 — 0 full-res locks); 2 wide-open-soft (Viltrox85+26ext F2, Z100400 F5.6, 0 locks at
+> TOPK=60); 2 **capture-defect** sweeps (24-120+10ext F4.5/F6.3 @260218 — wafer centre never
+> focuses; lapvar flat ~6.7 across all 78 frames vs ~1700 sharp → bad data, re-shoot).
+> Also: all 16 investigated configs had EMPTY `nominal_M` (plausibility band never engaged
+> — populate it from metadata.json/mag_label for future robustness). Minor: a shard that
+> registers 0 configs writes 1-byte CSVs that crash pooling — harden the shard-read to skip
+> empties (only bit the tiny recovery run, not the 16-shard runs).
+
 > **2026-07-01 — follow-up #7 delivered as four chained POCs: focus-coverage
 > flagging → DoF step-size → physical-mm FWHM → field geometry.** All verified;
 > per-POC reports in `scripts/poc_*_REPORT.md`. Bare `pytest` is now green (277) via
