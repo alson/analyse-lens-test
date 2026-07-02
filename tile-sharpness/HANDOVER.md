@@ -1,6 +1,39 @@
 # Sharpness assessment POC — session handover
 
-State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01).
+State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01, 2026-07-02).
+
+> **2026-07-02 — CV exploration for the 9 remaining registration failures: BOTH classes
+> solved in prototype (not yet productionised; scratch under `tile-sharpness/out_reg_cv/`,
+> gitignored).** Corrects the class-A root cause: it is NOT labelling ambiguity — it is a
+> TILT/DETECTION bug. At sharp apertures the tilt/peak detector locks onto sub-die TEXTURE
+> (mixing ~20–90 ds-px texture lines into the true ~63 ds-px scribe grid, θ→1–3.9° vs the
+> true ~4.5°) → the affine mis-scales/collapses (24-120 F5.6→M=0.19, F8→wrong offset); F16
+> escapes only because diffraction blurs the texture away.
+> - **Class A fix — tilt+pitch prior (`out_reg_cv/approach4b_tiltseed.py`):** the wafer is
+>   fixed on the QR plate so θ is ~constant per session (~0.45° spread); force the sibling
+>   sharp-aperture's θ + expected die-pitch into de-rotation/peak-detection to reject sub-die
+>   texture, then pick the labelling matching the prior. Recovers 24-120 F5.6 → M=0.410
+>   (truth 0.408, rmse 0.78px, 24 int) and F8 → 0.407 (rmse 0.52px). Also helps any sharp
+>   low-M lens where texture beats scribes.
+> - **Class B fix — sibling-prior seed + matched-filter localization
+>   (`approach5b_prior.py`/`approach5_matched.py`):** seed the soft config from the family's
+>   sharp-aperture affine (phase-correlation origin shift), then REPLACE the sub-pixel trough
+>   refiner with a dark-bar MATCHED FILTER (symmetric blur preserves the scribe centroid → the
+>   center is recoverable without a sharp gradient), with an M-AWARE search band (`~pitch/8`;
+>   the fixed 100px band gave 0 locks at M≈2 pitch 2561px). Recovers AF200+6T+5T F5.6 →
+>   M=2.061 (truth 2.070, rmse 5.47px), S150+5T+6T F5.6, Viltrox85+26ext f2 — all dM≤0.008,
+>   obj-rmse ≤25µm. Keep min-rmse vs the trough result so already-good configs (Z100400 F5.6)
+>   are unaffected.
+> - **Rejected:** standalone 2D-FFT physical-scale (locked a constant ~1.02–1.22 M artifact;
+>   and `reg_auto.pitch_implied_scale` already provides a labelling-independent scale, better);
+>   landmark-template anchoring (NOT needed — the surviving labelling candidates are
+>   same-mod-4-phase, measurement-equivalent, so absolute-phase anchoring wouldn't change M).
+> - **Both fixes depend on a same-family sharp aperture that registers** (true for all 9
+>   targets). Off-axis PSF asymmetry biases matched-filter centers at field edges but averages
+>   out over a global affine (fine for registration, not per-scribe MTF). Recommended
+>   integration: class A ≈ half-day (tilt/pitch prior into `reg_auto.detect` via
+>   `atlas_periodic_fft.register`); class B ≈ 1 day (sibling-prior fallback registrar when
+>   `refine_full_res` < 4 locks). NOT yet implemented — awaiting go-ahead.
 
 > **2026-07-01 (later) — PRODUCTIONISED the 4 POCs + the recovered multi-session
 > extension into a single CLI pipeline, and reprocessed all Z7 macro data.** New
