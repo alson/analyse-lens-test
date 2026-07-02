@@ -98,6 +98,11 @@ reg_auto = apf.reg_auto
 ccolor = _load("ccolor", HERE / "poc_comb_chain_contrast_color.py")
 M_ANCHOR_SCALE = apf.M_ANCHOR_SCALE
 IMAGE_W, IMAGE_H = apf.IMAGE_W, apf.IMAGE_H
+# sibling-prior recovery (class A tilt/pitch gating + class B matched filter). Loaded
+# from the wafer-atlas scripts dir next to reg_auto; its entry points only engage with a
+# prior, so importing it does not change the one-pass extract's default registration.
+_WA_SCRIPTS = (TS.parent / "wafer-atlas" / "scripts")
+spr = _load("sibling_prior_reg", _WA_SCRIPTS / "sibling_prior_reg.py")
 
 # raw-data root that holds the per-session effective_apertures.csv + shots.csv trees.
 TEST_RAW_DATA = Path("/home/alson/shared/files/pics/digikam/test-raw-data")
@@ -1266,6 +1271,245 @@ def cmd_analyse(args):
 
 
 # --------------------------------------------------------------------------- #
+# PASS 2: sibling-prior recovery + class-A family-consistency audit
+# --------------------------------------------------------------------------- #
+def family_key(node):
+    """Sibling-family key: (lens, session, focal, mag_label).
+
+    NOT lens alone — a true prior is a SAME-framing / SAME-M sibling, so a zoom at a
+    different focal or a config at a different marked mag is a different family (e.g.
+    24-120@120mm vs 24-120@50mm). The aperture is intentionally EXCLUDED (siblings differ
+    only in aperture). Values are normalised to strings so the key is hashable/stable.
+    """
+    return (
+        (getattr(node, "lens", "") or "").strip(),
+        (getattr(node, "session", "") or "").strip(),
+        (getattr(node, "focal", "") or "").strip(),
+        (getattr(node, "mag_label", "") or "").strip(),
+    )
+
+
+def _register_full(sweep_dir, node):
+    """Register a config and return its FULL affine prior record (theta, scale, x0/y0,
+    rmse, M, frame) or None. Used to reconstruct a sibling prior from a clean pass-1
+    config (the pooled meta CSV keeps only M/rmse, not the affine)."""
+    p, M, jpgs = register_config(sweep_dir, node)
+    if p is None:
+        return None
+    return dict(theta=float(p["theta_deg"]), scale=float(p["scale"]),
+                x0_img=float(p["x0_img"]), y0_img=float(p["y0_img"]), theta_deg=float(p["theta_deg"]),
+                rmse=float(p.get("reg_fit_rmse_px", float("nan"))), M=float(M),
+                frame=None, jpgs=jpgs, affine=p)
+
+
+def _sibling_sharp_frame(prior_node):
+    """Return the sibling frame that best registers (for class-B phase correlation)."""
+    jpgs = sorted(prior_node.sweep_dir.glob("*.jpg")) + sorted(prior_node.sweep_dir.glob("*.JPG"))
+    if not jpgs:
+        return None
+    ranked = spr.rank_frames(jpgs, k=1)
+    return str(ranked[0]) if ranked else None
+
+
+def build_family_priors(nodes, clean_sids, dropped_sids, flagged_sids):
+    """Re-register the best clean sibling per family that has a config needing recovery.
+
+    Only families that contain a DROPPED or AUDIT-FLAGGED config are processed (the 305
+    clean regs are otherwise untouched). For each such family, pick the clean sibling
+    NEAREST in nominal-M to the target (see :func:`spr.resolve_sibling_prior`) and re-fit
+    its full affine as the prior. Returns ``{family_key: {"affine": rec, "node": node,
+    "sharp_frame": path, "sid": sid}}`` and a list of families with NO clean sibling.
+    """
+    by_fam = {}
+    for node in nodes:
+        by_fam.setdefault(family_key(node), []).append(node)
+    need = set()
+    for node in nodes:
+        sid = MS.sid(node)
+        if sid in dropped_sids or sid in flagged_sids:
+            need.add(family_key(node))
+    priors = {}
+    no_sibling = []
+    for fam in sorted(need):
+        members = by_fam.get(fam, [])
+        # clean siblings in this family with a registered pass-1 reg
+        clean_members = [(MS.sid(n), n) for n in members if MS.sid(n) in clean_sids]
+        if not clean_members:
+            no_sibling.append(fam)
+            continue
+        # rank clean siblings by lowest aperture-index proxy (sharpest tends to be f/8-16);
+        # resolve_sibling_prior handles nearest-M, but we need the affine, so re-register
+        # candidates cheapest-first (prefer higher f-number = sharper, more reliable).
+        def _fnum(n):
+            v = _ap_to_n(n.aperture)
+            return v if v is not None else 0.0
+        clean_members.sort(key=lambda sn: -_fnum(sn[1]))
+        chosen = None
+        for sid, n in clean_members:
+            rec = _register_full(n.sweep_dir, n)
+            if rec is not None:
+                chosen = (sid, n, rec)
+                break
+        if chosen is None:
+            no_sibling.append(fam)
+            continue
+        sid, n, rec = chosen
+        priors[fam] = dict(affine=rec["affine"], node=n, sid=sid,
+                           theta=rec["theta"], scale=rec["scale"],
+                           x0_img=rec["x0_img"], y0_img=rec["y0_img"],
+                           theta_deg=rec["theta_deg"], M=rec["M"], rmse=rec["rmse"],
+                           sharp_frame=_sibling_sharp_frame(n))
+    return priors, no_sibling
+
+
+def cmd_relmtf_recover(args):
+    """PASS 2 recovery: re-register pass-1 reg failures via same-family sibling priors,
+    and audit the pass-1 clean regs for texture-mislock (class-A) inconsistency.
+
+    Reads the pass-1 output dir (``--in``, defaults to ``--out``): pools ``meta_shard_*``
+    (clean regs) + ``dropped_configs*`` (failures). Builds a per-family sharp-aperture
+    prior, then for each dropped config runs the combined class-A/class-B recovery, taking
+    the min-rmse of {tilt-gated, matched-filter} and applying the SAME reg_guard +
+    select_registration plausibility as pass 1. Recovered configs are written to
+    ``meta_shard_recover.csv`` / ``dropped_configs_shard_recover.csv`` (distinct tag) so
+    analyse pools them alongside pass 1; pass-1 shards are NEVER rewritten. The audit is
+    written to ``reg_family_audit.csv``.
+    """
+    subset = Path(args.subset)
+    src = Path(getattr(args, "in_dir", None) or args.out)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    nodes = MS.discover_config_nodes(subset)
+    by_sid = {MS.sid(n): n for n in nodes}
+
+    # ---- pool pass-1 clean regs + dropped ----------------------------------------- #
+    meta = _pool_shards(src.glob("meta_shard_*.csv"))
+    if meta.empty:
+        print(f"no pass-1 meta shards under {src}; nothing to recover")
+        return
+    dropped = _pool_shards(src.glob("dropped_configs_shard_*.csv"))
+    if dropped.empty and (src / "dropped_configs.csv").exists():
+        dropped = _read_csv_safe(src / "dropped_configs.csv")
+    clean_sids = set(meta["sid"].astype(str))
+    # recovery targets = configs dropped at the EXTRACT stage for a registration reason.
+    drop_targets = []
+    if not dropped.empty:
+        d = dropped[dropped["stage"].astype(str) == "extract"] if "stage" in dropped else dropped
+        drop_targets = sorted(set(d["sid"].astype(str)) - clean_sids)
+
+    # ---- class-A family-consistency audit on the pass-1 CLEAN regs ---------------- #
+    # meta keeps M but not theta; reconstruct theta per clean reg only where cheap is not
+    # feasible for all 305, so the audit uses M-vs-family and (when available) theta from
+    # re-registration of flagged candidates. To keep the audit cheap + deterministic, we
+    # audit on M alone here (theta-based flagging additionally applies inside
+    # spr.audit_family_consistency when theta is present).
+    clean_regs = []
+    for _, row in meta.iterrows():
+        sid = str(row["sid"])
+        node = by_sid.get(sid)
+        fam = family_key(node) if node is not None else (str(row.get("lens", "")),
+                                                         str(row.get("date", "")), "", str(row.get("mag_label", "")))
+        clean_regs.append(dict(sid=sid, family=fam, M=float(row["M"]),
+                               rmse=float(row["rmse"]) if np.isfinite(row["rmse"]) else float("nan"),
+                               theta=None,  # not stored in meta; M-based audit
+                               nominal_M=nominal_M_for(node) if node is not None else float("nan")))
+    audit = spr.audit_family_consistency(clean_regs, m_frac_tol=0.15)
+    flagged_sids = {a["sid"] for a in audit if a["flagged"]}
+    pd.DataFrame(audit).to_csv(out / "reg_family_audit.csv", index=False)
+    n_flagged = len(flagged_sids)
+    print(f"AUDIT: {len(clean_regs)} clean regs, {n_flagged} flagged "
+          f"(M inconsistent with family median by >15%)", flush=True)
+    for a in audit:
+        if a["flagged"]:
+            print(f"  FLAG {a['sid']}: {a['flag_reason']}", flush=True)
+
+    # ---- build sibling priors for the families needing recovery ------------------- #
+    priors, no_sibling = build_family_priors(nodes, clean_sids, set(drop_targets), flagged_sids)
+    if no_sibling:
+        print(f"NO-SIBLING families (cannot recover — sharp aperture also failed): "
+              f"{len(no_sibling)}", flush=True)
+        for fam in no_sibling:
+            print(f"  {fam}", flush=True)
+
+    # ---- recover each dropped target ---------------------------------------------- #
+    rec_meta_rows, rec_dropped_rows, recover_log = [], [], []
+    for sid in drop_targets:
+        node = by_sid.get(sid)
+        if node is None:
+            continue
+        fam = family_key(node)
+        prior = priors.get(fam)
+        cid = MS.human(node)
+        if prior is None:
+            rec_dropped_rows.append(dict(sid=sid, config=cid, session=node.session,
+                                         stage="recover", reason="no_clean_sibling"))
+            recover_log.append(dict(sid=sid, recovered=False, reason="no_clean_sibling"))
+            print(f"RECOVER {sid}: NO SIBLING", flush=True)
+            continue
+        jpgs = sorted(node.sweep_dir.glob("*.jpg")) + sorted(node.sweep_dir.glob("*.JPG"))
+        prior_rec = dict(theta=prior["theta"], theta_deg=prior["theta"],
+                         scale=prior["scale"],
+                         x0_img=prior["x0_img"], y0_img=prior["y0_img"])
+        try:
+            best = spr.recover_config(jpgs, prior_rec, prior["sharp_frame"])
+        except Exception as e:
+            best = None
+            print(f"RECOVER {sid}: exception {e!r}", flush=True)
+        if best is None:
+            rec_dropped_rows.append(dict(sid=sid, config=cid, session=node.session,
+                                         stage="recover", reason="reg_fail"))
+            recover_log.append(dict(sid=sid, recovered=False, reason="reg_fail",
+                                    family_prior_M=prior["M"]))
+            print(f"RECOVER {sid}: FAILED (both fixes)", flush=True)
+            continue
+        M = best["M"]
+        rmse = best["rmse"]
+        # SAME plausibility as pass 1: select_registration band + reg_guard object ceiling.
+        nomM = nominal_M_for(node)
+        if select_registration([dict(M=M, rmse=rmse)], nomM) is None:
+            rec_dropped_rows.append(dict(sid=sid, config=cid, session=node.session,
+                                         stage="recover", reason="reg_implausible_M", M=M, rmse=rmse))
+            recover_log.append(dict(sid=sid, recovered=False, reason="reg_implausible_M",
+                                    M=M, rmse=rmse, fix=best["fix"], family_prior_M=prior["M"]))
+            print(f"RECOVER {sid}: implausible M={M:.3f} (fix {best['fix']})", flush=True)
+            continue
+        ok, reason = reg_guard(M, rmse)
+        if not ok:
+            rec_dropped_rows.append(dict(sid=sid, config=cid, session=node.session,
+                                         stage="recover", reason=reason, M=M, rmse=rmse))
+            recover_log.append(dict(sid=sid, recovered=False, reason=reason,
+                                    M=M, rmse=rmse, fix=best["fix"], family_prior_M=prior["M"]))
+            print(f"RECOVER {sid}: {reason} (fix {best['fix']})", flush=True)
+            continue
+        p2_rail_ok = bool(node.p2_rail_ok)
+        n_marked = _ap_to_n(node.aperture)
+        p = best["affine"]
+        ccl = 0.5 * (GLOBAL_CL[0] + GLOBAL_CL[1]); crl = 0.5 * (GLOBAL_RL[0] + GLOBAL_RL[1])
+        x00, y00 = reg_auto.grid_xy_distorted(ccl, crl, p)
+        xu, yu = reg_auto.grid_xy_distorted(ccl + 1.0, crl, p)
+        xv, yv = reg_auto.grid_xy_distorted(ccl, crl + 1.0, p)
+        px_per_unit = 0.5 * (np.hypot(xu - x00, yu - y00) + np.hypot(xv - x00, yv - y00))
+        n_eff = optics.effective_fnumber(n_marked, M)
+        rec_meta_rows.append(dict(config=cid, sid=sid, M=M, rmse=rmse,
+                                  n_marked=n_marked, n_eff=n_eff, px_per_unit=px_per_unit,
+                                  lens=node.lens, mag_label=node.mag_label,
+                                  aperture=node.aperture, date=node.session,
+                                  p2_rail_ok=p2_rail_ok))
+        dM = abs(M - prior["M"])
+        recover_log.append(dict(sid=sid, recovered=True, fix=best["fix"], M=M, rmse=rmse,
+                                n_int=best["n_int"], family_prior_M=prior["M"], dM_vs_prior=dM))
+        print(f"RECOVER {sid}: OK fix={best['fix']} M={M:.3f} "
+              f"(prior {prior['M']:.3f}, dM={dM:.3f}) rmse={rmse:.2f}px n_int={best['n_int']}", flush=True)
+
+    pd.DataFrame(rec_meta_rows).to_csv(out / "meta_shard_recover.csv", index=False)
+    pd.DataFrame(rec_dropped_rows).to_csv(out / "dropped_configs_shard_recover.csv", index=False)
+    pd.DataFrame(recover_log).to_csv(out / "recover_log.csv", index=False)
+    print(f"\nWROTE meta_shard_recover.csv ({len(rec_meta_rows)} recovered), "
+          f"dropped_configs_shard_recover.csv ({len(rec_dropped_rows)}), "
+          f"recover_log.csv, reg_family_audit.csv", flush=True)
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 def build_parser():
@@ -1292,6 +1536,15 @@ def build_parser():
                          "rail-coverage headline)")
     _io(pa)
     pa.set_defaults(func=cmd_analyse)
+
+    pr = sub.add_parser("relmtf-recover",
+                        help="PASS 2: sibling-prior recovery of reg failures + class-A "
+                             "family-consistency audit (does NOT touch pass-1 clean regs)")
+    pr.add_argument("--in", dest="in_dir",
+                    help="pass-1 output dir to read meta/dropped shards from "
+                         "(default: --out)")
+    _io(pr)
+    pr.set_defaults(func=cmd_relmtf_recover)
     return ap
 
 
