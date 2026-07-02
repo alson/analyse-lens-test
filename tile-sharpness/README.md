@@ -262,8 +262,9 @@ tile-sharpness relmtf-analyse --subset data/cross_m_relative_mtf_subset_multises
 ```
 
 Stage chain: `multi_session.discover_config_nodes` → `reg_auto` register (with a
-guard that drops M≤0.20 scale-collapse / M∉[0.20,3.50] / rmse>6px, logged to
-`dropped_configs*.csv`) → per-patch P1 spectral/pad-edge/decon (all tiers) + P2
+guard that drops M≤0.20 scale-collapse / M∉[0.20,3.50] / object-space residual
+`rmse_px·pitch/M > 25µm`, logged to `dropped_configs*.csv`; see "Registration
+notes") → per-patch P1 spectral/pad-edge/decon (all tiers) + P2
 through-focus FWHM + `coverage_flag`, the P2 part **tier-gated** by
 `p2_rail_available` (registered constant-step rail axis vs manual) → step
 resolution (**documented** `rail_position_mm` from `shots.csv` for 2026-05+,
