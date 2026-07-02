@@ -2,6 +2,26 @@
 
 State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01, 2026-07-02).
 
+> **2026-07-02 (later) — PRODUCTIONISED the class A+B recovery: 8/9 of the remaining
+> failures now registrable (commit `06e8fdf`).** New `relmtf-recover` (two-pass: unchanged
+> pass-1 extract → pass-2 recovery from a same-family sharp-aperture prior) +
+> `wafer-atlas/scripts/sibling_prior_reg.py`. Class A = force the sibling's tilt+pitch into
+> detection (reject sub-die texture); class B = seed from the sibling affine + dark-bar
+> MATCHED-FILTER scribe-center localization (blur-tolerant) with an M-aware band (~pitch/8).
+> Recovers 8/9 as REAL fits vs ground truth: 24-120 F5.6/F8, Z100400 F5.6, Z105+61ext F4.5
+> (class A); AF200+6T+5T F5.3/F5.6 (M=2.085, ~11µm, n_int 5), S150+5T+6T & +6T+5T F5.6
+> (~12–14µm, n_int 8–9) (class B). Only **Viltrox85+26ext F2** stays out (genuine: f/2 too
+> soft — matched filter locks the right M=0.49 but at 202µm object rmse, well over the 25µm
+> ceiling). Family-consistency AUDIT: **0/305 flagged** (no silent texture-mislocks in the
+> current registered set). 359 tests. The class-B bug that had blocked it: the seed lacked
+> `theta_rad` → `grid_xy` KeyError swallowed → None for every frame (fixed via
+> `ensure_theta_rad`; also switched the combiner to min OBJECT-space rmse + rejected n_int<4
+> fake fix-A inherits).
+> **REMAINING (low value, not done):** `relmtf-recover` emits registrations (meta) only —
+> to fold the 8 into the ranking/physical/geometry outputs it needs a per-patch extract
+> seeded with the recovered reg, then a re-analyse. All 8 are widest-aperture entries of
+> families already ranked at F8–F16, so no config family is missing; deferred as optional.
+
 > **2026-07-02 — CV exploration for the 9 remaining registration failures: BOTH classes
 > solved in prototype (not yet productionised; scratch under `tile-sharpness/out_reg_cv/`,
 > gitignored).** Corrects the class-A root cause: it is NOT labelling ambiguity — it is a
