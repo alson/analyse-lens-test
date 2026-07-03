@@ -1323,6 +1323,27 @@ def cmd_analyse(args):
         print(f"\nWROTE {out / 'cross_m_relative_mtf_ranking.csv'} "
               f"(primary tier={args.tier}), session_summary.csv, dropped_configs.csv")
 
+    # ---- write the LOW-CONFIDENCE (M>1.10) ranking CSV (self-describing) ----------- #
+    # ADDITIVE: the M>1.10 configs are held out of the primary/headline pool (the DoF
+    # step-size M-form is uncalibrated above M=1, so physical/geometry stay gated). But
+    # the RELATIVE fixed-f_px ranking barely uses that M-form, so surface it as its own
+    # artifact rather than leaving it print-only. Matters for DX/D7200, where a 1:1 macro
+    # lands at M~1.1-1.18 and trips the FX-calibrated cutoff — otherwise the bare 1:1
+    # macros have no ranking CSV at all. Comparable WITHIN this file (similar-M configs),
+    # NOT to the M<=1.10 headline. Does not modify the primary ranking CSV.
+    if lowconf_ranking is not None:
+        lcann = lowconf_ranking.table.merge(
+            meta[["sid", "date", "p2_rail_ok", "step_low_confidence"]],
+            on="sid", how="left")
+        with (out / "cross_m_relative_mtf_ranking_lowconf.csv").open("w", newline="") as fh:
+            fh.write(X.caveats_header(lowconf_ranking.f_px, comment="# ") + "\n")
+            fh.write("# LOW-CONFIDENCE M>1.10 view: held out of the headline (DoF/geometry\n"
+                     "# M-form uncalibrated >M1). RELATIVE order is comparable among these\n"
+                     "# similar-M configs; do NOT compare to the M<=1.10 headline ranking.\n")
+            lcann.round(4).to_csv(fh, index=False)
+        print(f"WROTE {out / 'cross_m_relative_mtf_ranking_lowconf.csv'} "
+              f"({len(lcann)} configs, M>{FP.M_EXTRAPOLATION_THRESHOLD})")
+
 
 # --------------------------------------------------------------------------- #
 # PASS 2: sibling-prior recovery + class-A family-consistency audit
