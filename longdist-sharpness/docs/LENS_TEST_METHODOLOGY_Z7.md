@@ -185,16 +185,21 @@ replaces the blunt "avoid f/11–f/16" rule with a per-config physical check.
 Caveat: lucky imaging (B8) can push f/16 readings *over* the ceiling → those are
 the least trustworthy.
 
-### B10. Cross-config retention: match the aperture AND the frame-pool
-Compare configs at the **same aperture** with **equal, well-sampled pools**.
-"Best-vs-best" across cells of unequal luck / pool-size **re-bases the
-reference**: on 2026-06-28 lucky imaging lifted the bare-f/8 reference most (its
-AF triplet was gust-hit, its stack held a sharp frame), which flipped the
-TC-1.4×-vs-cropping verdict from +38 % to −5 %. The matched-**f/11** comparison
-(equal pools) is the safe one; the f/16 ordering violation (tc20 > tc14) was an
-unequal-pool artefact (tc14 f/16 had 3 frames, no stack). State the question
-precisely: *is the copy good* (matched-aperture retention) is a different test
-from *does the TC beat cropping* (best-vs-best FOM).
+### B10. Cross-config retention: sharpest-sample (least-gust), equal well-sampled pools
+Under gust scatter the **sharpest sample is the least-gusted ≈ true-optics**
+frame (same logic as lucky imaging, B8), so compare each config at its
+**calm-moment best** — valid *only* when pools are **equal and well-sampled**
+(each burst must have caught a lull). On 2026-06-28 this **corrected** the
+TC-1.4×-vs-cropping verdict from a gust-contaminated +38 % to the true **−5 %**:
+the +38 % came from the median of 3 AF frames where **bare's reference was
+suppressed more** (−42 % vs its calm-moment peak) than tc14 (−26 %), inflating
+the ratio; equalising to each config's calm-moment best removed it. This is a
+*correction*, not a re-basing artefact. Re-basing bites only with **unequal**
+pools — the f/16 ordering violation (tc20 > tc14) is that case (tc14 f/16 had 3
+frames, no stack, so its "best" underestimates). So: sharpest-sample on equal
+well-sampled pools (matched **f/11** here) = trustworthy; unequal pools (f/16) =
+not. Keep the questions separate: *is the copy good* (matched-aperture
+retention) ≠ *does the TC beat cropping* (best-vs-best FOM).
 
 ---
 
@@ -205,7 +210,8 @@ numbers): **a good, well-centred copy** — matched-aperture f/11 retention vs
 bare **0.88** (≈ the lost copy's ~0.80), symmetric field (no decentering). That
 is the revalidation answer. *Separately*, does the TC beat just cropping the
 bare 400? — **TC-2.0× yes** (FOM +20 % lucky-imaging to +46 % median-of-AF,
-clears 0.500), **TC-1.4× a wash** (−5 % to +38 %, re-basing-sensitive — B10).
+clears 0.500), **TC-1.4× marginally loses** (≈ −5 %, the least-gust estimate;
+the +38 % median-of-AF over-credited it via a gust-suppressed bare reference — B10).
 Lucky imaging (B8) recovered a real **bare f/8 peak 0.342** that gust+defocus
 had flattened, which is what makes cropping competitive with the 1.4×. Trust
 matched-f/11; distrust f/16 (over ceiling, B9). The decentering check worked on
