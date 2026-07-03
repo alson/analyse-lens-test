@@ -1,10 +1,11 @@
 """Tests for tile_sharpness.multi_session — the frozen-subset config-node discovery.
 
-Round-trips the FROZEN 311-row subset artifact into ConfigNodes, checks sid
-uniqueness (the @YYMMDD dedup contract), and checks per-session tier assignment
-(rail-coverage 2026-05+ vs manual <= 2026-02). The 2026-02-18 24-120+10ext@120mm family
-(5 rows) is superseded by the 2026-05-13 rail reshoot, so 2026-02-18 is now 90 (was 95)
-and the total is 311 (was 316).
+Round-trips the FROZEN subset artifact into ConfigNodes, checks sid uniqueness (the
+@YYMMDD dedup contract), and checks per-session tier assignment (rail-coverage 2026-05+
+vs manual <= 2026-02, incl. the D7200 2025-08 sessions). The 2026-02-18 24-120+10ext@120mm
+family (5 rows) is superseded by the 2026-05-13 rail reshoot, so the Z7 subset is 311; the
+D7200 2025-08-06/19 wafer-macro sessions add 79 manual-tier rows (camera="D7200") for a
+total of 390.
 """
 from __future__ import annotations
 
@@ -17,17 +18,19 @@ from tile_sharpness.multi_session import ConfigNode
 
 # Expected per-session row tally of the frozen subset (validated against on-disk data).
 EXPECTED_PER_SESSION = {
+    "2025-08-06": 15,   # D7200 (manual, DX/OLPF)
+    "2025-08-19": 64,   # D7200 (manual, DX/OLPF)
     "2025-10-17": 37,
     "2026-01-29": 33,
     "2026-02-18": 90,   # was 95; 24-120+10ext@120mm (5 rows) superseded by 2026-05-13
     "2026-05-12": 12,
     "2026-05-13": 139,
 }
-EXPECTED_TOTAL = sum(EXPECTED_PER_SESSION.values())  # 311
+EXPECTED_TOTAL = sum(EXPECTED_PER_SESSION.values())  # 390 (311 Z7 + 79 D7200)
 
 # Sessions that are rail-coverage tier (p2_rail_ok True) vs manual (False).
 RAIL_SESSIONS = {"2026-05-12", "2026-05-13"}
-MANUAL_SESSIONS = {"2025-10-17", "2026-01-29", "2026-02-18"}
+MANUAL_SESSIONS = {"2025-08-06", "2025-08-19", "2025-10-17", "2026-01-29", "2026-02-18"}
 
 
 @pytest.fixture(scope="module")
@@ -38,7 +41,7 @@ def nodes():
     return MS.discover_config_nodes(csv)
 
 
-def test_frozen_csv_roundtrips_to_311_nodes(nodes):
+def test_frozen_csv_roundtrips_to_expected_nodes(nodes):
     assert len(nodes) == EXPECTED_TOTAL
     assert all(isinstance(n, ConfigNode) for n in nodes)
 
@@ -63,12 +66,12 @@ def test_tier_assignment_per_session(nodes):
 
 
 def test_tier_tally_matches_recovery_notes(nodes):
-    # 160 manual (false) + 151 rail-coverage (true) = 311. Manual dropped from 165 to 160
-    # after the 24-120+10ext@120mm supersession (5 manual 2026-02-18 rows removed).
+    # 151 rail-coverage (true) + 239 manual (false) = 390. Manual = 160 Z7 (post
+    # 24-120+10ext@120mm supersession) + 79 D7200 (2025-08 wafer-macro, all manual).
     n_rail = sum(1 for n in nodes if n.p2_rail_ok)
     n_manual = sum(1 for n in nodes if not n.p2_rail_ok)
     assert n_rail == 151
-    assert n_manual == 160
+    assert n_manual == 239
 
 
 def test_nominal_M_populated_for_all_but_null_metadata_configs(nodes):
@@ -119,6 +122,34 @@ def test_superseded_120mm_10ext_family_absent(nodes):
              and "24-120" in n.lens and "10mm extension" in n.lens
              and n.mag_label == "1_2.25"]
     assert len(at_50) == 5, "the KEEP 50mm+10ext@2026-02-18 family was wrongly dropped"
+
+
+def test_camera_column_assigned_per_session(nodes):
+    # Z7 sessions carry camera="Z7"; the D7200 2025-08 sessions carry camera="D7200".
+    D7200_SESSIONS = {"2025-08-06", "2025-08-19"}
+    for n in nodes:
+        expected = "D7200" if n.session in D7200_SESSIONS else "Z7"
+        assert n.camera == expected, f"{n.session} {n.lens} camera={n.camera}"
+    assert sum(1 for n in nodes if n.camera == "D7200") == 79
+    assert sum(1 for n in nodes if n.camera == "Z7") == 311
+
+
+def test_d7200_nodes_have_empty_mag_and_parsed_aperture(nodes):
+    # D7200 rows come from <lens>/<aperture>/ with no mag dir -> empty mag_label (M from
+    # registration), and the aperture folder parses to an F-number.
+    d = [n for n in nodes if n.camera == "D7200"]
+    assert d, "no D7200 nodes discovered"
+    assert all(n.mag_label == "" for n in d)
+    assert all(n.aperture.startswith("F") for n in d)
+    # the three Auto-55 copies + two AIS copies are distinct sids (serials retained)
+    sids = {MS.sid(n) for n in d}
+    assert len(sids) == len(d), "D7200 sids collide"
+
+
+def test_camera_defaults_to_z7_when_column_absent():
+    # Back-compat: a row without a camera column reads as Z7.
+    n = _node(session="2026-01-29", lens="L", mag_label="1_1", aperture="F8")
+    assert n.camera == "Z7"
 
 
 def test_baseline_session_sids_are_untagged(nodes):

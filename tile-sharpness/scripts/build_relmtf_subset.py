@@ -59,7 +59,7 @@ ROOT = "/home/alson/shared/files/pics/digikam/test-raw-data"
 OUT = os.path.join(TS, "data", "cross_m_relative_mtf_subset_multisession.csv")
 
 FIELDS = ["date", "lens", "mag_label", "nominal_M", "focal", "aperture",
-          "n_shots", "sample", "p2_rail_ok"]
+          "n_shots", "sample", "p2_rail_ok", "camera"]
 
 MIN_SHOTS = 20  # a real focus sweep; fewer -> a stray capture, skip.
 rows = []
@@ -151,6 +151,7 @@ with open(ORIG) as fh:
             superseded_dropped.append(f"{r['lens']} | {r['mag_label']} | {r['aperture']}")
             continue
         r["p2_rail_ok"] = "false"  # manual tier
+        r["camera"] = "Z7"
         rows.append(r)
 print(f"original 38 -> manual tier (P2 off): kept {len(rows)}, "
       f"superseded-dropped {len(superseded_dropped)}")
@@ -158,7 +159,7 @@ for s in superseded_dropped:
     print(f"  SUPERSEDED by 2026-05 reshoot: {s}")
 
 
-def add_rows(date, lens, mag_label, focal, apdir, rail_ok, marked=None):
+def add_rows(date, lens, mag_label, focal, apdir, rail_ok, marked=None, camera="Z7"):
     samp, n = one_jpg(apdir)
     if not samp or n < MIN_SHOTS:
         return 0
@@ -169,7 +170,8 @@ def add_rows(date, lens, mag_label, focal, apdir, rail_ok, marked=None):
         return 0
     rows.append(dict(date=date, lens=lens, mag_label=mag_label, nominal_M="",
                      focal=focal, aperture=f"F{marked:g}", n_shots=str(n),
-                     sample=samp, p2_rail_ok=("true" if rail_ok else "false")))
+                     sample=samp, p2_rail_ok=("true" if rail_ok else "false"),
+                     camera=camera))
     return 1
 
 
@@ -319,6 +321,36 @@ for lens_raw in UNIQUE_0512:
         marked, focal = eff12.get((lens_raw, apname), (ap_dir_to_marked(apname), ""))
         n12 += add_rows("2026-05-12", lens, "", focal, apdir, rail_ok=True, marked=marked)
 print(f"2026-05-12 (rail, unique families, all apertures): {n12} config-nodes")
+
+# ---- 4) D7200 (manual, DX/OLPF): <lens>/<aperture>/ — ALL apertures ----------
+# 2025-08-06 / 2025-08-19 wafer-macro shot on the D7200 (sold before rail-coverage, so
+# all MANUAL tier). Same <lens>/<aperture>/ layout as 2025-10-17. camera="D7200" tags the
+# rows so the pipeline uses the DX 3.91 µm pitch (+ OLPF provenance) instead of the Z7
+# 4.35 µm default; mag_label is left EMPTY (M comes from registration — the 55/70-180 are
+# not all 1:1). See D7200_INTEGRATION_PLAN.md.
+for d7200_session in ("2025-08-06", "2025-08-19"):
+    SD = os.path.join(ROOT, d7200_session)
+    nd = 0
+    for lensdir in sorted(glob.glob(os.path.join(SD, "*"))):
+        if not os.path.isdir(lensdir):
+            continue
+        lens = os.path.basename(lensdir)
+        if lens.lower().startswith("results") or "ignore" in lens.lower():
+            continue
+        for apdir in sorted(glob.glob(os.path.join(lensdir, "F*"))):
+            if not os.path.isdir(apdir):
+                continue
+            samp, _ = one_jpg(apdir)
+            focal = ""
+            if samp:
+                for t in os.path.basename(samp).split("|"):
+                    if t.strip().endswith("mm"):
+                        focal = t.replace("mm", "").strip()
+                        break
+            nd += add_rows(d7200_session, lens, "", focal, apdir, rail_ok=False,
+                           camera="D7200")
+    print(f"{d7200_session} (D7200 manual, all apertures): {nd} config-nodes")
+
 
 # ---- populate nominal_M for ALL rows (metadata only; order unchanged) ---------
 # Manual tier -> parse_mag_label(mag_label); rail tier -> metadata.json magnification.
