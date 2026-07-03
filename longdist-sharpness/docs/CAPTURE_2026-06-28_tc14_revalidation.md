@@ -19,16 +19,21 @@ decentering/tilt). That answers the revalidation question.
 2. *TC-2.0× beats cropping the bare 400?* — **yes, robustly**: MTF50 FOM
    **+20 %** (lucky-imaging) to **+46 %** (median-of-AF); clears its 0.500
    break-even on every analysis.
-3. *TC-1.4× beats cropping?* — **no, it marginally loses: ≈ −5 %** (the
-   least-gust / lucky-imaging estimate — the correct one). If gusts drive the
-   scatter, the *sharpest* sample per config is its least-gusted, true-optics
-   frame, so lucky-imaging is the right estimator. The **+38 % median-of-AF is
-   the artefact**, not a co-equal number: bare's 3 AF frames were more
-   gust-hit (−42 % vs its calm-moment peak) than tc14's (−26 %), inflating the
-   ratio; equalising to each config's calm-moment best gives 0.233/0.342 =
-   0.68 → −5 %. Marginal (within scatter, both below ceiling) → a calm-day
-   reshoot pins the sign, but the honest read is "cropping the bare 400 ≈ the
-   1.4× TC, edge to cropping."
+3. *TC-1.4× beats cropping?* — **≈ break-even, best estimate marginally
+   negative (~−5 %); sign not firmly established.** The right *estimator* is
+   the least-gust / lucky-imaging one (sharpest sample = least-gusted =
+   true-optics frame), which gives 0.233/0.342 = 0.68 → −5 %. The **+38 %
+   median-of-AF is an over-estimate artefact**, not a co-equal number: bare's 3
+   AF frames were more gust-hit (−42 % vs its calm-moment peak) than tc14's
+   (−26 %), inflating the ratio. **But the effective calm+in-focus sample is
+   thin** — of the ~63-frame pools the focus sweep leaves only **~10–16 sharp
+   frames** (the rest defocused, correctly rejected), so lucky-imaging may not
+   have reached each config's true calm peak; the residual uncertainty is
+   two-sided (whichever config missed a lull is underestimated). So: not a
+   symmetric "−5 % to +38 %" wash (the +38 % is an artefact, not truth's upper
+   bound) — it's centred near break-even, best estimate slightly favouring
+   cropping. To pin the sign, shoot a **locked-focus gust-burst** (A8) or a
+   calm-day reshoot.
 
 **The flat bare profile was a gust+defocus artefact, not optics.** On
 median-of-AF / JPEG, bare MTF50 was flat ~0.20 (no f/8 peak). Per-edge

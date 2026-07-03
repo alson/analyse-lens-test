@@ -85,8 +85,12 @@ blowing. The original stopped-down TC cells ran 1/100–1/250 — 3–8× too sl
 3200–6400; ISO does **not** bias the contrast-normalised MTF (B2), so you need
 NOT repeat the full aperture series at every ISO — the only failure mode is
 high-ISO **×** low-contrast (the 2026-01-28 ISO-8000 twilight collapse). And
-**shoot bursts**: with non-constant wind a calm instant gets captured and the
-analysis lucky-images it (B8) — cheaper insurance than any single exposure.
+shoot a **locked-focus rapid burst at best focus** (find focus via the sweep or
+AF, then lock and burst): with non-constant wind a calm instant gets captured
+and the analysis lucky-images it (B8). A **focus-shift stack is inefficient for
+this** — it spends most frames on defocus, leaving only ~10–15 in-focus frames
+to sample wind; a locked-focus burst gives dozens, which is what actually pins a
+marginal cross-config call (e.g. TC-1.4× vs cropping).
 
 ### A9. Target: high-contrast, fine, flat, large — and single-depth
 Brick mortar is too low-contrast, and **3D scenes mis-rank** (the 2026-01
@@ -174,6 +178,11 @@ Worked 2026-06-28: recovered a real **bare f/8 peak 0.342** from a gust-
 flattened ~0.20 profile; ~50–135 of each stack's frames were correctly rejected
 as defocused. Two-pass to save compute: half-size develop to score the proxy,
 full-develop only the selected frames.
+**Power caveat:** gust-recovery scales with the **in-focus** frame count, not
+the total — a focus-shift stack leaves only ~10–16 sharp frames per cell after
+the defocused majority is rejected, so a marginal cross-config call can stay
+unresolved even with 63-frame pools (the calmest-of-~12 need not be a true
+lull). For gust work, capture locked-focus bursts (A8), not just focus sweeps.
 
 ### B9. Diffraction-ceiling gate — the over-read is a near-ceiling effect, not an aperture
 A reading is trustworthy only if it sits **below** the aperture's diffraction
