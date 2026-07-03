@@ -86,6 +86,26 @@ def test_reg_guard_tightens_at_low_M():
     assert "rmse" in reason
 
 
+def test_reg_guard_default_pitch_is_z7():
+    # Default pitch_um is the Z7 4.35 -> 5.9px @ M=1.0 = 25.665um, just over the ceiling.
+    ok, _ = rr.reg_guard(1.0, 5.9)
+    assert not ok
+    # 5.7px @ M=1.0 = 24.795um, just under -> admitted. Confirms the 4.35 default.
+    ok, _ = rr.reg_guard(1.0, 5.7)
+    assert ok
+
+
+def test_reg_guard_uses_per_camera_pitch_d7200():
+    # Fixes the D7200 over-strict guard: the smaller 3.91um pitch means the SAME px rmse
+    # is a SMALLER object-space error, so a fit rejected under the Z7 4.35 default is
+    # admitted under D7200. 6.2px @ M=1.0: Z7 -> 26.97um (DROP); D7200 -> 24.24um (KEEP).
+    from tile_sharpness.cameras import camera_pitch_um
+    ok_z7, _ = rr.reg_guard(1.0, 6.2, pitch_um=camera_pitch_um("Z7"))
+    ok_d7200, _ = rr.reg_guard(1.0, 6.2, pitch_um=camera_pitch_um("D7200"))
+    assert not ok_z7
+    assert ok_d7200
+
+
 def test_reg_guard_drops_nonfinite_M():
     ok, reason = rr.reg_guard(float("nan"), 1.0)
     assert not ok

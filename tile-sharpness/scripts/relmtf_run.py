@@ -75,6 +75,7 @@ sys.path.insert(0, str(TS / "src"))
 
 from tile_sharpness import cross_m_relative_mtf as X  # noqa: E402
 from tile_sharpness import multi_session as MS  # noqa: E402
+from tile_sharpness.cameras import camera_pitch_um  # noqa: E402
 from tile_sharpness import m_lookup as ML  # noqa: E402
 from tile_sharpness import optics  # noqa: E402
 from tile_sharpness import focus_physical as FP  # noqa: E402
@@ -255,12 +256,17 @@ def select_registration(candidates, nominal_M=float("nan")):
     return best
 
 
-def reg_guard(M, rmse):
+def reg_guard(M, rmse, pitch_um=SENSOR_PITCH_UM):
     """Return ``(ok, reason)`` for a registration's (M, reg_fit_rmse_px).
 
     ``ok`` False means DROP the config; ``reason`` is a short human tag logged to
     ``dropped_configs.csv``. Pure / unit-tested. Order of checks: collapse, then M
     bounds, then residual ceiling (so a collapse is reported as such, not "rmse").
+
+    ``pitch_um`` is the config's sensor pixel pitch (Z7 4.35 µm default); the object-space
+    ceiling is ``rmse_px * pitch_um / M``. Passing the per-camera pitch fixes the D7200
+    over-strict guard — the hard-coded Z7 4.35 over-estimated D7200 (3.91) object rmse by
+    4.35/3.91 = 11.3%.
     """
     if not (M is not None and np.isfinite(M)):
         return False, "reg_M_nonfinite"
@@ -270,7 +276,7 @@ def reg_guard(M, rmse):
         return False, f"reg_M_out_of_bounds(M={M:.3f})"
     if not (rmse is not None and np.isfinite(rmse)):
         return False, "reg_rmse_nonfinite"
-    rmse_um = rmse * SENSOR_PITCH_UM / M
+    rmse_um = rmse * pitch_um / M
     if rmse_um > REG_RMSE_MAX_OBJECT_UM:
         return False, (f"reg_rmse_too_high(rmse={rmse:.2f}px={rmse_um:.1f}um"
                        f"> {REG_RMSE_MAX_OBJECT_UM}um)")
@@ -751,7 +757,7 @@ def extract_config_patches(node, p, M, jpgs, patches, out, accum):
                           n_marked=n_marked, n_eff=n_eff, px_per_unit=px_per_unit,
                           lens=node.lens, mag_label=node.mag_label,
                           aperture=node.aperture, date=node.session,
-                          p2_rail_ok=p2_rail_ok))
+                          p2_rail_ok=p2_rail_ok, camera=node.camera))
     active = []
     for (a, b, a1, b1, plab) in patches:
         corners = [reg_auto.grid_xy_distorted(cc, rr, p)
@@ -883,7 +889,7 @@ def cmd_extract(args):
             print(f"DROP {sid}: reg fail", flush=True)
             continue
         rmse = p.get("reg_fit_rmse_px", float("nan"))
-        ok, reason = reg_guard(M, rmse)
+        ok, reason = reg_guard(M, rmse, pitch_um=camera_pitch_um(node.camera))
         if not ok:
             dropped_rows.append(dict(sid=sid, config=cid, session=node.session,
                                      stage="extract", reason=reason,
@@ -1510,7 +1516,7 @@ def cmd_relmtf_recover(args):
                                     M=M, rmse=rmse, fix=best["fix"], family_prior_M=prior["M"]))
             print(f"RECOVER {sid}: implausible M={M:.3f} (fix {best['fix']})", flush=True)
             continue
-        ok, reason = reg_guard(M, rmse)
+        ok, reason = reg_guard(M, rmse, pitch_um=camera_pitch_um(node.camera))
         if not ok:
             rec_dropped_rows.append(dict(sid=sid, config=cid, session=node.session,
                                          stage="recover", reason=reason, M=M, rmse=rmse))
