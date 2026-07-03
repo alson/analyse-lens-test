@@ -1159,6 +1159,21 @@ def cmd_analyse(args):
                     session=(node.session if node else ""),
                     stage="analyse", reason="coverage_config_ok_fail")])],
                     ignore_index=True)
+    # ---- log the M>1.10 low-confidence exclusions (ruling #2) ------------------- #
+    # These register + extract fine and are surfaced in the separate low-confidence
+    # view, but are held out of the headline/secondary ranking CSV (DoF M-form
+    # uncalibrated at M>1.10). Record them EXPLICITLY here so they are never silently
+    # absent from the CSV artifacts — matters especially for DX/D7200, where 1:1 macro
+    # lands at M~1.1 and trips this cutoff. stage="rank"; the measured M is in the reason.
+    for s in sorted(low_conf_sids):
+        node = nodes_by_sid.get(s)
+        dropped = pd.concat([dropped, pd.DataFrame([dict(
+            sid=s, config=(MS.human(node) if node else ""),
+            session=(node.session if node else ""),
+            stage="rank",
+            reason=f"step_low_confidence(M={m_by_sid.get(s, float('nan')):.3f}"
+                   f">{FP.M_EXTRAPOLATION_THRESHOLD})")])],
+            ignore_index=True)
     dropped.to_csv(out / "dropped_configs.csv", index=False)
 
     # sids that stay in the HEADLINE ranking: not low-conf, not coverage-dropped.
