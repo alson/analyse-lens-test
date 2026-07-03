@@ -77,18 +77,13 @@ by actual EXIF aperture, and the AF200 `F7.1/F10` were the bumped-1/3-stop versi
 dropped, 0 recover, 0 audit flags; a clean 34-config within-session ranking** (Sigma 150 →
 70-180/105G VR → vintage 55mm Auto). No normalization needed — single session removes the confound.
 
-**Aperture-labelling convention (EXIF-verified, all 08-19 lenses) — folders ARE effective f:**
-- **Folder = EXIF** for lenses that report *effective* aperture in EXIF at close focus: AF200,
-  105G VR & VR II (IF-ED), Sigma 150, Sigma 105, Tamron 90, and 70-180 (±5T/6T diopters — a
-  diopter adds no bellows dimming, so marked ≈ effective).
-- **Folder ≠ EXIF** (folder = manually-computed effective, EXIF = marked) for the manual lenses:
-  55mm AIS f/2.8 ×2 and 55mm Auto f/3.5 ×3 → factor **×2.0** (1:1, 1+M=2); Sigma 180 f/3.5 →
-  factor **×1.6** (implies M≈0.6, i.e. shot at ~0.6× not full 1:1 — worth a sanity check).
-- ⚠ This is a per-lens split, and 2025-08-06 (now dropped) had labelled the non-IF Sigma 180 by
-  MARKED aperture — a session×lens inconsistency. It does NOT affect the relative ranking (fixed
-  pixel frequency, aperture-label-independent), but any future D7200 effective-aperture /
-  diffraction-ceiling reporting must resolve aperture from **EXIF FNumber + the IF/non-IF (and
-  diopter/extension) distinction**, not blindly from the folder name.
+**Aperture labels (EXIF-verified): all 08-19 folders are effective f, and 08-19 is internally
+consistent.** For most lenses the folder matches EXIF FNumber (the lens reports effective at
+close focus); for the manual 55mm primes and the Sigma 180 the EXIF reports the marked value and
+the folder was set to the effective aperture. Do NOT infer magnification from the marked→effective
+ratio — for internal-focus lenses (incl. the Sigma 180) the focal length shortens at close focus,
+so N_eff ≠ N·(1+M); M comes from the registration, not the aperture. The pipeline's
+folder=effective handling is therefore correct for all remaining (08-19) D7200 data.
 
 ---
 
