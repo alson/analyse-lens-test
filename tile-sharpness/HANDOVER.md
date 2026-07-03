@@ -1,6 +1,25 @@
 # Sharpness assessment POC — session handover
 
-State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01, 2026-07-02, 2026-07-03).
+State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01, 2026-07-02, 2026-07-03, 2026-07-04).
+
+> **2026-07-03/04 — D7200 (DX) wafer-macro data integrated into the relmtf pipeline; cross-camera
+> bridge closed. Full detail + commits in `D7200_INTEGRATION_PLAN.md` (§FOLLOW-ON RESULTS).**
+> The 2025-08 D7200 sessions (previously excluded from the 311 Z7 subset) are now a first-class
+> camera axis (`cameras.py`: 3.91µm/OLPF; per-camera pitch threaded into the reg guard).
+> 2025-08-06 dropped as redundant+confounded (same marked apertures as 08-19, mislabelled by
+> convention; AF200 F7.1/F10 were bumped-1/3-stop F8/F11); 2025-08-19 (64 configs) all register.
+> **Deliverables:** (1) a within-D7200 relative fixed-f_px ranking — after decoupling the M>1.10
+> DoF gate via an M-spread criterion (`FP.M_REL_SPREAD_MAX=2.8`, Z7-invariant by construction),
+> the DX 1:1 macros (M≈1.1–1.18) are first-class (top Sigma 150/105, Tamron 90; bottom vintage
+> 55mm); (2) atlas-anchored centre/corner subject-MTF50 + a diffraction+Nyquist ceiling overlay —
+> modern macros ~40 lp/mm centre, Sigma 150 most trustworthy (values are UPPER BOUNDS: LSF
+> over-read + OLPF; within-D7200 ORDERING only). **CROSS-CAMERA absolute (Z7↔D7200) is NOT
+> achievable** with existing data — both routes exhausted: atlas PSD is band-capped at ~54% of
+> Nyquist (pipeline-wide limit), and native-res-from-raw is blocked because the Z7 shared macros
+> were saved JPG-only (no NEFs; D7200 sold). So "modern-macro Z7↔D7200 diff is sensor/OLPF-
+> dominated, not lens" stays a well-founded optics PRIOR, empirically unconfirmable.
+
+> **2026-07-03 — the 2026-07-02 "REMAINING: fold the 8" item is DONE; full 311-subset
 
 > **2026-07-03 — the 2026-07-02 "REMAINING: fold the 8" item is DONE; full 311-subset
 > re-run landed (`out_relmtf_311`, gitignored/regenerable).** `relmtf-recover` now folds the

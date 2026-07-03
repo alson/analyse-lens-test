@@ -87,6 +87,45 @@ folder=effective handling is therefore correct for all remaining (08-19) D7200 d
 
 ---
 
+## FOLLOW-ON RESULTS (2026-07-03/04) — centre/corner, ceiling, cross-camera, M-gate
+
+**A. Atlas centre/corner subject-MTF50 for D7200 (`605a519`).** Camera-parameterised
+`scripts/atlas_corner_mtf.py` + `atlas_corner_d7200.py` + `run_atlas_corner_d7200.sh`
+(DX 6000×4000, 3.91µm, M from reg_auto, effective-folder aperture) → `out_atlas_corner_d7200/`
+(gitignored). The "characterise-style" centre + 4-corner subject-lp/mm + uniformity view, MINUS
+field curvature (rail-dependent, N/A on manual tier). All 64 configs measured.
+
+**B. Diffraction+Nyquist ceiling overlay → calibrated (`d9b5124`, `atlas_corner_d7200_ceiling.py`).**
+Raw centre-MTF50 is over-read-contaminated (rises F8→F16, physically impossible). After flagging
+against the diffraction+Nyquist ceiling (n_eff + M + 3.91µm): of 64 centre reads, **4 impossible
+over-reads (all F16), 8 diffraction-limited, 52 glass-limited**. Calibrated centre @ F8-effective
+(within-D7200, UPPER BOUNDS): modern macros lead — **Sigma 105 ≈ Tamron 90 ≈ Sigma 150 ≈ 40 lp/mm;
+Sigma 150 most trustworthy** (flat vs aperture). Absolute values still upper-bounded by the LSF
+over-read (grows stopping down) + OLPF; only the within-D7200 ORDERING is reliable.
+
+**C. Cross-camera Z7↔D7200 bridge — DEFINITIVELY CLOSED (both routes exhausted).**
+- Atlas-resampled same-patch PSD ratio (Sigma 150), `97d9b30`: failed 4 structural checks — ratio
+  aperture-DEPENDENT, rises with freq, optics+target don't cleanly cancel, and the atlas
+  700-samples/unit grid band-limits PSD to **0.27 cy/px ≈ 54% of Nyquist** (a PROJECT-WIDE property
+  — any near-Nyquist/cross-camera MTF work hits it) so the OLPF region is out of band.
+- Native-res-from-raw (`2e40e95`): can't run — **Z7 shared macros were saved JPG-only (0 NEFs)**;
+  needs raws on both bodies (Z7-JPG-vs-D7200-RAW invalid). Method validated on the D7200 side
+  (raw green reaches 0.49 cy/px), blocker is purely missing input. Z7 raw archive is sparse
+  (NEFs only 2026-01-29 & 2026-02-18, not the shared macros). Unfixable: D7200 sold.
+- ⟹ "modern-macro Z7↔D7200 difference is sensor/OLPF-dominated, not lens" is a well-founded optics
+  PRIOR that **cannot be empirically confirmed with existing data.**
+
+**D. M>1.10 gate decoupled for the relative ranking (`a6f7cd2`).** New `FP.M_REL_SPREAD_MAX=2.8`:
+the relative fixed-f_px ranking admits all M when the cohort's M-spread (max/min) ≤ 2.8×, else
+falls back to the M>1.10 cutoff; physical/DoF/geometry stay gated at 1.10. Z7-invariant by
+construction (Z7 spread 5.88× → wide branch = prior logic, byte-identical). D7200 spread 1.42× →
+all 64 configs admitted (was 34); the bare 1:1 macros are now first-class in the relative headline
+(top S150 F11/F8/F16 → Z70180 F16 → Sigma 180; bottom vintage 55mm), `_lowconf.csv` auto-removed
+for narrow cohorts. This supersedes the "Phase 4 pitch is moot" framing: no pitch reporting was
+needed; the deliverables are the relative headline (D) + the calibrated centre/corner (A/B).
+
+---
+
 ## 1. Data inventory
 
 Location: `/home/alson/shared/files/pics/digikam/test-raw-data/{2025-08-06,2025-08-19}/`
