@@ -269,11 +269,15 @@ tile-sharpness relmtf-recover --subset data/cross_m_relative_mtf_subset_multises
 
 `relmtf-recover` is a two-pass tail: it recovers wide-open-soft / texture-mislocked
 failures (8/9 of the known drops) and emits `recover_log.csv` + `reg_family_audit.csv`
-(flags any pass-1 reg whose θ/M is inconsistent with its family). NOTE: it currently emits
-**registrations only** (meta) — folding the recovered configs into the ranking/physical/
-geometry outputs needs a per-patch extract seeded with the recovered registration, then a
-re-analyse (deferred: the recoverable failures are all widest-aperture entries of families
-already ranked at F8–F16). See "Registration notes".
+(flags any pass-1 reg whose θ/M is inconsistent with its family). It **folds the recovered
+configs into the ranking/physical/geometry outputs** (2026-07-03): each recovered
+sibling-prior affine is reg_auto-compatible, so the shared `extract_config_patches` runs the
+same per-patch extraction the pass-1 stage does and writes `recover`-tagged shards
+(`{psd,meta,padedge,psffoc,fieldtag,dropped_configs}_shard_recover.csv`) that
+`relmtf-analyse` pools automatically (a config folded back in is removed from the stale
+extract-stage drop log). Run recover with `--out` = the pass-1 dir so the shards land
+alongside. The recovered failures are all widest-aperture entries of families already ranked
+at F8–F16, so this adds wide-open data points, not new families. See "Registration notes".
 
 Stage chain: `multi_session.discover_config_nodes` → `reg_auto` register (with a
 guard that drops M≤0.20 scale-collapse / M∉[0.20,3.50] / object-space residual

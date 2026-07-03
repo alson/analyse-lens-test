@@ -699,6 +699,168 @@ def amp_radial(patch, nbins=48):
 # --------------------------------------------------------------------------- #
 # extract stage
 # --------------------------------------------------------------------------- #
+def _new_accum() -> dict:
+    """Fresh per-shard row accumulators for the extract/recover patch stage."""
+    return {"psd": [], "meta": [], "padedge": [], "psffoc": [], "fieldtag": []}
+
+
+def _write_extract_shards(out, tag, accum, dropped_rows):
+    """Write the five per-patch shard CSVs + the dropped-configs shard for one tag.
+
+    Shared by cmd_extract (tag=``i_N``) and cmd_recover (tag=``recover``); the
+    analyse stage pools every ``*_shard_*.csv`` so a ``recover`` tag is folded in
+    automatically."""
+    pd.DataFrame(accum["psd"]).to_csv(out / f"psd_shard_{tag}.csv", index=False)
+    pd.DataFrame(accum["meta"]).to_csv(out / f"meta_shard_{tag}.csv", index=False)
+    pd.DataFrame(accum["padedge"]).to_csv(out / f"padedge_shard_{tag}.csv", index=False)
+    pd.DataFrame(accum["psffoc"]).to_csv(out / f"psffoc_shard_{tag}.csv", index=False)
+    pd.DataFrame(accum["fieldtag"]).to_csv(out / f"fieldtag_shard_{tag}.csv", index=False)
+    # dropped_configs.csv: appended (each shard writes its own; analyse pools by glob).
+    pd.DataFrame(dropped_rows).to_csv(out / f"dropped_configs_shard_{tag}.csv", index=False)
+    print(f"WROTE shard {tag}: {len(accum['psd'])} psd, {len(accum['meta'])} meta, "
+          f"{len(accum['padedge'])} padedge, {len(accum['psffoc'])} psffoc, "
+          f"{len(accum['fieldtag'])} fieldtag, {len(dropped_rows)} dropped", flush=True)
+
+
+def extract_config_patches(node, p, M, jpgs, patches, out, accum):
+    """Per-config patch extraction: register-independent body shared by the extract
+    stage and the recover stage (PASS 2 folds the sibling-prior-recovered configs
+    into the SAME psd/meta/padedge/psffoc/fieldtag rows the estimator pools).
+
+    ``p`` is a reg_auto-compatible affine (``register_config`` in extract; the
+    ``best["affine"]`` sibling-prior recovery in recover). Rows are appended to the
+    ``accum`` lists in place; patch arrays saved under ``out/patches``."""
+    cid = MS.human(node); sid = MS.sid(node)
+    rmse = p.get("reg_fit_rmse_px", float("nan"))
+    psd_rows = accum["psd"]; meta_rows = accum["meta"]; padedge_rows = accum["padedge"]
+    psffoc_rows = accum["psffoc"]; fieldtag_rows = accum["fieldtag"]
+    cx_frame, cy_frame = reg_auto.DIST_CENTER
+    FIELD_FPX = (0.10, 0.15)
+    p2_rail_ok = bool(node.p2_rail_ok)
+    n_marked = _ap_to_n(node.aperture)
+    ccl = 0.5 * (GLOBAL_CL[0] + GLOBAL_CL[1]); crl = 0.5 * (GLOBAL_RL[0] + GLOBAL_RL[1])
+    x00, y00 = reg_auto.grid_xy_distorted(ccl, crl, p)
+    xu, yu = reg_auto.grid_xy_distorted(ccl + 1.0, crl, p)
+    xv, yv = reg_auto.grid_xy_distorted(ccl, crl + 1.0, p)
+    px_per_unit = 0.5 * (np.hypot(xu - x00, yu - y00) + np.hypot(xv - x00, yv - y00))
+    n_eff = optics.effective_fnumber(n_marked, M)
+    ceil_cypx = optics.diffraction_mtf50_sensor_lpmm(n_eff) / 229.9
+    print(f"=== {sid} M={M:.3f} rmse={rmse:.1f} px/unit={px_per_unit:.0f} "
+          f"p2_rail={'ok' if p2_rail_ok else 'OFF'} ===", flush=True)
+    meta_rows.append(dict(config=cid, sid=sid, M=M, rmse=rmse,
+                          n_marked=n_marked, n_eff=n_eff, px_per_unit=px_per_unit,
+                          lens=node.lens, mag_label=node.mag_label,
+                          aperture=node.aperture, date=node.session,
+                          p2_rail_ok=p2_rail_ok))
+    active = []
+    for (a, b, a1, b1, plab) in patches:
+        corners = [reg_auto.grid_xy_distorted(cc, rr, p)
+                   for (cc, rr) in [(a, b), (a, b1), (a1, b), (a1, b1)]]
+        xs = [pt[0] for pt in corners]; ys = [pt[1] for pt in corners]
+        if (min(xs) < 60 or max(xs) > IMAGE_W - 60
+                or min(ys) < 60 or max(ys) > IMAGE_H - 60):
+            continue
+        active.append((plab, a, b, a1, b1,
+                       (int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys)))))
+    if not active:
+        print("  no in-FOV patches", flush=True)
+        return
+    curves = scan_all_boxes(jpgs, [x[5] for x in active])
+    # P2 through-focus (TIER-GATED): emit per-patch mu/fwhm/coverage_flag ONLY for
+    # the rail-coverage tier. Manual-tier configs still get all of P1 (below) but
+    # NO psffoc rows -> P2/POC-3/POC-4 degrade to the estimators that read best-focus
+    # frame(s) and are robust to a non-constant / unregistered rail step.
+    n_psffoc = 0
+    nstack = len(jpgs)
+    if p2_rail_ok:
+        for bi, (plab, a, b, a1, b1, box) in enumerate(active):
+            seqs, lvs = curves[bi]
+            _, fwhm, mu = X.gaussian_defocus_fwhm(seqs, lvs)
+            if np.isfinite(fwhm):
+                psffoc_rows.append(dict(
+                    config=cid, sid=sid, patch=plab, M=M,
+                    n_marked=n_marked, n_eff=n_eff, nstack=nstack,
+                    fwhm=fwhm, mu=mu,
+                    peak_pos_frac=X.peak_pos_frac(mu, nstack),
+                    edge_dist_frames=X.edge_dist_frames(mu, nstack),
+                    coverage_flag=X.coverage_flag(mu, fwhm, nstack)))
+                n_psffoc += 1
+    by_frame = {}
+    for bi, (plab, a, b, a1, b1, box) in enumerate(active):
+        seqs, lvs = curves[bi]
+        if len(seqs) == 0:
+            continue
+        seq = int(seqs[int(np.argmax(lvs))])
+        by_frame.setdefault(seq, []).append((plab, a, b, a1, b1, box))
+    per_patch_mtf = []
+    ncfg_edges = 0
+    for seq, group in by_frame.items():
+        chan = decode_sat(jpgs[seq])
+        gray = cv2.imread(str(jpgs[seq]), cv2.IMREAD_GRAYSCALE)
+        if chan is None:
+            continue
+        for (plab, a, b, a1, b1, box) in group:
+            patch = atlas_rect_to_common_grid(chan, p, a, b, a1, b1,
+                                              samples_per_unit=SAMPLES_PER_UNIT)
+            if patch is None:
+                continue
+            np.save(out / "patches" / f"{sid}__{plab}.npy", patch.astype(np.float32))
+            f_grid, psd = radial_psd(patch)
+            for fg, ps in zip(f_grid, psd):
+                if np.isfinite(ps):
+                    psd_rows.append(dict(config=cid, sid=sid, patch=plab, M=M,
+                                         n_marked=n_marked, f_grid=fg, psd=ps))
+            # location-aware field tag (POC-4 substrate).
+            pcx, pcy = reg_auto.grid_xy_distorted(0.5 * (a + a1),
+                                                  0.5 * (b + b1), p)
+            geo = X.field_geometry(pcx, pcy, cx_frame, cy_frame,
+                                   IMAGE_W, IMAGE_H, m=M)
+            ft = dict(config=cid, sid=sid, patch=plab, M=M,
+                      px=float(pcx), py=float(pcy),
+                      dist_px=geo["dist_px"], field_height=geo["field_height"],
+                      angle_deg=geo["angle_deg"],
+                      dist_subject_mm=geo["dist_subject_mm"])
+            amp_iso = np.sqrt(np.clip(psd, 1e-30, None))
+            fsag, psd_sag, psd_tan = directional_psd(patch, geo["angle_deg"])
+            amp_sag = np.sqrt(np.clip(psd_sag, 1e-30, None))
+            amp_tan = np.sqrt(np.clip(psd_tan, 1e-30, None))
+            for fpx in FIELD_FPX:
+                fg_sensor = fpx * px_per_unit / SAMPLES_PER_UNIT
+
+                def _read(fcurve, vcurve):
+                    okm = np.isfinite(vcurve)
+                    if okm.sum() < 2 or not (fcurve[okm].min() <= fg_sensor
+                                             <= fcurve[okm].max()):
+                        return float("nan")
+                    return float(np.interp(fg_sensor, fcurve[okm], vcurve[okm]))
+                ft[f"amp_fpx{fpx}"] = _read(f_grid, amp_iso)
+                ft[f"amp_sag_fpx{fpx}"] = _read(fsag, amp_sag)
+                ft[f"amp_tan_fpx{fpx}"] = _read(fsag, amp_tan)
+            fieldtag_rows.append(ft)
+            if gray is not None:
+                x0, y0, x1, y1 = box
+                crop = gray[y0:y1, x0:x1].astype(np.float32)
+                if crop.size and min(crop.shape) >= 40:
+                    cen, esf, ne = averaged_esf(crop)
+                    ncfg_edges += ne
+                    res = esf_to_mtf(cen, esf)
+                    if res is not None:
+                        per_patch_mtf.append((res[0], res[1], ne))
+    if per_patch_mtf:
+        common_f = np.linspace(0.0, 0.5, 64)
+        stacks = [np.interp(common_f, fr, mt) for fr, mt, _ in per_patch_mtf]
+        ws = np.array([ne for *_, ne in per_patch_mtf], float)
+        ws = ws / ws.sum()
+        mtf_agg = np.average(np.array(stacks), axis=0, weights=ws)
+        rec = dict(config=cid, sid=sid, M=M, n_eff=n_eff, ceil_cypx=ceil_cypx,
+                   n_edge_samples=ncfg_edges, n_patches=len(per_patch_mtf))
+        for fpx in (0.10, 0.15):
+            rec[f"mtf_fpx{fpx}"] = float(np.interp(fpx, common_f, mtf_agg))
+        padedge_rows.append(rec)
+    print(f"  {len(active)} in-FOV patches, {len(by_frame)} focus frames, "
+          f"{ncfg_edges} pad edges, {n_psffoc} through-focus fits", flush=True)
+
+
 def cmd_extract(args):
     subset = Path(args.subset)
     out = Path(args.out)
@@ -709,10 +871,8 @@ def cmd_extract(args):
     out.mkdir(parents=True, exist_ok=True)
     (out / "patches").mkdir(exist_ok=True)
     patches = patch_layout()
-    psd_rows, meta_rows, padedge_rows, psffoc_rows, fieldtag_rows = [], [], [], [], []
+    accum = _new_accum()
     dropped_rows = []
-    cx_frame, cy_frame = reg_auto.DIST_CENTER
-    FIELD_FPX = (0.10, 0.15)
     for node in nodes:
         cid = MS.human(node); sid = MS.sid(node)
         sd = node.sweep_dir
@@ -730,141 +890,10 @@ def cmd_extract(args):
                                      M=M, rmse=rmse))
             print(f"DROP {sid}: {reason} (rmse={rmse:.2f})", flush=True)
             continue
-        p2_rail_ok = bool(node.p2_rail_ok)
-        n_marked = _ap_to_n(node.aperture)
-        ccl = 0.5 * (GLOBAL_CL[0] + GLOBAL_CL[1]); crl = 0.5 * (GLOBAL_RL[0] + GLOBAL_RL[1])
-        x00, y00 = reg_auto.grid_xy_distorted(ccl, crl, p)
-        xu, yu = reg_auto.grid_xy_distorted(ccl + 1.0, crl, p)
-        xv, yv = reg_auto.grid_xy_distorted(ccl, crl + 1.0, p)
-        px_per_unit = 0.5 * (np.hypot(xu - x00, yu - y00) + np.hypot(xv - x00, yv - y00))
-        n_eff = optics.effective_fnumber(n_marked, M)
-        ceil_cypx = optics.diffraction_mtf50_sensor_lpmm(n_eff) / 229.9
-        print(f"=== {sid} M={M:.3f} rmse={rmse:.1f} px/unit={px_per_unit:.0f} "
-              f"p2_rail={'ok' if p2_rail_ok else 'OFF'} ===", flush=True)
-        meta_rows.append(dict(config=cid, sid=sid, M=M, rmse=rmse,
-                              n_marked=n_marked, n_eff=n_eff, px_per_unit=px_per_unit,
-                              lens=node.lens, mag_label=node.mag_label,
-                              aperture=node.aperture, date=node.session,
-                              p2_rail_ok=p2_rail_ok))
-        active = []
-        for (a, b, a1, b1, plab) in patches:
-            corners = [reg_auto.grid_xy_distorted(cc, rr, p)
-                       for (cc, rr) in [(a, b), (a, b1), (a1, b), (a1, b1)]]
-            xs = [pt[0] for pt in corners]; ys = [pt[1] for pt in corners]
-            if (min(xs) < 60 or max(xs) > IMAGE_W - 60
-                    or min(ys) < 60 or max(ys) > IMAGE_H - 60):
-                continue
-            active.append((plab, a, b, a1, b1,
-                           (int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys)))))
-        if not active:
-            print("  no in-FOV patches", flush=True)
-            continue
-        curves = scan_all_boxes(jpgs, [x[5] for x in active])
-        # P2 through-focus (TIER-GATED): emit per-patch mu/fwhm/coverage_flag ONLY for
-        # the rail-coverage tier. Manual-tier configs still get all of P1 (below) but
-        # NO psffoc rows -> P2/POC-3/POC-4 degrade to the estimators that read best-focus
-        # frame(s) and are robust to a non-constant / unregistered rail step.
-        n_psffoc = 0
-        nstack = len(jpgs)
-        if p2_rail_ok:
-            for bi, (plab, a, b, a1, b1, box) in enumerate(active):
-                seqs, lvs = curves[bi]
-                _, fwhm, mu = X.gaussian_defocus_fwhm(seqs, lvs)
-                if np.isfinite(fwhm):
-                    psffoc_rows.append(dict(
-                        config=cid, sid=sid, patch=plab, M=M,
-                        n_marked=n_marked, n_eff=n_eff, nstack=nstack,
-                        fwhm=fwhm, mu=mu,
-                        peak_pos_frac=X.peak_pos_frac(mu, nstack),
-                        edge_dist_frames=X.edge_dist_frames(mu, nstack),
-                        coverage_flag=X.coverage_flag(mu, fwhm, nstack)))
-                    n_psffoc += 1
-        by_frame = {}
-        for bi, (plab, a, b, a1, b1, box) in enumerate(active):
-            seqs, lvs = curves[bi]
-            if len(seqs) == 0:
-                continue
-            seq = int(seqs[int(np.argmax(lvs))])
-            by_frame.setdefault(seq, []).append((plab, a, b, a1, b1, box))
-        per_patch_mtf = []
-        ncfg_edges = 0
-        for seq, group in by_frame.items():
-            chan = decode_sat(jpgs[seq])
-            gray = cv2.imread(str(jpgs[seq]), cv2.IMREAD_GRAYSCALE)
-            if chan is None:
-                continue
-            for (plab, a, b, a1, b1, box) in group:
-                patch = atlas_rect_to_common_grid(chan, p, a, b, a1, b1,
-                                                  samples_per_unit=SAMPLES_PER_UNIT)
-                if patch is None:
-                    continue
-                np.save(out / "patches" / f"{sid}__{plab}.npy", patch.astype(np.float32))
-                f_grid, psd = radial_psd(patch)
-                for fg, ps in zip(f_grid, psd):
-                    if np.isfinite(ps):
-                        psd_rows.append(dict(config=cid, sid=sid, patch=plab, M=M,
-                                             n_marked=n_marked, f_grid=fg, psd=ps))
-                # location-aware field tag (POC-4 substrate).
-                pcx, pcy = reg_auto.grid_xy_distorted(0.5 * (a + a1),
-                                                      0.5 * (b + b1), p)
-                geo = X.field_geometry(pcx, pcy, cx_frame, cy_frame,
-                                       IMAGE_W, IMAGE_H, m=M)
-                ft = dict(config=cid, sid=sid, patch=plab, M=M,
-                          px=float(pcx), py=float(pcy),
-                          dist_px=geo["dist_px"], field_height=geo["field_height"],
-                          angle_deg=geo["angle_deg"],
-                          dist_subject_mm=geo["dist_subject_mm"])
-                amp_iso = np.sqrt(np.clip(psd, 1e-30, None))
-                fsag, psd_sag, psd_tan = directional_psd(patch, geo["angle_deg"])
-                amp_sag = np.sqrt(np.clip(psd_sag, 1e-30, None))
-                amp_tan = np.sqrt(np.clip(psd_tan, 1e-30, None))
-                for fpx in FIELD_FPX:
-                    fg_sensor = fpx * px_per_unit / SAMPLES_PER_UNIT
-
-                    def _read(fcurve, vcurve):
-                        okm = np.isfinite(vcurve)
-                        if okm.sum() < 2 or not (fcurve[okm].min() <= fg_sensor
-                                                 <= fcurve[okm].max()):
-                            return float("nan")
-                        return float(np.interp(fg_sensor, fcurve[okm], vcurve[okm]))
-                    ft[f"amp_fpx{fpx}"] = _read(f_grid, amp_iso)
-                    ft[f"amp_sag_fpx{fpx}"] = _read(fsag, amp_sag)
-                    ft[f"amp_tan_fpx{fpx}"] = _read(fsag, amp_tan)
-                fieldtag_rows.append(ft)
-                if gray is not None:
-                    x0, y0, x1, y1 = box
-                    crop = gray[y0:y1, x0:x1].astype(np.float32)
-                    if crop.size and min(crop.shape) >= 40:
-                        cen, esf, ne = averaged_esf(crop)
-                        ncfg_edges += ne
-                        res = esf_to_mtf(cen, esf)
-                        if res is not None:
-                            per_patch_mtf.append((res[0], res[1], ne))
-        if per_patch_mtf:
-            common_f = np.linspace(0.0, 0.5, 64)
-            stacks = [np.interp(common_f, fr, mt) for fr, mt, _ in per_patch_mtf]
-            ws = np.array([ne for *_, ne in per_patch_mtf], float)
-            ws = ws / ws.sum()
-            mtf_agg = np.average(np.array(stacks), axis=0, weights=ws)
-            rec = dict(config=cid, sid=sid, M=M, n_eff=n_eff, ceil_cypx=ceil_cypx,
-                       n_edge_samples=ncfg_edges, n_patches=len(per_patch_mtf))
-            for fpx in (0.10, 0.15):
-                rec[f"mtf_fpx{fpx}"] = float(np.interp(fpx, common_f, mtf_agg))
-            padedge_rows.append(rec)
-        print(f"  {len(active)} in-FOV patches, {len(by_frame)} focus frames, "
-              f"{ncfg_edges} pad edges, {n_psffoc} through-focus fits", flush=True)
+        extract_config_patches(node, p, M, jpgs, patches, out, accum)
 
     tag = (args.shard or "0_1").replace("/", "_")
-    pd.DataFrame(psd_rows).to_csv(out / f"psd_shard_{tag}.csv", index=False)
-    pd.DataFrame(meta_rows).to_csv(out / f"meta_shard_{tag}.csv", index=False)
-    pd.DataFrame(padedge_rows).to_csv(out / f"padedge_shard_{tag}.csv", index=False)
-    pd.DataFrame(psffoc_rows).to_csv(out / f"psffoc_shard_{tag}.csv", index=False)
-    pd.DataFrame(fieldtag_rows).to_csv(out / f"fieldtag_shard_{tag}.csv", index=False)
-    # dropped_configs.csv: appended (each shard writes its own; analyse pools by glob).
-    pd.DataFrame(dropped_rows).to_csv(out / f"dropped_configs_shard_{tag}.csv", index=False)
-    print(f"WROTE shard {tag}: {len(psd_rows)} psd, {len(meta_rows)} meta, "
-          f"{len(padedge_rows)} padedge, {len(psffoc_rows)} psffoc, "
-          f"{len(fieldtag_rows)} fieldtag, {len(dropped_rows)} dropped", flush=True)
+    _write_extract_shards(out, tag, accum, dropped_rows)
 
 
 # --------------------------------------------------------------------------- #
@@ -1090,6 +1119,10 @@ def cmd_analyse(args):
     dropped = [d for d in dropped if not d.empty]
     dropped = pd.concat(dropped, ignore_index=True) if dropped else pd.DataFrame(
         columns=["sid", "config", "session", "stage", "reason"])
+    # A config the recover PASS-2 folded back in is present in `meta` now, so its
+    # stale extract-stage drop row is no longer true — drop it from the log.
+    if not dropped.empty and "sid" in dropped.columns and "sid" in meta.columns:
+        dropped = dropped[~dropped["sid"].isin(set(meta["sid"]))].reset_index(drop=True)
 
     # ---- ruling #2: M>1.10 low-confidence (excluded from headline ranking) -------- #
     m_by_sid = dict(zip(meta.sid, meta.M))
@@ -1370,15 +1403,17 @@ def cmd_relmtf_recover(args):
     (clean regs) + ``dropped_configs*`` (failures). Builds a per-family sharp-aperture
     prior, then for each dropped config runs the combined class-A/class-B recovery, taking
     the min-rmse of {tilt-gated, matched-filter} and applying the SAME reg_guard +
-    select_registration plausibility as pass 1. Recovered configs are written to
-    ``meta_shard_recover.csv`` / ``dropped_configs_shard_recover.csv`` (distinct tag) so
-    analyse pools them alongside pass 1; pass-1 shards are NEVER rewritten. The audit is
-    written to ``reg_family_audit.csv``.
+    select_registration plausibility as pass 1. Recovered configs are FOLDED IN via the
+    shared :func:`extract_config_patches` and written as ``recover``-tagged per-patch
+    shards (``{psd,meta,padedge,psffoc,fieldtag,dropped_configs}_shard_recover.csv``) so
+    analyse pools them into the ranking/physical/geometry outputs alongside pass 1;
+    pass-1 shards are NEVER rewritten. The audit is written to ``reg_family_audit.csv``.
     """
     subset = Path(args.subset)
     src = Path(getattr(args, "in_dir", None) or args.out)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    (out / "patches").mkdir(exist_ok=True)
     nodes = MS.discover_config_nodes(subset)
     by_sid = {MS.sid(n): n for n in nodes}
 
@@ -1432,7 +1467,9 @@ def cmd_relmtf_recover(args):
             print(f"  {fam}", flush=True)
 
     # ---- recover each dropped target ---------------------------------------------- #
-    rec_meta_rows, rec_dropped_rows, recover_log = [], [], []
+    rec_accum = _new_accum()
+    rec_dropped_rows, recover_log = [], []
+    patches = patch_layout()
     for sid in drop_targets:
         node = by_sid.get(sid)
         if node is None:
@@ -1481,30 +1518,26 @@ def cmd_relmtf_recover(args):
                                     M=M, rmse=rmse, fix=best["fix"], family_prior_M=prior["M"]))
             print(f"RECOVER {sid}: {reason} (fix {best['fix']})", flush=True)
             continue
-        p2_rail_ok = bool(node.p2_rail_ok)
-        n_marked = _ap_to_n(node.aperture)
+        # FOLD the recovered config into the SAME per-patch rows the estimator pools
+        # (PASS-2 fold): the recovered sibling-prior affine is reg_auto-compatible, so
+        # run the shared extraction and tag the shards `recover` — analyse's
+        # `*_shard_*.csv` globs pick them up. `reg_fit_rmse_px` carries the recovery
+        # residual into meta (the affine stores it as `rmse_px`).
         p = best["affine"]
-        ccl = 0.5 * (GLOBAL_CL[0] + GLOBAL_CL[1]); crl = 0.5 * (GLOBAL_RL[0] + GLOBAL_RL[1])
-        x00, y00 = reg_auto.grid_xy_distorted(ccl, crl, p)
-        xu, yu = reg_auto.grid_xy_distorted(ccl + 1.0, crl, p)
-        xv, yv = reg_auto.grid_xy_distorted(ccl, crl + 1.0, p)
-        px_per_unit = 0.5 * (np.hypot(xu - x00, yu - y00) + np.hypot(xv - x00, yv - y00))
-        n_eff = optics.effective_fnumber(n_marked, M)
-        rec_meta_rows.append(dict(config=cid, sid=sid, M=M, rmse=rmse,
-                                  n_marked=n_marked, n_eff=n_eff, px_per_unit=px_per_unit,
-                                  lens=node.lens, mag_label=node.mag_label,
-                                  aperture=node.aperture, date=node.session,
-                                  p2_rail_ok=p2_rail_ok))
+        p["reg_fit_rmse_px"] = rmse
+        extract_config_patches(node, p, M, jpgs, patches, out, rec_accum)
         dM = abs(M - prior["M"])
         recover_log.append(dict(sid=sid, recovered=True, fix=best["fix"], M=M, rmse=rmse,
                                 n_int=best["n_int"], family_prior_M=prior["M"], dM_vs_prior=dM))
         print(f"RECOVER {sid}: OK fix={best['fix']} M={M:.3f} "
               f"(prior {prior['M']:.3f}, dM={dM:.3f}) rmse={rmse:.2f}px n_int={best['n_int']}", flush=True)
 
-    pd.DataFrame(rec_meta_rows).to_csv(out / "meta_shard_recover.csv", index=False)
-    pd.DataFrame(rec_dropped_rows).to_csv(out / "dropped_configs_shard_recover.csv", index=False)
+    # Write the recovered configs as `recover`-tagged per-patch shards (meta + psd +
+    # psffoc + fieldtag + padedge + dropped) so relmtf-analyse folds them into the
+    # ranking / physical / geometry outputs — not meta-only as before.
+    _write_extract_shards(out, "recover", rec_accum, rec_dropped_rows)
     pd.DataFrame(recover_log).to_csv(out / "recover_log.csv", index=False)
-    print(f"\nWROTE meta_shard_recover.csv ({len(rec_meta_rows)} recovered), "
+    print(f"\nWROTE recover-tagged shards ({len(rec_accum['meta'])} recovered), "
           f"dropped_configs_shard_recover.csv ({len(rec_dropped_rows)}), "
           f"recover_log.csv, reg_family_audit.csv", flush=True)
 
