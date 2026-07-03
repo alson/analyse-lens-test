@@ -411,6 +411,12 @@ def _rollup_peaks_v2(
         mtf50_subject = (
             mtf50_sensor * M * Z7_SUBJECT_FACTOR if mtf50_sensor is not None else None
         )
+        # Cross-M guardrail: fraction of sensor Nyquist (0.5 cy/px) the reading
+        # sits at. A subject-space lp/mm comparison between two configs is
+        # degenerate (pixel-limited, not optics-limited) when either sits near
+        # Nyquist — see characterise.NYQUIST_FRACTION_DEGENERATE. Sensor-space,
+        # so M-independent by construction.
+        nyquist_fraction = mtf50_sensor / 0.5 if mtf50_sensor is not None else None
         out.append({
             "sweep": sweep.id,
             "tile_ix": ix,
@@ -420,6 +426,7 @@ def _rollup_peaks_v2(
             "peak_value": peak_value,
             "mtf50_sensor_cy_per_px": mtf50_sensor,
             "mtf50_subject_lp_per_mm": mtf50_subject,
+            "nyquist_fraction": nyquist_fraction,
             "rail_position_mm_at_argmax": argmax_row["rail_position_mm"],
             "m": M,
             "m_source": argmax_row["m_source"],

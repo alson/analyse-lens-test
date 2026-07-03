@@ -16,6 +16,7 @@ from tile_sharpness.characterise import (
 def _peaks_row(
     *, ix: int, iy: int, x: int, y: int, mtf_subj: float = 30.0,
     peak: float = 1.0, argmax_idx: int = 30, rail_mm: float | None = None,
+    mtf_sensor: float = 0.15,
 ) -> dict:
     return {
         "sweep": "test",
@@ -24,7 +25,7 @@ def _peaks_row(
         "primary_metric_used": "maze_fft",
         "argmax_shot_idx": argmax_idx,
         "peak_value": peak,
-        "mtf50_sensor_cy_per_px": 0.15,
+        "mtf50_sensor_cy_per_px": mtf_sensor,
         "mtf50_subject_lp_per_mm": mtf_subj,
         "rail_position_mm_at_argmax": rail_mm,
         "m": 1.0,
@@ -106,6 +107,35 @@ def test_characterise_centre_only():
     assert math.isnan(result["mtf50_fx_corner_mean_lpmm"])
     assert math.isnan(result["uniformity_fx"])
     assert "centre_only" in result["note"]
+
+
+def test_nyquist_fraction_centre_computed():
+    # sensor MTF50 0.15 cy/px → 0.15 / 0.5 = 0.30 of Nyquist; well below the
+    # degenerate threshold → NOT flagged sensor_bounded.
+    df = pd.DataFrame(_z7_full_grid_rows(centre_mtf=40.0, dx_mtf=30.0, fx_mtf=20.0))
+    result = characterise_sweep(df)
+    assert result["nyquist_fraction_centre"] == pytest.approx(0.30)
+    assert "sensor_bounded" not in result["note"]
+
+
+def test_sensor_bounded_note_when_centre_near_nyquist():
+    # A near-Nyquist centre (0.45 cy/px → 0.90 of Nyquist) is pixel-limited, so
+    # its lp/mm is a degenerate cross-M comparison point → flagged.
+    df = pd.DataFrame([
+        _peaks_row(ix=0, iy=0, x=4128, y=2752, mtf_subj=100.0, mtf_sensor=0.45)
+    ])
+    result = characterise_sweep(df)
+    assert result["nyquist_fraction_centre"] == pytest.approx(0.90)
+    assert "sensor_bounded" in result["note"]
+
+
+def test_nyquist_fraction_centre_nan_when_sensor_mtf_missing():
+    # Older peaks_v2.csv without the sensor column → NaN, no flag.
+    row = _peaks_row(ix=0, iy=0, x=4128, y=2752, mtf_subj=35.0)
+    del row["mtf50_sensor_cy_per_px"]
+    result = characterise_sweep(pd.DataFrame([row]))
+    assert math.isnan(result["nyquist_fraction_centre"])
+    assert "sensor_bounded" not in result["note"]
 
 
 def test_characterise_decentering_value_asymmetry():

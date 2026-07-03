@@ -31,6 +31,14 @@ import pandas as pd
 
 from .methods.maze_fft import SENSOR_PITCH_UM_Z7
 
+# Cross-M guardrail. ``nyquist_fraction = mtf50_sensor_cy_per_px / 0.5`` is the
+# fraction of sensor Nyquist a reading sits at (sensor-space → M-independent). A
+# subject-space lp/mm comparison between two configs is degenerate — pixel-limited
+# rather than optics-limited — once either sits near Nyquist: at that cap the
+# reading reflects the sensor, not the lens, no matter how good the glass. Configs
+# below the threshold are cleanly optics-limited and safe to compare in lp/mm.
+NYQUIST_FRACTION_DEGENERATE = 0.80
+
 
 def _grid_extent(rows: pd.DataFrame) -> tuple[int, int, int, int]:
     """Return ``(ix_min, ix_max, iy_min, iy_max)`` for the sweep's grid."""
@@ -181,6 +189,11 @@ def characterise_sweep(
         return {"n_positions": 0, "note": "no_tiles"}
 
     mtf50_centre = float(centre_row.get("mtf50_subject_lp_per_mm") or float("nan"))
+    # Sensor-Nyquist fraction of the centre reading (cross-M degeneracy guard).
+    mtf50_sensor_centre = float(centre_row.get("mtf50_sensor_cy_per_px") or float("nan"))
+    nyquist_fraction_centre = (
+        mtf50_sensor_centre / 0.5 if math.isfinite(mtf50_sensor_centre) else float("nan")
+    )
 
     # Distinct rows for plane fit and decentering: dedupe by tile_ix/iy.
     seen_ixiy: set[tuple[int, int]] = set()
@@ -298,12 +311,17 @@ def characterise_sweep(
         note_parts.append("rail_mm_calibrated")
     elif rail_z_source == "mixed":
         note_parts.append("rail_mm_mixed_sources")
+    if math.isfinite(nyquist_fraction_centre) and nyquist_fraction_centre >= NYQUIST_FRACTION_DEGENERATE:
+        # Centre reading is near sensor Nyquist: pixel-limited, so its lp/mm is
+        # not a clean cross-M comparison point (see NYQUIST_FRACTION_DEGENERATE).
+        note_parts.append("sensor_bounded")
     note = ";".join(note_parts) if note_parts else ""
 
     return {
         "n_positions": n_distinct,
         "note": note,
         "mtf50_centre_lpmm": mtf50_centre,
+        "nyquist_fraction_centre": nyquist_fraction_centre,
         "mtf50_dx_corner_mean_lpmm": mtf50_dx_corner_mean,
         "mtf50_fx_corner_mean_lpmm": mtf50_fx_corner_mean,
         "uniformity_dx": uniformity_dx,
