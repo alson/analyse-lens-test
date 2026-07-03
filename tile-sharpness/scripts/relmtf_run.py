@@ -1130,13 +1130,19 @@ def cmd_analyse(args):
     if not dropped.empty and "sid" in dropped.columns and "sid" in meta.columns:
         dropped = dropped[~dropped["sid"].isin(set(meta["sid"]))].reset_index(drop=True)
 
-    # ---- ruling #2: M>1.10 low-confidence (excluded from headline ranking) -------- #
+    # ---- ruling #2: M>1.10 flag (DoF/physical/geometry gate) ---------------------- #
+    # The DoF step-size M-form (POC-2) is uncalibrated above M=1, so M>1.10 configs are ALWAYS
+    # held out of the PHYSICAL / field-geometry outputs. Whether they are ALSO held out of the
+    # RELATIVE fixed-sensor-frequency ranking is a SEPARATE decision made below by cohort
+    # M-SPREAD (FP.M_REL_SPREAD_MAX) — the ranking barely uses the DoF M-form; its real limit
+    # is cross-M spread, not absolute M. (Decoupling matters for DX/D7200, where 1:1 macro
+    # lands at M≈1.1 and would otherwise be quarantined.)
     m_by_sid = dict(zip(meta.sid, meta.M))
     meta["step_low_confidence"] = meta["M"] > FP.M_EXTRAPOLATION_THRESHOLD
     low_conf_sids = set(meta[meta["step_low_confidence"]].sid)
     if low_conf_sids:
-        print(f"M>1.10 LOW-CONFIDENCE (excluded from headline ranking/geometry, "
-              f"surfaced separately): {len(low_conf_sids)} configs")
+        print(f"M>{FP.M_EXTRAPOLATION_THRESHOLD} flag (always held out of physical/geometry): "
+              f"{len(low_conf_sids)} configs")
 
     # ---- config-level focus-coverage drop (POC-1 coverage_config_ok) -------------- #
     # Pool the psffoc per-patch flags; a config retaining < COVERAGE_MIN_OK_PATCHES ok
@@ -1159,25 +1165,46 @@ def cmd_analyse(args):
                     session=(node.session if node else ""),
                     stage="analyse", reason="coverage_config_ok_fail")])],
                     ignore_index=True)
-    # ---- log the M>1.10 low-confidence exclusions (ruling #2) ------------------- #
-    # These register + extract fine and are surfaced in the separate low-confidence
-    # view, but are held out of the headline/secondary ranking CSV (DoF M-form
-    # uncalibrated at M>1.10). Record them EXPLICITLY here so they are never silently
-    # absent from the CSV artifacts — matters especially for DX/D7200, where 1:1 macro
-    # lands at M~1.1 and trips this cutoff. stage="rank"; the measured M is in the reason.
-    for s in sorted(low_conf_sids):
+    # ---- relative-ranking M admission: cohort SPREAD, not absolute M -------------- #
+    # The relative fixed-sensor-frequency ranking is valid within a bounded cross-M SPREAD.
+    # If the whole eligible cohort fits within FP.M_REL_SPREAD_MAX it is a narrow-M comparison
+    # and ALL M are admitted to the ranking (e.g. the DX D7200 1:1 macros, M≈0.83–1.18); wider
+    # cohorts (e.g. Z7's continuous M≈0.38–2.25 ladder) fall back to the absolute M>1.10 cutoff
+    # so the ranking is not confounded. Spread is measured on the UNGATED eligible pool (incl.
+    # the high-M configs) so a wide cohort is detected before any M cut — this makes the Z7
+    # ranking byte-identical to the prior absolute-cutoff behaviour by construction.
+    elig_M = meta[~meta.sid.isin(set(coverage_dropped))]["M"]
+    m_lo, m_hi = float(elig_M.min()), float(elig_M.max())
+    cohort_spread = (m_hi / m_lo) if m_lo > 0 else float("inf")
+    if cohort_spread <= FP.M_REL_SPREAD_MAX:
+        rel_m_excluded = set()
+        print(f"relative ranking: narrow-M cohort (spread {cohort_spread:.2f}x <= "
+              f"{FP.M_REL_SPREAD_MAX}) -> all M admitted (incl. M>{FP.M_EXTRAPOLATION_THRESHOLD}); "
+              f"physical/geometry still gated at M>{FP.M_EXTRAPOLATION_THRESHOLD}")
+    else:
+        rel_m_excluded = set(low_conf_sids)
+        print(f"relative ranking: wide-M cohort (spread {cohort_spread:.2f}x > "
+              f"{FP.M_REL_SPREAD_MAX}) -> M>{FP.M_EXTRAPOLATION_THRESHOLD} held out of ranking "
+              f"({len(rel_m_excluded)} configs)")
+
+    # ---- log the configs held OUT of the relative ranking (ruling #2) ------------ #
+    # Only the configs actually excluded from the ranking (wide-cohort M>1.10 fallback) are
+    # logged as rank drops — never silently absent from the CSV artifacts. For a narrow-M
+    # cohort rel_m_excluded is empty (the M>1.10 configs are IN the ranking), so nothing is
+    # logged here. stage="rank"; measured M is in the reason.
+    for s in sorted(rel_m_excluded):
         node = nodes_by_sid.get(s)
         dropped = pd.concat([dropped, pd.DataFrame([dict(
             sid=s, config=(MS.human(node) if node else ""),
             session=(node.session if node else ""),
             stage="rank",
             reason=f"step_low_confidence(M={m_by_sid.get(s, float('nan')):.3f}"
-                   f">{FP.M_EXTRAPOLATION_THRESHOLD})")])],
+                   f">{FP.M_EXTRAPOLATION_THRESHOLD}, wide-M cohort)")])],
             ignore_index=True)
     dropped.to_csv(out / "dropped_configs.csv", index=False)
 
-    # sids that stay in the HEADLINE ranking: not low-conf, not coverage-dropped.
-    excluded = low_conf_sids | set(coverage_dropped)
+    # sids that stay in the relative ranking: not rank-excluded, not coverage-dropped.
+    excluded = rel_m_excluded | set(coverage_dropped)
     keep = set(meta.sid) - excluded
     hmeta = meta[meta.sid.isin(keep)].reset_index(drop=True)
     hpsd = psd[psd.sid.isin(keep)].reset_index(drop=True)
@@ -1221,13 +1248,17 @@ def cmd_analyse(args):
         hpsd, hmeta, f_px, n_boot=args.n_boot,
         label="SECONDARY full-pool ranking (rail + manual tiers, DEGRADED)")
 
+    # Separate low-confidence view ONLY for configs actually held out of the ranking (wide-M
+    # cohort). For a narrow-M cohort rel_m_excluded is empty and the M>1.10 configs are in the
+    # headline itself, so no redundant side view is written.
     lowconf_ranking = None
-    if low_conf_sids:
-        lcmeta = meta[meta.sid.isin(low_conf_sids)].reset_index(drop=True)
-        lcpsd = psd[psd.sid.isin(low_conf_sids)].reset_index(drop=True)
+    if rel_m_excluded:
+        lcmeta = meta[meta.sid.isin(rel_m_excluded)].reset_index(drop=True)
+        lcpsd = psd[psd.sid.isin(rel_m_excluded)].reset_index(drop=True)
         lowconf_ranking = _rank_and_report(
             lcpsd, lcmeta, f_px, n_boot=max(40, args.n_boot // 3),
-            label=f"LOW-CONFIDENCE M>1.10 view ({len(low_conf_sids)} configs; NOT headline)")
+            label=f"LOW-CONFIDENCE M>{FP.M_EXTRAPOLATION_THRESHOLD} view "
+                  f"({len(rel_m_excluded)} configs; NOT headline)")
 
     # which ranking is the reported primary depends on --tier.
     primary = headline if (args.tier == "rail-coverage" and headline is not None) \
@@ -1343,6 +1374,10 @@ def cmd_analyse(args):
             lcann.round(4).to_csv(fh, index=False)
         print(f"WROTE {out / 'cross_m_relative_mtf_ranking_lowconf.csv'} "
               f"({len(lcann)} configs, M>{FP.M_EXTRAPOLATION_THRESHOLD})")
+    else:
+        # Narrow-M cohort: the M>1.10 configs are IN the headline, so a separate low-conf
+        # view is redundant AND misleading — remove any stale one from a prior (gated) run.
+        (out / "cross_m_relative_mtf_ranking_lowconf.csv").unlink(missing_ok=True)
 
 
 # --------------------------------------------------------------------------- #

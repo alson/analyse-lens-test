@@ -69,6 +69,20 @@ DOF_K = 0.04255
 #: ~1.16) are. See :func:`m_extrapolation_sensitivity`.
 M_EXTRAPOLATION_THRESHOLD = 1.10
 
+#: Max cross-M SPREAD (max/min measured M) over which the RELATIVE fixed-sensor-frequency
+#: glass-MTF ranking is trusted to admit all configs regardless of absolute M. The relative
+#: ranking's validity limit is the cross-M spread within the ranked cohort (comparing very
+#: different M at a fixed sensor frequency reads glass MTF at different subject frequencies —
+#: degenerate), NOT absolute M — so the DoF cutoff (M_EXTRAPOLATION_THRESHOLD, which is
+#: correct for the physical/DoF/geometry outputs) is over-conservative for the RANKING.
+#: When a cohort's whole M-band fits within this spread it is a valid narrow-M comparison and
+#: all M are admitted to the ranking (e.g. the DX D7200 1:1 macros at M≈0.83–1.18, spread
+#: 1.42×); wider cohorts (e.g. Z7's continuous M≈0.38–2.25 extension/diopter ladder, spread
+#: ~5.9×) fall back to the absolute M>1.10 cutoff so the headline is not confounded. 2.8 ≈ the
+#: M-spread of the validated Z7 rail-coverage headline (M 0.38–1.08). Ranking-only; the
+#: physical/DoF/field-geometry gate always stays at M_EXTRAPOLATION_THRESHOLD.
+M_REL_SPREAD_MAX = 2.8
+
 #: Step-source tags.
 STEP_SOURCES = ("documented", "dof_estimated")
 
