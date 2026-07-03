@@ -32,22 +32,46 @@ v3, `grid_calibration` block). POC C bond-pad measurement works (`task17`).
 > all-M focus tool `scripts/task_atlas_focus.py` (`f12f04c`) — per-die
 > Laplacian-variance focus for ANY sweep/M (maze-FFT cross-check at M≥0.7) plus
 > the **field-tilt map** (rig-squareness: e.g. sweep2 = 2.9 shots/1000px).
-> Possible future work: re-acquire sweep4 (rail started in focus; its field is
-> axially clipped, not tilted), or extend `test_reg_auto.py` into CI.
+>
+> **Former future-work items — both now RESOLVED (2026-07-03):**
+> - ~~re-acquire sweep4 (rail started in focus; its field is axially clipped,
+>   not tilted)~~ **SUPERSEDED, no re-acquisition needed.** `sweep4_newer_rig`
+>   is the 2026-05-12 `…61mm extension (2026-05-08_201054)` dev capture; the
+>   axial clipping is a property of that one capture's rail start, not the
+>   config. The identical 24-120 + 61mm-ext regime was recaptured as a proper
+>   **rail-coverage-tier multi-aperture sweep on 2026-05-13** (`test-raw-data/
+>   2026-05-13/NIKKOR Z 24-120mm f_4 S + 61mm extension/`, f-stop subdirs +
+>   probe → full through-focus coverage), plus four sibling 2026-05-12 captures.
+>   If a clean through-focus field-tilt demo is ever wanted, point it at the
+>   2026-05-13 sweep — but the sweep4 dev capture is deliberately left as-is so
+>   the `test_reg_auto.py` registration anchors stay stable.
+> - ~~extend `test_reg_auto.py` into CI~~ **DONE (2026-07-03).** Promoted from a
+>   standalone `scripts/` script to a first-class pytest module (`tests/
+>   test_reg_auto.py`, `testpaths=["tests"]` added to `pyproject.toml`); it now
+>   runs with `uv run --no-sync pytest` and skips cleanly when the NFS sweep data
+>   is absent (so a data-less checkout still collects green). NB there is no git
+>   remote / GitHub Actions on this repo — "CI" is the local/nufan pytest suite.
 >
 > **`reg_auto` now used cross-project** by tile-sharpness's cross-config
 > resolution work (`tile-sharpness/scripts/atlas_corner_mtf.py` +
-> `raw_vs_jpg_mtf.py` import it for deterministic scribe placement). That work
-> surfaced a **`reg_auto` caveat worth knowing here**: on accessory configs
-> (100-400 + diopters) the atlas-measured M (scale/AF200-anchor) disagreed with
-> the nominal magnification labels by 8-29% *even at a clean ~1.6px fit residual*
-> — a wrong absolute (col,row) **labelling** scales the whole grid (hence M) while
-> the detected scribes still fit. **Low fit residual does NOT validate the
-> labelling/scale.** Also register focus stacks on the LOWEST-residual frame over
-> several candidates (a single defocused frame can give n_int=0 / huge residual).
-> Full detail in `tile-sharpness/HANDOVER.md` (2026-06-27) and the memory note
-> `reg_auto_label_scale_uncertainty`. Highest-leverage `reg_auto` follow-up:
-> validate/fix absolute labelling (cross-check M vs nominal).
+> `raw_vs_jpg_mtf.py` import it for deterministic scribe placement).
+> ~~That work surfaced a `reg_auto` caveat: on accessory configs the atlas-M
+> disagreed with nominal labels by 8-29% even at a clean ~1.6px residual, so a
+> wrong (col,row) labelling scales M while scribes still fit → "validate/fix
+> absolute labelling" was the highest-leverage follow-up.~~ **RESOLVED / REFUTED
+> 2026-06-28** (tile-sharpness taskAD, `REPORT_taskAD_2026-06-28.md` §1;
+> `scripts/probe_label_ambiguity.py` + `probe_anchor_validation.py`): enumerating
+> every phase-consistent labelling moves M by **≤1.9%**, and atlas-M independently
+> reproduces known nominal M to **~1.6%** across M=0.385→2.0 (incl. the 100-400
+> zoom). So the atlas-vs-nominal gaps are **nominal-LABEL errors, and atlas-M is
+> the trustworthy M** — not a labelling/scale defect in `reg_auto`. The
+> `reg_auto_label_scale_uncertainty` memory was corrected accordingly. The real
+> `reg_auto` failure mode is **scale collapse** (M≈0 at a *too-low* residual, few
+> intersections) — guard with an absolute M bound + object-space residual ceiling,
+> not residual alone.
+> **Still-valid procedural advice (unchanged):** register focus stacks on the
+> LOWEST-residual frame over several candidates (a single defocused frame can give
+> n_int=0 / huge residual).
 
 1. ~~**Re-run `task15` + `task17` under the v3 grid (hygiene).**~~ **DONE**
    (`336f4c0`). Re-ran both with the manual anchors under the v3 atlas: every

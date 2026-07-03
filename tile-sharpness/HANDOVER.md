@@ -1,6 +1,27 @@
 # Sharpness assessment POC — session handover
 
-State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01, 2026-07-02).
+State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01, 2026-07-02, 2026-07-03).
+
+> **2026-07-03 — the 2026-07-02 "REMAINING: fold the 8" item is DONE; full 311-subset
+> re-run landed (`out_relmtf_311`, gitignored/regenerable).** `relmtf-recover` now folds the
+> recovered configs into the ranking/physical/geometry outputs (shared `extract_config_patches`
+> writes `recover`-tagged shards that `relmtf-analyse` pools; a folded config is dropped from
+> the stale extract-drop log). The extract refactor that enabled this was proven
+> behaviour-preserving — a single-shard old-vs-new diff is BYTE-IDENTICAL across all 6 shard
+> CSVs. **Run outcome:** 302/311 registered at extract + **8/9 recovered** (family-consistency
+> audit 0/302 flagged) → **only Viltrox 85 +26ext F2 stays dropped** (rmse 201.9 µm ≫ 25 µm —
+> genuinely too soft, not a tooling gap). **Fix for the 2 wrong-grid bare 24-120 mislocks:
+> both recovered** via the class-A tilt/pitch prior — F5.6 → M=0.4097 (dM 0.0018, 24 int),
+> F8 → M=0.4068 (dM 0.0011). Headline rail-coverage ranking is materially UNCHANGED vs the
+> committed baseline: the 3 recovered low-M configs (24-120 F5.6/F8, Z100400 F5.6) newly enter
+> the headline (+3 rows), the top-8 are identical, and the remaining common configs move only
+> by adjacent swaps within a uniform ~0.03 cohort-relative rebaseline offset (expected when
+> folding configs into a cohort-relative metric). The high-M recovered configs (AF200+6T+5T,
+> S150+5T+6T/6T+5T, Z105+61ext) stay excluded from the headline by the M>1.10 rule and surface
+> in `--tier all`/physical. 362 tests. **Subset is the committed 311-row version** (the old
+> 316-run `out_relmtf_multisession` is superseded by `out_relmtf_311`). Driver:
+> `scripts/run_relmtf_full.sh <out> 16` (extract 16 thread-pinned shards → recover → analyse,
+> writes a DONE/FAILED marker).
 
 > **2026-07-02 (later) — PRODUCTIONISED the class A+B recovery: 8/9 of the remaining
 > failures now registrable (commit `06e8fdf`).** New `relmtf-recover` (two-pass: unchanged
@@ -269,6 +290,15 @@ State as of 2026-05-18 (extended 2026-06-27, 2026-06-28, 2026-06-30, 2026-07-01,
 >      different code path — see `longdist-sharpness` §5.6e). It is the candidate
 >      port for this two-wall scribe case (window each wall independently) but is
 >      NOT yet ported; `combine="min"` still ships here.
+>      **2026-07-03 correction — NOT worth porting; this note is superseded.** The
+>      centroid-Hann port was re-examined and rejected: the over-read is PHYSICAL
+>      (groove emboss / pad-array aliasing on the scribe walls), not an ESF-extraction
+>      artifact. The proper ISO-12233 super-resolved estimator (`slanted_edge.py`, commit
+>      `50127c0`) is a strict SUPERSET of the §5.6e centroid-Hann idea and was already
+>      built, tested, and validated to STILL over-read 1.5–1.85× on this data. So porting
+>      centroid-Hann would re-tread a proven dead-end; `combine="min"` remains the shipped
+>      mitigation and the physics ceiling is the trustworthy readout for diffraction-limited
+>      configs.
 >    - **Bare macros measured** (`enumerate_bare_configs.py` + same driver, min) →
 >      `out_accessory_atlas/unified_ranking.csv` (bare+accessory, one axis). F8
 >      trustworthy: modern bare macros (Sigma 150 41.6, Sigma 105 40.2, 105VR 39.5,
@@ -726,7 +756,16 @@ scenarios where filesize and wavelet_ratio rank a lens / scenario
 more than ~2 ranks apart. The eyeball review (TODO 1) gates this —
 don't integrate until visual confirmation lands.
 
-### 4. Cross-M comparison guardrails (Nyquist-fraction column)
+### 4. Cross-M comparison guardrails (Nyquist-fraction column) — DONE 2026-07-03
+
+> **DONE (2026-07-03).** `nyquist_fraction = mtf50_sensor_cy_per_px / 0.5` is now
+> emitted per-tile in `peaks_v2.csv` (`phase1.py`) and per-slug as
+> `nyquist_fraction_centre` in `lens_characteristics.csv` (`characterise.py`), with a
+> `sensor_bounded` note flag when the centre reading is ≥ `NYQUIST_FRACTION_DEGENERATE`
+> (0.80 of Nyquist). Tests in `tests/test_characterise.py`. NB this guards the
+> per-tile/per-slug LSF pipeline (`peaks_v2`/`characterise`); the production cross-M
+> ranking (`relmtf-*`) instead reads a fixed SENSOR frequency (`f_px≈0.10–0.15`) and so
+> is degeneracy-safe by construction — see the multi-session pipeline notes.
 
 Even after the low-M LSF fix lands, lp/mm-subject readings at low M
 are bounded by **sensor-Nyquist**, not by lens quality. On Z7 the
