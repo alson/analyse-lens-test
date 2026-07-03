@@ -13,10 +13,23 @@ dependencies = [
     "scipy>=1.13",
 ]
 
+[dependency-groups]
+# pytest must live IN this project venv (not an isolated uv tool env) so
+# `pytest` runs under the interpreter that has cv2 + the editable tile-sharpness
+# install — reg_auto imports cv2. Mirrors tile-sharpness.
+dev = ["pytest>=8"]
+
 [tool.uv]
 # Scripts-only project: nothing imports `wafer_atlas`, so the root is not a
 # build target. Without this, uv tries to build it and fails (no src/ package).
 package = false
+
+[tool.pytest.ini_options]
+# The reg_auto regression is this subproject's CI (the repo has no git remote /
+# GitHub Actions — "CI" is a bare `pytest` on a host that can read the NFS sweep
+# data, i.e. nufan). tests/test_reg_auto.py delegates to the heavy
+# scripts/test_reg_auto.py and skips cleanly when that data is absent.
+testpaths = ["tests"]
 
 [tool.uv.sources]
 tile-sharpness = { path = "../tile-sharpness", editable = true }
