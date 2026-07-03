@@ -90,7 +90,11 @@ AF, then lock and burst): with non-constant wind a calm instant gets captured
 and the analysis lucky-images it (B8). A **focus-shift stack is inefficient for
 this** — it spends most frames on defocus, leaving only ~10–15 in-focus frames
 to sample wind; a locked-focus burst gives dozens, which is what actually pins a
-marginal cross-config call (e.g. TC-1.4× vs cropping).
+marginal cross-config call (e.g. TC-1.4× vs cropping). **Plan on the gust,
+not the sustained wind** — on 2026-06-28 the forecast sustained (14 km/h) was
+exact but it under-called **gusts ~2×** (forecast 18, actual 35–37 km/h), and
+it's the gust that vibrates the rig. The gust column is the least-reliable
+forecast field, so grab a genuine lull rather than trusting a benign forecast.
 
 ### A9. Target: high-contrast, fine, flat, large — and single-depth
 Brick mortar is too low-contrast, and **3D scenes mis-rank** (the 2026-01

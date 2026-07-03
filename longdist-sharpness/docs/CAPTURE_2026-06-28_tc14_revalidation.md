@@ -182,10 +182,21 @@ Three configs, all at the lens's 400 mm setting:
 - **Location:** Zoetermeer (specific wall not recorded).
 - **Date/time:** 2026-06-28, roughly **12:00–13:30** (from frame
   timestamps — verify in EXIF once imported).
-- **Weather:** sunny, ~24 °C; sun near-overhead (near solstice) → even
-  grazing light on the vertical wall. **Wind gusty and varied** through the
-  shoot — the 3× AF replicates + 3× focus-shift stacks per cell give
-  multiple chances to catch lulls between gusts.
+- **Weather:** sunny, ~24–26 °C; sun near-overhead (near solstice) → even
+  grazing light on the vertical wall. **Wind gusty and varied** — quantified
+  after the fact: **sustained ~14–15 km/h but gusts 35–37 km/h WSW** at
+  12:00–13:00 (Open-Meteo ERA5 archive reanalysis), a **~2.4× gust-to-mean
+  ratio** that independently confirms the gust-limited result. The 3× AF
+  replicates + 3× focus-shift stacks per cell gave chances to catch lulls
+  (but see methodology A8/B8 — the focus sweep leaves only ~10–16 in-focus
+  frames to sample wind; locked-focus bursts are better).
+  - **Forecast vs actual (planning caveat):** the pre-shoot forecast
+    (`wttr.in/Zoetermeer`, fetched 2026-06-27) called noon **wind 14, gusts
+    18 km/h** — sustained was spot-on but it **under-called gusts ~2×**. For
+    tripod tele work the **gust** figure dominates (not sustained) and is the
+    least-reliable forecast field → grab a genuine lull / shoot bursts rather
+    than trust a benign forecast. (Grid reanalysis smooths terrain; local
+    building channelling at the wall could make real gusts higher still.)
 
 ## Capture matrix
 
