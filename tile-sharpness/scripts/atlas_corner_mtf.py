@@ -71,7 +71,8 @@ def decode(path):
 
 
 def central_lapvar(g):
-    c = g[IMAGE_H // 2 - 800:IMAGE_H // 2 + 800, IMAGE_W // 2 - 800:IMAGE_W // 2 + 800]
+    h, w = g.shape[:2]                       # use the actual frame (camera-agnostic)
+    c = g[h // 2 - 800:h // 2 + 800, w // 2 - 800:w // 2 + 800]
     return cv2.Laplacian(c.astype(np.float32), cv2.CV_32F).var()
 
 
@@ -102,13 +103,14 @@ def register(jpgs):
     return best[1] if best else None
 
 
-def candidate_scribes(aff):
+def candidate_scribes(aff, image_w=IMAGE_W, image_h=IMAGE_H):
     """All in-frame grid-line segments (vertical col-lines + horizontal row-lines),
-    each spanning one cell. Returns [(midx, midy, Segment)]."""
+    each spanning one cell. Returns [(midx, midy, Segment)]. image_w/h are the sensor
+    frame size (Z7 8256x5504 default; pass the DX 6000x4000 for the D7200)."""
     segs = []
     def ok(xa, ya, xb, yb):
-        return (150 < xa < IMAGE_W - 150 and 150 < xb < IMAGE_W - 150
-                and 150 < ya < IMAGE_H - 150 and 150 < yb < IMAGE_H - 150)
+        return (150 < xa < image_w - 150 and 150 < xb < image_w - 150
+                and 150 < ya < image_h - 150 and 150 < yb < image_h - 150)
     for cl in range(reg_auto.N_COL_LINES):
         for r0 in range(reg_auto.N_ROW_LINES - 1):
             xa, ya = reg_auto.grid_xy_distorted(cl, r0, aff)
@@ -124,12 +126,12 @@ def candidate_scribes(aff):
     return segs
 
 
-def pick_scribes(aff):
+def pick_scribes(aff, image_w=IMAGE_W, image_h=IMAGE_H):
     """Nearest in-frame scribe to each field target (or None if too far)."""
-    segs = candidate_scribes(aff)
+    segs = candidate_scribes(aff, image_w, image_h)
     out = {}
     for name, (fx, fy) in TARGETS.items():
-        tx, ty = fx * IMAGE_W, fy * IMAGE_H
+        tx, ty = fx * image_w, fy * image_h
         cands = sorted(segs, key=lambda s: np.hypot(s[0] - tx, s[1] - ty))
         if cands and np.hypot(cands[0][0] - tx, cands[0][1] - ty) < 1400:
             out[name] = cands[0]      # (midx, midy, seg)
@@ -143,7 +145,17 @@ def roi_lapvar(g, mx, my, half=70):
     return cv2.Laplacian(r.astype(np.float32), cv2.CV_32F).var() if r.size else -1.0
 
 
-def run(label, ap_dir):
+def run(label, ap_dir, *, image_w=IMAGE_W, image_h=IMAGE_H, pitch_um=4.35,
+        n_marked=N_F8, eff_ap=None):
+    """Atlas-anchored centre/corner subject-MTF50 for one config.
+
+    Camera-parameterised: pass image_w/h (Z7 8256x5504 default, DX 6000x4000 for the
+    D7200) and pitch_um (Z7 4.35, D7200 3.91). ``eff_ap`` is the already-EFFECTIVE
+    f-number (e.g. the D7200 folder aperture) — used directly for N_eff; when None we
+    fall back to the Z7 convention N_marked*(1+M). N_eff only annotates the diffraction
+    ceiling; it does not enter the MTF50. OLPF (D7200) depresses absolute MTF50 — the
+    within-config / relative signal is what's trustworthy, not cross-camera absolutes."""
+    lpmm_per_cypx = 1000.0 / pitch_um
     jpgs = sorted(ap_dir.glob("*.jpg"))
     if not jpgs:
         print(f"{label}: no jpgs"); return None
@@ -151,8 +163,8 @@ def run(label, ap_dir):
     if aff is None:
         print(f"{label}: registration FAILED"); return None
     M = aff["scale"] / M_ANCHOR_SCALE
-    scribes = pick_scribes(aff)
-    n_eff = N_F8 * (1.0 + M)
+    scribes = pick_scribes(aff, image_w, image_h)
+    n_eff = float(eff_ap) if eff_ap else n_marked * (1.0 + M)
     print(f"\n{label}: {len(jpgs)} shots  reg fit={aff['reg_fit_rmse_px']:.2f}px  "
           f"M_atlas={M:.3f}  N_eff={n_eff:.1f}  targets covered: {sorted(scribes)}")
 
@@ -173,7 +185,7 @@ def run(label, ap_dir):
     res = {}
     for name in scribes:
         m = best[name][1]
-        res[name] = (m * LPMM_PER_CYPX * M) if m else None
+        res[name] = (m * lpmm_per_cypx * M) if m else None
     return dict(label=label, M=M, n_eff=n_eff, lpmm=res)
 
 
