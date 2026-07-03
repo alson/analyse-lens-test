@@ -22,6 +22,52 @@ State: 2026-07-03. Evidence-backed; sample tests run on nufan. POC script:
 
 ---
 
+## PHASE 1 + 2 RESULTS (2026-07-03) — implemented & validated
+
+**Phase 1 (camera axis) — DONE, committed** (`b1042af`, `24219c8`, `a611f2b`). New
+`cameras.py` (Z7 4.35µm/no-OLPF, D7200 3.91µm/OLPF), `ConfigNode.camera`,
+`discover_config_nodes` reads a `camera` column (Z7 back-compat); `build_relmtf_subset.py`
+gains the column + two D7200 blocks; per-camera pitch threaded into the `reg_guard`
+object-space ceiling (fixes the §2b 11.3% over-strict bug). Z7 subset **byte-unchanged**
+(311 rows, only the appended `camera=Z7` column differs); D7200 = **79 rows** appended
+(total 390). 370 tests pass. **Deviation from §3C:** `phase1.py`/`rail_calibration.py`/
+`periodic_fft.py` pitch were NOT threaded — verified `relmtf_run.py` does not import
+`phase1` (that's the old characterise path), and the relative ranking is at a fixed sensor
+frequency (f_px), so the extract is pitch-independent except `reg_guard`. Pitch→subject-lp/mm
+is analyse-time and only matters for the rail-coverage physical outputs, which D7200 (manual
+tier) does not produce — so **Phase 4 per-camera-pitch is moot for D7200's achievable
+deliverable**.
+
+**Phase 2 (D7200 extract) — DONE** (`run_relmtf_d7200.sh` → `out_relmtf_d7200`, gitignored).
+Extract → recover → analyse `--tier all` over the 79-config D7200-only subset
+(`data/cross_m_relative_mtf_subset_d7200.csv`). **All 79 registered, 0 dropped, 0 recover
+needed, 0 family-audit flags** — registration is robust across the full DX+OLPF set (the
+probe's 4/4 held at 79/79). Produced a 50-config within-D7200 relative ranking; no
+physical/field-geometry (correctly skipped at manual tier).
+
+**Within-SESSION ranking is coherent** (2025-08-19, 34 configs): Sigma 150 (F11/F8/F16) top →
+70-180 ±5T → 105G VR I/II → … → vintage 55mm f/3.5 Auto copies bottom — matches the known
+optical-quality ordering and the Z7 bare-macro result.
+
+**⚠ CROSS-SESSION pooling is CONFOUNDED (key Phase-2 finding).** All five 2025-08-06 configs
+rank systematically LOW (S150 F8 = 0.215 @0806 vs 0.694 @0819, same lens/aperture) and carry
+~half the usable cells (663–707 vs 1200+). 08-19 is *dimmer* yet ranks *higher*, so it is NOT
+a simple brightness→amplitude effect — it's a session-level systematic (coverage/framing, and
+the P1 amplitude log-ratio carries a per-config illumination offset that does not fully cancel
+across sessions). **So D7200 rankings are trustworthy WITHIN a session but NOT across the two
+dates as currently pooled.**
+
+**Phase 3 RE-SCOPED by this evidence:** the confound is session-level, not the within-sweep
+luma drift Phase 3 was scoped for, so per-shot luma normalization alone likely won't fix it.
+Options: (a) a per-session reference normalization of the amplitude log-ratio chain, (b)
+restrict D7200 to within-session rankings only (already valid — the 08-19 set is the useful
+one; 08-06 is a small 5-config early session), (c) diagnose the 08-06 coverage deficit (663
+cells) first. NOT implemented — needs a design decision + a re-extract to validate. Phase 4
+(pitch reporting) remains moot at manual tier. **Deliverable achieved: a validated within-D7200
+(within-session) relative-MTF ranking; cross-session + cross-camera(Z7↔D7200) stay caveated.**
+
+---
+
 ## 1. Data inventory
 
 Location: `/home/alson/shared/files/pics/digikam/test-raw-data/{2025-08-06,2025-08-19}/`
