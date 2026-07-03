@@ -67,6 +67,7 @@ class ConfigNode:
     n_shots: int
     p2_rail_ok: bool
     sample: str
+    camera: str = "Z7"
 
     @property
     def sweep_dir(self) -> Path:
@@ -99,6 +100,7 @@ def discover_config_nodes(subset_csv: Path = DEFAULT_SUBSET_CSV) -> list[ConfigN
                 n_shots=n_shots,
                 p2_rail_ok=p2_rail_available(r.get("p2_rail_ok")),
                 sample=r.get("sample", ""),
+                camera=(r.get("camera") or "Z7").strip() or "Z7",
             ))
     return nodes
 
