@@ -323,12 +323,23 @@ for lens_raw in UNIQUE_0512:
 print(f"2026-05-12 (rail, unique families, all apertures): {n12} config-nodes")
 
 # ---- 4) D7200 (manual, DX/OLPF): <lens>/<aperture>/ — ALL apertures ----------
-# 2025-08-06 / 2025-08-19 wafer-macro shot on the D7200 (sold before rail-coverage, so
-# all MANUAL tier). Same <lens>/<aperture>/ layout as 2025-10-17. camera="D7200" tags the
-# rows so the pipeline uses the DX 3.91 µm pitch (+ OLPF provenance) instead of the Z7
-# 4.35 µm default; mag_label is left EMPTY (M comes from registration — the 55/70-180 are
-# not all 1:1). See D7200_INTEGRATION_PLAN.md.
-for d7200_session in ("2025-08-06", "2025-08-19"):
+# D7200 wafer-macro shot on the D7200 (sold before rail-coverage, so all MANUAL tier).
+# Same <lens>/<aperture>/ layout as 2025-10-17. camera="D7200" tags the rows so the
+# pipeline uses the DX 3.91 µm pitch (+ OLPF provenance) instead of the Z7 4.35 µm default;
+# mag_label is left EMPTY (M comes from registration — the 55/70-180 are not all 1:1).
+# See D7200_INTEGRATION_PLAN.md.
+#
+# ONLY 2025-08-19 is included. 2025-08-06 is EXCLUDED (2026-07-03) — it is fully redundant
+# with 2025-08-19 and would poison cross-session ranking:
+#   * Every 08-06 lens+aperture is reproduced in 08-19 once matched by EXIF FNumber. The
+#     folder-name "gap" was a labelling artifact: 08-06 named the non-IF Sigma 180 folders
+#     by MARKED aperture, 08-19 by EFFECTIVE (both sessions name IF/AF lenses by EXIF).
+#   * The 08-06 AF200 "F7.1/F10" are the bumped-1/3-stop versions of F8/F11 (full 34-frame
+#     sweeps), which 08-19 has set correctly (42/47 frames).
+#   * Pooling the two dates was confounded: all 08-06 configs ranked systematically low with
+#     ~half the usable cells. 08-19 is the richer, cleaner session (adds 55mm primes,
+#     70-180, 105G VR I/II that 08-06 lacks). NB all 08-19 folders = EFFECTIVE aperture.
+for d7200_session in ("2025-08-19",):
     SD = os.path.join(ROOT, d7200_session)
     nd = 0
     for lensdir in sorted(glob.glob(os.path.join(SD, "*"))):

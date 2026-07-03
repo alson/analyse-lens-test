@@ -66,6 +66,30 @@ cells) first. NOT implemented — needs a design decision + a re-extract to vali
 (pitch reporting) remains moot at manual tier. **Deliverable achieved: a validated within-D7200
 (within-session) relative-MTF ranking; cross-session + cross-camera(Z7↔D7200) stay caveated.**
 
+## RESOLUTION (2026-07-03 later) — 2025-08-06 excluded; confound resolved by construction
+
+The cross-session confound is resolved by **dropping 2025-08-06 entirely** (`build_relmtf_subset.py`
+now loops `("2025-08-19",)` only; subset 375 = 311 Z7 + 64 D7200). Justification (EXIF-verified):
+08-06 is **fully redundant** with 08-19 — every 08-06 config is reproduced in 08-19 once matched
+by actual EXIF aperture, and the AF200 `F7.1/F10` were the bumped-1/3-stop versions of `F8/F11`
+(full 34-frame sweeps) that 08-19 captured correctly (42/47 frames). 08-19 is the richer session
+(adds the 55mm primes, 70-180, 105G VR I/II that 08-06 lacks). Re-run → **64/64 register, 0
+dropped, 0 recover, 0 audit flags; a clean 34-config within-session ranking** (Sigma 150 →
+70-180/105G VR → vintage 55mm Auto). No normalization needed — single session removes the confound.
+
+**Aperture-labelling convention (EXIF-verified, all 08-19 lenses) — folders ARE effective f:**
+- **Folder = EXIF** for lenses that report *effective* aperture in EXIF at close focus: AF200,
+  105G VR & VR II (IF-ED), Sigma 150, Sigma 105, Tamron 90, and 70-180 (±5T/6T diopters — a
+  diopter adds no bellows dimming, so marked ≈ effective).
+- **Folder ≠ EXIF** (folder = manually-computed effective, EXIF = marked) for the manual lenses:
+  55mm AIS f/2.8 ×2 and 55mm Auto f/3.5 ×3 → factor **×2.0** (1:1, 1+M=2); Sigma 180 f/3.5 →
+  factor **×1.6** (implies M≈0.6, i.e. shot at ~0.6× not full 1:1 — worth a sanity check).
+- ⚠ This is a per-lens split, and 2025-08-06 (now dropped) had labelled the non-IF Sigma 180 by
+  MARKED aperture — a session×lens inconsistency. It does NOT affect the relative ranking (fixed
+  pixel frequency, aperture-label-independent), but any future D7200 effective-aperture /
+  diffraction-ceiling reporting must resolve aperture from **EXIF FNumber + the IF/non-IF (and
+  diopter/extension) distinction**, not blindly from the folder name.
+
 ---
 
 ## 1. Data inventory
